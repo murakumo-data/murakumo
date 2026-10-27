@@ -1,4 +1,4 @@
-"""``murakumo import``, ``murakumo add`` and ``murakumo remove``: change the model from the command line."""
+"""``murakumo import``, ``add``, ``rename`` and ``remove``: change the model from the command line."""
 
 from __future__ import annotations
 
@@ -25,6 +25,9 @@ import_app = typer.Typer(
 )
 add_app = typer.Typer(help="Add a source, entity, column or relationship to the model.", no_args_is_help=True)
 remove_app = typer.Typer(help="Remove an entity or column from the model.", no_args_is_help=True)
+rename_app = typer.Typer(
+    help="Rename an entity or column, and every reference to it in the model.", no_args_is_help=True
+)
 
 ProjectOption = typer.Option(Path("."), "--project", "-p", help="Project folder, or any folder inside it.")
 DryRunOption = typer.Option(False, "--dry-run", help="Show what would change without writing anything.")
@@ -339,3 +342,18 @@ def remove_entity(name: str, project_path: Path = ProjectOption) -> None:
 def remove_column(entity: str, name: str, project_path: Path = ProjectOption) -> None:
     """Remove a column from an entity."""
     _edit(project_path, lambda p: f"Removed {entity}.{edit.remove_column(p, entity, name).name}.")
+
+
+@rename_app.command("entity")
+def rename_entity(name: str, new_name: str, project_path: Path = ProjectOption) -> None:
+    """Rename an entity. Relationships, mappings and metrics that use it follow, and so does its file."""
+    _edit(project_path, lambda p: f"Renamed {name} to {edit.rename_entity(p, name, new_name).name}.", prune=True)
+
+
+@rename_app.command("column")
+def rename_column(entity: str, name: str, new_name: str, project_path: Path = ProjectOption) -> None:
+    """Rename a column. Keys, grain, tests, mappings and relationships that use it follow."""
+    _edit(
+        project_path,
+        lambda p: f"Renamed {entity}.{name} to {edit.rename_column(p, entity, name, new_name).name}.",
+    )

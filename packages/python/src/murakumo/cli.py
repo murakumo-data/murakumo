@@ -163,9 +163,47 @@ from murakumo import cli_model  # noqa: E402
 
 app.add_typer(cli_model.import_app, name="import")
 app.add_typer(cli_model.add_app, name="add")
+app.add_typer(cli_model.rename_app, name="rename")
 app.add_typer(cli_model.remove_app, name="remove")
 
 from murakumo import cli_generate  # noqa: E402
 
 app.command("generate")(cli_generate.generate_command)
 app.command("verify")(cli_generate.verify_command)
+
+
+@app.command()
+def canvas(
+    path: Path = typer.Argument(Path("."), help="Project folder, or any folder inside it."),
+    port: int = typer.Option(8765, help="Port to listen on, on 127.0.0.1."),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the canvas in your browser."),
+) -> None:
+    """Open the visual model editor. Changes are saved to the model's YAML files as you make them."""
+    root = find_root(path)
+    if root is None:
+        err_console.print(f"[red]error:[/red] no murakumo.yaml in {path.resolve()} or above")
+        raise typer.Exit(1)
+    try:
+        import uvicorn
+
+        from murakumo import server
+    except ImportError:
+        err_console.print("[red]error:[/red] the canvas is not installed: pip install 'murakumo[canvas]'")
+        raise typer.Exit(1) from None
+
+    static = server.canvas_files()
+    url = f"http://127.0.0.1:{port}"
+    console.print(f"Editing [bold]{root}[/bold]")
+    if static is None:
+        console.print(
+            f"API on {url}/api. The canvas is not built: run [bold]npm run dev[/bold] in apps/canvas "
+            "and open http://localhost:5173."
+        )
+    else:
+        console.print(f"Canvas on [bold]{url}[/bold]. Press Ctrl+C to stop.")
+        if open_browser:
+            import threading
+            import webbrowser
+
+            threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    uvicorn.run(server.create_app(root, static), host="127.0.0.1", port=port, log_level="warning")

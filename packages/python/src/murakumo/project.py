@@ -7,6 +7,7 @@ Layout under the project root::
     model/entities/**/*.yaml    one entity per file, in any folder structure
     model/relationships.yaml    every relationship, in one list
     model/metrics.yaml          every metric, in one list
+    model/layout.yaml           where the canvas draws each entity (optional)
 
 Loading never stops at the first bad file: every problem becomes a diagnostic, and the
 objects that did parse are still returned, so ``murakumo validate`` can report everything at once.
@@ -31,6 +32,7 @@ SOURCES_DIR = f"{MODEL_DIR}/sources"
 ENTITIES_DIR = f"{MODEL_DIR}/entities"
 RELATIONSHIPS_FILE = f"{MODEL_DIR}/relationships.yaml"
 METRICS_FILE = f"{MODEL_DIR}/metrics.yaml"
+LAYOUT_FILE = f"{MODEL_DIR}/layout.yaml"
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -195,7 +197,7 @@ def load_project(root: Path) -> LoadResult:
             missing += file_missing
 
     model_dir = root / MODEL_DIR
-    known = {root / RELATIONSHIPS_FILE, root / METRICS_FILE}
+    known = {root / RELATIONSHIPS_FILE, root / METRICS_FILE, root / LAYOUT_FILE}
     for path in sorted(model_dir.rglob("*.yml")) if model_dir.is_dir() else []:
         diagnostics.append(warning("MK004", "ignored: model files must end in .yaml", path))
     for path in sorted(model_dir.glob("*.yaml")) if model_dir.is_dir() else []:
@@ -337,3 +339,38 @@ def save_model(project: Project, prune: bool = False) -> list[Path]:
             if empty.is_dir() and not any(empty.iterdir()):
                 empty.rmdir()
     return written
+
+
+# Canvas layout ----------------------------------------------------------------------------------
+
+Position = tuple[int, int]
+
+
+def load_layout(root: Path) -> dict[UUID, Position]:
+    """Canvas positions by entity id. A missing or unreadable file is an empty layout: it is only drawing."""
+    path = root / LAYOUT_FILE
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None
+    except (OSError, yaml.YAMLError):
+        return {}
+    positions: dict[UUID, Position] = {}
+    for key, value in ((data or {}).get("positions") or {}).items() if isinstance(data, dict) else []:
+        try:
+            positions[UUID(str(key))] = (round(float(value["x"])), round(float(value["y"])))
+        except (ValueError, TypeError, KeyError):
+            continue
+    return positions
+
+
+def save_layout(project: Project, positions: dict[UUID, Position]) -> None:
+    """Write positions for the entities that still exist, in model order so diffs stay small."""
+    rows = {
+        str(e.id): {"x": positions[e.id][0], "y": positions[e.id][1]}
+        for e in project.model.entities
+        if e.id in positions
+    }
+    path = project.root / LAYOUT_FILE
+    if rows:
+        _write(path, {"positions": rows})
+    elif path.exists():
+        path.unlink()

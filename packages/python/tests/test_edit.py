@@ -1,11 +1,16 @@
+import shutil
+from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
 from murakumo import edit
 from murakumo.cli import app
+from murakumo.diagnostics import Level
 from murakumo.ir.model import KeyRole, Layer
-from murakumo.project import ENTITIES_DIR, load_project
+from murakumo.project import ENTITIES_DIR, load_project, save_model
 from murakumo.scaffold import init_project
+from murakumo.validate import validate_project
 
 runner = CliRunner()
 
@@ -74,3 +79,110 @@ def test_cli_remove_column_shows_what_breaks(project):
     result = run(project, "remove", "column", "dim_taxi_zone", "zone_id")
     assert result.exit_code == 0
     assert "MK205" in result.output  # the relationships that used it are now reported
+
+
+# changing and renaming --------------------------------------------------------------------------
+
+COMMERCE = Path(__file__).resolve().parents[3] / "examples" / "commerce"
+
+
+@pytest.fixture
+def commerce(tmp_path):
+    shutil.copytree(COMMERCE / "model", tmp_path / "commerce" / "model")
+    shutil.copy(COMMERCE / "murakumo.yaml", tmp_path / "commerce")
+    return load_project(tmp_path / "commerce").project
+
+
+def errors(project):
+    return [d for d in validate_project(project) if d.level is Level.ERROR]
+
+
+def test_update_entity_and_column(project):
+    edit.update_entity(project, "fct_trip", {"description": "One row per trip", "domain": "mobility"})
+    column = edit.update_column(
+        project, "fct_trip", "trip_distance_miles", {"type": "decimal(12,3)", "nullable": False}
+    )
+    assert project.model.entity("fct_trip").domain == "mobility"
+    assert column.type == "decimal(12,3)" and not column.nullable
+    # A bad value changes nothing.
+    with pytest.raises(edit.EditError, match="unknown logical type"):
+        edit.update_column(project, "fct_trip", "trip_distance_miles", {"type": "geometry", "nullable": True})
+    assert project.model.entity("fct_trip").attribute("trip_distance_miles").nullable is False
+    with pytest.raises(edit.EditError, match="cannot change id here"):
+        edit.update_entity(project, "fct_trip", {"id": "nope"})
+    with pytest.raises(edit.EditError, match="no column 'nope'"):
+        edit.update_entity(project, "fct_trip", {"watermark": "nope"})
+
+
+def test_primary_key_implies_not_null(project):
+    entity = edit.add_entity(project, "contacts")
+    edit.add_column(project, "contacts", "contact_id", "bigint")
+    edit.update_column(project, "contacts", "contact_id", {"key": "primary"})
+    assert entity.attribute("contact_id").key is KeyRole.PRIMARY
+    assert entity.attribute("contact_id").nullable is False
+
+
+def test_rename_entity_follows_references(commerce):
+    original = commerce.origins[commerce.model.entity("lineitem").id]
+    entity = edit.rename_entity(commerce, "lineitem", "line_item")
+    model = commerce.model
+    assert {r.from_ for r in model.relationships if r.name and r.name.startswith("lineitem__")} == {"line_item"}
+    fact = model.entity("fct_order_line")
+    assert all(not s.startswith("lineitem.") for m in fact.mappings for s in m.sources)
+    assert any(s == "line_item.l_discount" for m in fact.mappings for s in m.sources)
+    assert commerce.origins[entity.id] == original.with_name("line_item.yaml")
+    assert errors(commerce) == []
+
+    save_model(commerce, prune=True)
+    assert not original.exists() and original.with_name("line_item.yaml").exists()
+    assert load_project(commerce.root).project.model.entity("line_item").id == entity.id
+
+
+def test_rename_column_follows_references(commerce):
+    edit.rename_column(commerce, "lineitem", "l_discount", "discount")
+    edit.rename_column(commerce, "orders", "o_orderkey", "order_key")
+    model = commerce.model
+    net = next(m for m in model.entity("fct_order_line").mappings if m.expression)
+    assert "lineitem.discount" in net.sources
+    assert net.expression == "l_extendedprice * (1 - discount)"
+    keys = [(r.from_, k.from_, r.to, k.to) for r in model.relationships for k in r.keys]
+    assert ("lineitem", "l_orderkey", "orders", "order_key") in keys
+    assert errors(commerce) == []
+    # The renamed project still generates, with no errors.
+    from murakumo.generate import generate
+
+    output = generate(commerce, "duckdb")
+    assert [d for d in output.diagnostics if d.level is Level.ERROR] == []
+    sql = next(text for path, text in output.files.items() if path.endswith("fct_order_line.sql"))
+    assert "discount" in sql and "l_discount" not in sql
+
+
+def test_rename_errors(project):
+    with pytest.raises(edit.EditError, match="already exists"):
+        edit.rename_entity(project, "fct_trip", "dim_taxi_zone")
+    with pytest.raises(edit.EditError, match="not a valid name"):
+        edit.rename_entity(project, "fct_trip", "fct trip")
+    with pytest.raises(edit.EditError, match="already has a column"):
+        edit.rename_column(project, "fct_trip", "trip_distance_miles", "total_amount")
+
+
+def test_update_and_remove_relationship(project):
+    rel = project.model.relationships[0]
+    updated = edit.update_relationship(project, rel.id, {"optional": True, "role": "pickup_zone"})
+    assert updated.id == rel.id and updated.optional and updated.role == "pickup_zone"
+    with pytest.raises(edit.EditError, match="has no column"):
+        edit.update_relationship(project, rel.id, {"keys": [{"from": "nope", "to": "zone_id"}]})
+    edit.remove_relationship(project, rel.id)
+    assert all(r.id != rel.id for r in project.model.relationships)
+    with pytest.raises(edit.EditError, match="does not exist"):
+        edit.remove_relationship(project, rel.id)
+
+
+def test_cli_rename(project):
+    assert run(project, "rename", "entity", "dim_taxi_zone", "dim_zone").exit_code == 0
+    result = run(project, "rename", "column", "dim_zone", "zone_id", "taxi_zone_id")
+    assert result.exit_code == 0, result.output
+    loaded = load_project(project.root).project
+    assert loaded.model.entity("dim_zone").attribute("taxi_zone_id")
+    assert all(k.to == "taxi_zone_id" for r in loaded.model.relationships if r.to == "dim_zone" for k in r.keys)
+    assert not (project.root / ENTITIES_DIR / "marts" / "dim_taxi_zone.yaml").exists()
