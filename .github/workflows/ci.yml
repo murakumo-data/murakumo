@@ -18,6 +18,18 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11", "3.13"]
+    services:
+      # A throwaway database for the PostgreSQL introspection tests.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: shop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      MURAKUMO_TEST_POSTGRES_URL: postgresql://postgres:test@localhost:5432/shop
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
