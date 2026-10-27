@@ -71,3 +71,13 @@ def test_cli_verify_rejects_bad_data_arguments(tmp_path, bad):
     project = init_project(tmp_path / "taxi")
     result = runner.invoke(app, ["verify", "-p", str(project.root), "--data", bad])
     assert result.exit_code == 1
+
+
+def test_a_file_missing_a_model_column_is_reported_clearly(tmp_path):
+    project = init_project(tmp_path / "taxi")
+    zones = tmp_path / "zones.csv"
+    zones.write_text("LocationID,Borough,Zone\n1,EWR,Newark Airport\n")  # no service_zone
+    result = verify(project, rows=20, data={"taxi_zone_lookup": str(zones)}, rerun=False)
+    assert not result.ok
+    assert "zones.csv has no column service_zone, which the model expects" in result.error
+    assert "The file has: LocationID, Borough, Zone" in result.error

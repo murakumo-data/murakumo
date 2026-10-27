@@ -121,7 +121,7 @@ def test_incremental_and_snapshot_tables(commerce):
     edit.add_column(commerce, "fct_order_line", "note", "string")
     edit.rename_column(commerce, "dim_customer", "phone", "phone_number")
     lines = statements(plan_migration(commerce))
-    assert "ALTER TABLE marts.fct_order_line RENAME COLUMN net_amount TO net_revenue;" in lines
+    assert "ALTER TABLE IF EXISTS marts.fct_order_line RENAME COLUMN net_amount TO net_revenue;" in lines
     assert any(line.startswith("-- dbt adds it on its next run") and "note" in line for line in lines)
     assert any("snapshots." in line and "RENAME COLUMN phone TO phone_number" in line for line in lines)
 
@@ -168,3 +168,24 @@ def test_commerce_example_is_migrated():
     """The example's migrations match its model, as `murakumo migrate --check` would say in CI."""
     project = load_project(COMMERCE).project
     assert plan_migration(project).changes == []
+
+
+def test_dbt_built_tables_are_safe_on_a_new_environment(commerce, tmp_path):
+    """dbt has not built marts or snapshots in a new environment, so their migrations skip them."""
+    migrate(commerce)
+    edit.rename_column(commerce, "fct_order_line", "net_amount", "net_revenue")
+    edit.rename_column(commerce, "lineitem", "l_discount", "discount")
+    path = migrate(commerce)
+    connection = duckdb.connect()
+    apply(connection, folder(commerce.root, "duckdb") / "0001_initial.sql")
+    apply(connection, path)  # marts.fct_order_line does not exist yet: skipped, no error
+    columns = connection.execute("select column_name from information_schema.columns where table_name = 'lineitem'")
+    assert ("discount",) in columns.fetchall()
+
+
+def test_warehouses_without_if_exists_get_a_note(commerce):
+    write_migration(commerce, plan_migration(commerce, "databricks"))
+    edit.rename_column(commerce, "fct_order_line", "net_amount", "net_revenue")
+    lines = statements(plan_migration(commerce, "databricks"))
+    index = lines.index("ALTER TABLE marts.fct_order_line RENAME COLUMN net_amount TO net_revenue;")
+    assert lines[index - 1].startswith("-- Only where dbt has already built fct_order_line")

@@ -2,13 +2,26 @@
 
 **Model-first data engineering.** Design the logical model (entities, relationships, mappings) on a canvas, and Murakumo generates and maintains everything downstream: DDL, dbt projects, Spark and Python jobs, streaming configs, tests, audit tables, data contracts and orchestration, on an open lakehouse.
 
-Early development: the model, importers, validation, and dbt and DDL generation work. Source: [github.com/murakumo-data/murakumo](https://github.com/murakumo-data/murakumo).
+Alpha. Working today: the model, importers, validation, the canvas, dbt and DDL generation,
+migrations, and builds verified on DuckDB and Snowflake. Source:
+[github.com/murakumo-data/murakumo](https://github.com/murakumo-data/murakumo).
+
+## Install
+
+```bash
+pip install "murakumo[canvas,verify,duckdb]"
+murakumo init my_platform        # asks about your warehouse and orchestrator, then shows what to set up
+cd my_platform
+murakumo setup                   # checks drivers, variables, keys and connections; says what to do
+murakumo canvas                  # the visual editor
+```
 
 ## Usage
 
 ```bash
-murakumo init my_platform        # manifest, model folder and a small NYC taxi example
+murakumo init my_platform --target snowflake --yes   # or answer with options, without questions
 cd my_platform
+murakumo setup --connect         # also test the warehouse and source connections
 murakumo validate                # check the manifest and model; exits 1 on errors
 murakumo validate --fix          # write stable ids into hand-written YAML
 murakumo validate --strict       # fail on warnings too (useful in CI)
@@ -29,10 +42,11 @@ murakumo verify                                        # build and test it all o
 murakumo verify --warehouse snowflake                  # or on Snowflake, in throwaway schemas
 ```
 
-Extras: `pip install "murakumo[duckdb,postgres,snowflake,verify,canvas]"` for databases, files, `murakumo verify`
-and `murakumo canvas`.
+Extras: `canvas` (the editor), `verify` (builds on DuckDB), `duckdb` (files and DuckDB), `postgres`,
+`snowflake`. `murakumo setup` tells you which a project needs.
 
-Docs: [model files and validation rules](https://github.com/murakumo-data/murakumo/blob/main/docs/model.md),
+Docs: [starting a project and setting up](https://github.com/murakumo-data/murakumo/blob/main/docs/setup.md),
+[model files and validation rules](https://github.com/murakumo-data/murakumo/blob/main/docs/model.md),
 [importing metadata](https://github.com/murakumo-data/murakumo/blob/main/docs/importing.md),
 [generating and verifying](https://github.com/murakumo-data/murakumo/blob/main/docs/generating.md),
 [Snowflake](https://github.com/murakumo-data/murakumo/blob/main/docs/snowflake.md),

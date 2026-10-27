@@ -30,3 +30,22 @@ def print_diagnostics(diagnostics: list[Diagnostic], base: Path) -> None:
 
 def fail(message: str) -> None:
     err_console.print(f"[red]error[/red] {escape(message)}")
+
+
+_MARKS = {"ok": "[green]✓[/green]", "todo": "[red]✗[/red]", "warn": "[yellow]![/yellow]", "info": "[blue]•[/blue]"}
+
+
+def print_checks(checks, compact: bool = False) -> None:
+    """The setup checklist, grouped by area. ``compact`` leaves out what is already done."""
+    area = None
+    for check in checks:
+        if compact and check.status.value == "ok":
+            continue
+        if check.area != area:
+            area = check.area
+            console.print(f"\n[bold]{escape(area)}[/bold]")
+        console.print(f"  {_MARKS[check.status.value]} {escape(check.title)}")
+        if check.detail:
+            console.print(f"    [dim]{escape(check.detail)}[/dim]")
+        for step in check.steps:
+            console.print(f"    [cyan]→[/cyan] {escape(step)}", soft_wrap=True)

@@ -56,3 +56,24 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+
+  package:
+    name: Package and clean install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/canvas/package-lock.json
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci && npm run build
+        working-directory: apps/canvas
+      - run: uv build
+        working-directory: packages/python
+        env:
+          MURAKUMO_REQUIRE_CANVAS: "1"
+      - run: tools/smoke_test.sh packages/python/dist/murakumo-*-py3-none-any.whl
