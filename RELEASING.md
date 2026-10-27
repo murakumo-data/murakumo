@@ -23,11 +23,17 @@ smoke-tested ([tools/smoke_test.sh](tools/smoke_test.sh)) before anything is pub
    [CHANGELOG.md](CHANGELOG.md), and merge.
 2. Run the [end-to-end test](docs/end-to-end-test.md) on `main`.
 3. Optional dry run: **Actions → Release → Run workflow**. It builds, smoke-tests and publishes to
-   TestPyPI. Try it in a fresh virtual environment:
+   TestPyPI. Try it in a fresh virtual environment, taking only Murakumo from TestPyPI and its
+   dependencies from PyPI (anyone can upload to TestPyPI, and it holds broken copies of some
+   packages, such as `fastapi`):
 
    ```bash
-   pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "murakumo[canvas,verify,duckdb]"
+   pip install --no-deps -i https://test.pypi.org/simple/ "murakumo==0.1.0"
+   pip install "murakumo[canvas,verify,duckdb]==0.1.0"
    ```
+
+   TestPyPI also never accepts the same version twice, so a second dry run of the same version
+   fails at the upload step; that is expected.
 
 4. Tag and push; the tag must match the version, or the workflow stops:
 
