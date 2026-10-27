@@ -1,7 +1,8 @@
 name: Release
 
-# Push a tag like v0.1.0 to publish that version to PyPI. Run it by hand to publish to TestPyPI
-# first. Both use PyPI trusted publishing: no token is stored in GitHub. See RELEASING.md.
+# Push a tag like v0.1.0 to publish that version to PyPI, then the npm launcher. Run it by hand to
+# publish to TestPyPI only. All of them use trusted publishing: no token is stored in GitHub.
+# See RELEASING.md.
 on:
   push:
     tags: ["v*"]
@@ -24,12 +25,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - name: The tag matches the package version
+      - name: The tag matches the Python and npm package versions
         if: github.event_name == 'push'
-        working-directory: packages/python
         run: |
-          version=$(uv version --short)
-          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME is not v$version"; exit 1; }
+          python_version=$(cd packages/python && uv version --short)
+          npm_version=$(node -p "require('./packages/npm/package.json').version")
+          test "v$python_version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME is not v$python_version"; exit 1; }
+          test "$npm_version" = "$python_version" || { echo "npm is $npm_version, Python is $python_version"; exit 1; }
       - run: npm ci && npm run build
         working-directory: apps/canvas
       - run: uv build
@@ -73,3 +75,23 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  npm:
+    name: Publish to npm
+    # After PyPI, because the npm package runs the PyPI release of the same version.
+    if: github.event_name == 'push'
+    needs: pypi
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest   # trusted publishing needs npm 11.5.1 or newer
+      - run: npm publish --access public
+        working-directory: packages/npm

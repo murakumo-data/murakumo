@@ -1,8 +1,9 @@
 # Releasing
 
 Releases are built and published by GitHub Actions ([release.yml](.github/workflows/release.yml))
-with PyPI *trusted publishing*: PyPI trusts this repository's workflow, so no token is stored
-anywhere. Every release is built with the canvas inside, installed in a clean environment and
+to PyPI and then npm, with *trusted publishing*: both registries trust this repository's workflow,
+so no token is stored anywhere. The npm package (`packages/npm`) is a launcher that runs the PyPI
+release of the same version through uv, so the two versions must match; the workflow checks. Every release is built with the canvas inside, installed in a clean environment and
 smoke-tested ([tools/smoke_test.sh](tools/smoke_test.sh)) before anything is published.
 
 ## One-time setup (done by a maintainer, in a browser)
@@ -13,13 +14,16 @@ smoke-tested ([tools/smoke_test.sh](tools/smoke_test.sh)) before anything is pub
 2. **TestPyPI**: the same at <https://test.pypi.org> (a separate account). If the project does
    not exist there yet, use **Your account → Publishing → Add a pending publisher**, with project
    name `murakumo` and environment `testpypi`.
-3. **GitHub**: in the repository, **Settings → Environments**, create `pypi` and `testpypi`. On
-   `pypi`, add yourself under **Required reviewers**, so every real release waits for your
-   approval.
+3. **npm**: sign in at <https://www.npmjs.com>, open the `murakumo` package, **Settings →
+   Trusted Publisher → GitHub Actions**, and enter: organization or user `murakumo-data`,
+   repository `murakumo`, workflow filename `release.yml`, environment `npm`.
+4. **GitHub**: in the repository, **Settings → Environments**, create `pypi`, `testpypi` and
+   `npm`. On `pypi`, add yourself under **Required reviewers**, so every real release waits for
+   your approval; `npm` runs only after `pypi`, so it needs no second approval.
 
 ## Each release
 
-1. Set the version in `packages/python/pyproject.toml`, add the release to
+1. Set the version in `packages/python/pyproject.toml` and `packages/npm/package.json`, add the release to
    [CHANGELOG.md](CHANGELOG.md), and merge.
 2. Run the [end-to-end test](docs/end-to-end-test.md) on `main`.
 3. Optional dry run: **Actions → Release → Run workflow**. It builds, smoke-tests and publishes to

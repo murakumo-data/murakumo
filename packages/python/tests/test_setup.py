@@ -168,3 +168,11 @@ def test_install_command(monkeypatch):
     assert install_command(["canvas"], []) == 'pip install "murakumo[canvas]"'
     monkeypatch.setattr(guide, "installed", lambda module: False)
     assert install_command(["canvas"], []) == 'uv pip install "murakumo[canvas]"'
+
+
+def test_install_command_through_the_npm_launcher(monkeypatch):
+    monkeypatch.setenv("MURAKUMO_LAUNCHER", "npm")
+    monkeypatch.setenv("MURAKUMO_EXTRAS", "postgres")
+    monkeypatch.delenv("MURAKUMO_WITH", raising=False)
+    command = install_command(["snowflake", "verify"], ["dbt-snowflake"])
+    assert command.startswith('export MURAKUMO_EXTRAS="postgres,snowflake,verify" MURAKUMO_WITH="dbt-snowflake"')

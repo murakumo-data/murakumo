@@ -71,6 +71,15 @@ def installed(module: str) -> bool:
 def install_command(extras: list[str], packages: list[str]) -> str:
     """The command that adds ``extras`` and ``packages`` to the environment murakumo runs in."""
     extras = sorted(set(extras))
+    if os.environ.get("MURAKUMO_LAUNCHER") == "npm":  # started by the npm package, through uvx
+        settings = []
+        if extras:
+            current = [e for e in os.environ.get("MURAKUMO_EXTRAS", "").split(",") if e.strip()]
+            settings.append(f'MURAKUMO_EXTRAS="{",".join(sorted(set(current + extras)))}"')
+        if packages:
+            current = os.environ.get("MURAKUMO_WITH", "").split()
+            settings.append(f'MURAKUMO_WITH="{" ".join(sorted(set(current + packages)))}"')
+        return f"export {' '.join(settings)}   # then run murakumo again; add it to ~/.zshrc to keep it"
     requirement = f'"murakumo[{",".join(extras)}]"' if extras else "murakumo"
     if "/uv/tools/" in sys.prefix.replace("\\", "/"):  # installed with `uv tool install`
         withs = "".join(f" --with {p}" for p in packages)

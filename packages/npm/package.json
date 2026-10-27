@@ -1,8 +1,15 @@
 {
   "name": "murakumo",
-  "version": "0.0.2",
-  "description": "Model-first data engineering: design the logical model, generate the platform. Early placeholder release.",
-  "keywords": ["data-engineering", "data-modelling", "dbt", "lakehouse", "iceberg", "code-generation"],
+  "version": "0.1.0",
+  "description": "Model-first data engineering: design the logical model, generate the platform. Runs the Murakumo CLI from PyPI through uv.",
+  "keywords": [
+    "data-engineering",
+    "data-modelling",
+    "dbt",
+    "lakehouse",
+    "iceberg",
+    "code-generation"
+  ],
   "license": "Apache-2.0",
   "homepage": "https://github.com/murakumo-data/murakumo",
   "repository": {
@@ -13,5 +20,11 @@
   "bin": {
     "murakumo": "bin/murakumo.js"
   },
-  "files": ["bin", "README.md"]
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
 }

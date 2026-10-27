@@ -1,13 +1,14 @@
 # End-to-end test: Murakumo 0.1.0
 
-A step-by-step test of everything Murakumo 0.1.0 does, from installing it to building a model on
-real data. It assumes no experience with Python environments, dbt or warehouses: every command is
-given in full, along with what you should see.
+A step-by-step test of Murakumo 0.1.0 exactly as a new user meets it: install it with one command,
+create a project folder, go into it, and build a data model on real data. It assumes no
+experience with Python, dbt or warehouses: every command is given in full, along with what you
+should see.
 
 | Part | What it tests | Time |
 | --- | --- | --- |
-| 1-2 | Building the release and installing it in a clean environment | 10 min |
-| 3-4 | Creating a project with the guided setup | 10 min |
+| 0-1 | Installing Murakumo with uv, pip or npm | 5-10 min |
+| 2-4 | Creating a project folder with the guided setup, and going into it | 10 min |
 | 5-9 | The canvas: viewing, editing, mapping, generating, migrations | 35 min |
 | 10-11 | Importing a data dictionary; editing YAML by hand alongside the canvas | 10 min |
 | 12-14 | Building and testing on DuckDB, with made-up data and then real data | 15 min |
@@ -28,124 +29,90 @@ given in full, along with what you should see.
 
 ---
 
-## Part 0: Before you start (once)
+## Part 0: Before you start
 
-You need a Mac with Terminal, Python 3.11 or newer, Node.js 22 or newer, git, and the Murakumo
-repository on your computer. Open **Terminal** (press Cmd+Space, type *Terminal*, press Enter).
+Open **Terminal** (press Cmd+Space, type *Terminal*, press Enter). Murakumo installs in one of
+three ways. Pick **one** route and use it for the whole test:
 
-**0.1** Check the tools:
+| Route | Best for | You need |
+| --- | --- | --- |
+| **A. uv** (recommended) | Anyone: one command, and `murakumo` works in every Terminal window | uv |
+| **B. pip** | People who already use Python and virtual environments | Python 3.11 or newer |
+| **C. npm** | People who already use Node.js | Node.js 18 or newer, and uv |
+
+**0.1** For routes A and C, install uv (a fast installer for Python programs), then close
+Terminal and open a new window so it is found:
 
 ```bash
-python3 --version
-node --version
-git --version
+brew install uv
+```
+
+No Homebrew? Use `curl -LsSf https://astral.sh/uv/install.sh | sh` instead. Then check:
+
+```bash
 uv --version
 ```
 
-You should see `Python 3.11` or higher, `v22` or higher, a git version and a uv version.
-If one is missing: Python from <https://www.python.org/downloads/>, Node.js from
-<https://nodejs.org> (the LTS version), uv with `brew install uv`, git with `xcode-select --install`.
+You should see `uv 0.` followed by a version number.
 
-☐ All four print a version.
-
-**0.2** Tell Terminal where the repository is. Change the path if yours is elsewhere:
+For route B, check Python instead (it must say 3.11 or higher; if not, install it from
+<https://www.python.org/downloads/>):
 
 ```bash
-export REPO=~/Documents/Development/automate_data_engineering
-ls $REPO
+python3 --version
 ```
 
-You should see folders including `apps`, `docs`, `examples` and `packages`.
+For route C, also check Node.js (v18 or higher; if not, install the LTS version from
+<https://nodejs.org>):
 
-> Every new Terminal window or tab forgets `REPO`. If a later command says
-> `No such file or directory` with a path starting `/packages`, run the `export REPO=...` line again.
+```bash
+node --version
+```
 
-☐ The repository's folders are listed.
+☐ The tools for your route print their versions.
 
 ---
 
-## Part 1: Build the release candidate
+## Part 1: Install Murakumo
 
-You are testing exactly what would be published to PyPI: a *wheel*, the file `pip` installs.
+Follow **only your route**.
 
-**1.1** Get the code under test. Before the release pull request is merged it lives on the
-`m7-release` branch; after merging, use `main`.
-
-```bash
-cd $REPO
-git fetch
-git checkout m7-release
-git pull
-```
-
-You should see `Switched to branch 'm7-release'` (or `Already on`), then `Already up to date` or a
-list of updated files.
-
-☐ On the `m7-release` branch.
-
-**1.2** Build the canvas (the web app), then the Python package that contains it:
+**Route A: uv**
 
 ```bash
-cd $REPO/apps/canvas
-npm ci
-npm run build
-cd $REPO/packages/python
-rm -rf dist
-MURAKUMO_REQUIRE_CANVAS=1 uv build
+uv tool install "murakumo[canvas,verify,duckdb]"
 ```
 
-You should see `✓ built in ...` from the canvas build, then
-`Successfully built dist/murakumo-0.1.0.tar.gz` and
-`Successfully built dist/murakumo-0.1.0-py3-none-any.whl`.
+You should see `Installed 1 executable: murakumo`. If the next step says
+`command not found: murakumo`, run `uv tool update-shell`, then close Terminal and open a new
+window.
 
-☐ Both files are built.
-
-**1.3** Check the canvas is inside the wheel:
-
-```bash
-unzip -l dist/murakumo-0.1.0-py3-none-any.whl | grep web/
-```
-
-You should see three lines: `murakumo/web/index.html` and two files under `murakumo/web/assets/`.
-
-☐ The canvas files are in the wheel.
-
----
-
-## Part 2: Install it in a clean environment
-
-A *virtual environment* is a private folder of Python packages, so this test cannot be affected by,
-or affect, anything else on your computer.
-
-**2.1** Create a test folder and an environment inside it:
+**Route B: pip**, inside a *virtual environment* (a private folder of Python packages, so nothing
+else on your computer is affected):
 
 ```bash
 mkdir -p ~/murakumo-e2e
-cd ~/murakumo-e2e
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv ~/murakumo-e2e/.venv
+source ~/murakumo-e2e/.venv/bin/activate
+pip install --upgrade pip
+pip install "murakumo[canvas,verify,duckdb]"
 ```
 
-Your prompt now starts with `(.venv)`. That means the environment is active.
+Your prompt now starts with `(.venv)`, and the install ends with `Successfully installed ...`.
 
-> Each new Terminal tab needs `cd ~/murakumo-e2e && source .venv/bin/activate` before `murakumo`
-> works there. `command not found: murakumo` almost always means this was skipped.
+> With route B, every new Terminal tab or window needs
+> `source ~/murakumo-e2e/.venv/bin/activate` before `murakumo` works there.
 
-☐ The prompt starts with `(.venv)`.
-
-**2.2** Install Murakumo from the wheel you built, with the canvas, DuckDB and testing extras:
+**Route C: npm**
 
 ```bash
-pip install --upgrade pip
-pip install "$REPO/packages/python/dist/murakumo-0.1.0-py3-none-any.whl[canvas,verify,duckdb]"
+npm install -g murakumo
 ```
 
-This takes a minute or two and ends with `Successfully installed ...`, a long list including
-`murakumo-0.1.0`, `dbt-core` and `dbt-duckdb`.
+You should see `added 1 package`. The npm package runs the real Murakumo through uv, which
+downloads it the first time you use it (about a minute); after that it starts straight away.
 
-☐ Installed without errors.
-
-**2.3** Check it runs:
+**1.1** All routes: check it works.
 
 ```bash
 murakumo --version
@@ -159,10 +126,20 @@ You should see `murakumo 0.1.0`, then a short description that mentions `murakum
 
 ---
 
-## Part 3: Create a project with the guided setup
+## Part 2: Create the project folder
 
-**3.1** Start a new project. Murakumo asks a few questions; press **Enter** to accept each default
-(shown in square brackets), except where noted:
+A Murakumo project is a folder. You create it with `murakumo init`, then go into it with `cd`, and
+run everything else from inside it.
+
+**2.1** Make a folder to hold this test, and go into it:
+
+```bash
+mkdir -p ~/murakumo-e2e
+cd ~/murakumo-e2e
+```
+
+**2.2** Create the project. Murakumo asks a few questions; press **Enter** to accept each default
+(shown in square brackets):
 
 ```bash
 murakumo init taxi_platform
@@ -189,10 +166,27 @@ You should see:
 
 ☐ The project is created and the checklist has no red ✗.
 
-**3.2** Look at what was created:
+**2.3** Go into the project folder. From now on, every command runs from inside it:
 
 ```bash
 cd taxi_platform
+pwd
+```
+
+You should see `/Users/<you>/murakumo-e2e/taxi_platform`.
+
+> If you open a new Terminal tab later, go back here first with `cd ~/murakumo-e2e/taxi_platform`
+> (and, on route B, activate the environment as in Part 1).
+
+☐ Inside `taxi_platform`.
+
+---
+
+## Part 3: Look at the project
+
+**3.1**
+
+```bash
 ls
 cat murakumo.yaml
 ```
@@ -222,7 +216,9 @@ and **Project**, ending with `Ready to build.`
 
 ☐ `Ready to build.`
 
-**4.2** Do what the **Project** section says about git. If git asks who you are, run the two
+**4.2** Do what the **Project** section says about git. If macOS asks to install the *command
+line developer tools*, click **Install** and wait for it to finish (git comes with them). If git
+asks who you are, run the two
 `git config` lines first, with your own name and email:
 
 ```bash
@@ -261,9 +257,11 @@ You should see `taxi_platform: 1 sources, 4 entities, ... columns, 4 relationshi
 first one:
 
 ```bash
-cd ~/murakumo-e2e && source .venv/bin/activate && cd taxi_platform
+cd ~/murakumo-e2e/taxi_platform
 murakumo canvas
 ```
+
+(Route B: run `source ~/murakumo-e2e/.venv/bin/activate` first.)
 
 You should see `Editing /Users/<you>/murakumo-e2e/taxi_platform` and
 `Canvas on http://127.0.0.1:8765. Press Ctrl+C to stop.`, and your browser opens the canvas. If it
@@ -510,10 +508,11 @@ generated files updated. The canvas chip shows **Generated** again.
 
 ## Part 10: Import a data dictionary
 
-**10.1** Copy a sample dictionary (a spreadsheet describing tables and columns) and import it:
+**10.1** Download a sample dictionary (a spreadsheet describing tables and columns, from
+Murakumo's examples) and import it:
 
 ```bash
-cp $REPO/examples/sample-dictionaries/open_meteo.csv .
+curl -L -o open_meteo.csv https://raw.githubusercontent.com/murakumo-data/murakumo/main/examples/sample-dictionaries/open_meteo.csv
 murakumo import csv open_meteo.csv
 ```
 
@@ -629,6 +628,9 @@ Wait about 10 seconds. You should see `loaded taxi_zone_lookup: 265 rows`,
 **13.3** Apply the migrations to a real DuckDB database, the way you would on a warehouse, and
 check the renamed column is there:
 
+Routes A and C: start this command with `uv run --with duckdb ` (so the first line reads
+`uv run --with duckdb python -c "`); route B runs it as it is.
+
 ```bash
 python -c "
 import duckdb, glob
@@ -718,14 +720,33 @@ git commit -m "Model trips, FHV and weather"
 Only if your Snowflake trial is still active ([setup guide](snowflake.md)). It costs a few cents
 of credits.
 
-**16.1** Load your Snowflake variables (they are in `~/.zshrc`; a new Terminal tab has them
-already), install the Snowflake pieces, and create a Snowflake project:
+**16.1** Add Snowflake support to Murakumo. Your route decides how (`murakumo setup` would tell
+you the same):
+
+Route A:
 
 ```bash
-cd ~/murakumo-e2e
+uv tool install --force "murakumo[canvas,verify,duckdb,snowflake]" --with dbt-snowflake
+```
+
+Route B:
+
+```bash
+pip install "murakumo[snowflake]" dbt-snowflake
+```
+
+Route C (add the line to `~/.zshrc` to keep it):
+
+```bash
+export MURAKUMO_EXTRAS="snowflake" MURAKUMO_WITH="dbt-snowflake"
+```
+
+**16.2** Load your Snowflake variables (they are in `~/.zshrc`; a new Terminal tab has them
+already), and create a Snowflake project next to the first one:
+
+```bash
 source ~/.zshrc
-source .venv/bin/activate
-pip install dbt-snowflake "$REPO/packages/python/dist/murakumo-0.1.0-py3-none-any.whl[canvas,verify,duckdb,snowflake]"
+cd ~/murakumo-e2e
 murakumo init snow_test --target snowflake --yes
 cd snow_test
 ```
@@ -735,7 +756,7 @@ The checklist after `init` shows only what still needs attention; there should b
 
 ☐ Created, with no red ✗.
 
-**16.2** Test the connection:
+**16.3** Test the connection:
 
 ```bash
 murakumo setup --connect
@@ -755,7 +776,7 @@ murakumo setup --connect
 
 ☐ Connected, and the database check passes.
 
-**16.3** Build and test on Snowflake:
+**16.4** Build and test on Snowflake:
 
 ```bash
 murakumo verify --warehouse snowflake
@@ -771,17 +792,16 @@ afterwards; in Snowsight, under **COMMERCE**, no `VERIFY_...` schemas are left.
 
 ## Part 17: Clean up
 
-**17.1** In the canvas tab, press **Ctrl+C** to stop it. In each tab:
+**17.1** In the canvas tab, press **Ctrl+C** to stop it.
 
-```bash
-deactivate
-```
-
-**17.2** Optional: delete the test folder (it is not part of the repository):
+**17.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
 
 ```bash
 rm -rf ~/murakumo-e2e
 ```
+
+Route A: `uv tool uninstall murakumo`. Route B: `deactivate` (deleting the folder removed the
+environment). Route C: `npm uninstall -g murakumo`.
 
 ☐ Done.
 
@@ -791,8 +811,9 @@ rm -rf ~/murakumo-e2e
 
 | What you see | What to do |
 | --- | --- |
-| `command not found: murakumo` | The environment is not active in this tab: `cd ~/murakumo-e2e && source .venv/bin/activate` |
-| `No such file or directory` with a path starting `/packages` | `REPO` is not set in this tab: run the `export REPO=...` line from 0.2 |
+| `command not found: murakumo` | Route A: `uv tool update-shell`, then open a new Terminal window. Route B: `source ~/murakumo-e2e/.venv/bin/activate`. Route C: check `npm install -g murakumo` finished without errors |
+| Route C: *Murakumo runs on Python, and the npm package starts it with uv* | uv is not installed or not found: do 0.1, then open a new Terminal window |
+| `no murakumo.yaml in ... or above` | You are not inside the project folder: `cd ~/murakumo-e2e/taxi_platform` |
 | `address already in use` when starting the canvas | Another canvas is running. Stop it with Ctrl+C in its tab, or use `murakumo canvas --port 8766` |
 | The browser doesn't open | Open <http://127.0.0.1:8765> yourself |
 | The canvas says *Cannot reach the Murakumo server* | The canvas tab was stopped; start it again (5.1) |
@@ -809,10 +830,11 @@ output or a screenshot.
 
 | Part | Result (✓ / ✗ / skipped) | Notes |
 | --- | --- | --- |
+| Route used (A uv / B pip / C npm) | | |
 | 0 Tools | | |
-| 1 Build | | |
-| 2 Install | | |
-| 3 Guided init | | |
+| 1 Install | | |
+| 2 Create the project folder | | |
+| 3 Look at the project | | |
 | 4 Setup checklist | | |
 | 5 Canvas: view | | |
 | 6 Canvas: edit, map, relate | | |

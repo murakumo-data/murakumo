@@ -22,6 +22,8 @@ both in step as the model changes.
   their data; data-losing statements are left for a person to uncomment.
 - **Verify**: `murakumo verify` builds and tests the generated project on DuckDB or Snowflake,
   with synthetic rows that respect the model's keys and rules, or real files and tables.
+- **Install**: `uv tool install "murakumo[canvas,verify,duckdb]"`, `pip install ...`, or
+  `npm install -g murakumo` (the npm package runs the same PyPI release through uv).
 - **Canvas**: `murakumo canvas` opens a visual editor that reads and writes the same YAML: entities
   and columns, drag-to-relate, mappings, the generated code for each entity, diffs of what
   generating would change, migrations, and validation, all live as files change on disk.
