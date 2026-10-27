@@ -1,7 +1,8 @@
-"""Murakumo: model-first data engineering. Placeholder release."""
+"""Murakumo: model-first data engineering."""
 
-__version__ = "0.0.2"
+from importlib.metadata import PackageNotFoundError, version
 
-
-def main() -> None:
-    print(f"murakumo {__version__}: model-first data engineering. Coming soon.")
+try:
+    __version__ = version("murakumo")
+except PackageNotFoundError:  # running from a source tree without an install
+    __version__ = "0.0.0"

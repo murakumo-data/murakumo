@@ -1,0 +1,62 @@
+source_system,table_name,table_description,update_pattern,column_name,ordinal,logical_type,source_type,nullable,primary_key,foreign_key,accepted_values,unit,pii,classification,description,example,business_term,owner
+tpch_erp,region,The five world regions.,full_refresh_rarely_changes,r_regionkey,1,integer,INTEGER,N,Y,,,,N,internal,Region identifier.,1,,commerce-data
+tpch_erp,region,The five world regions.,full_refresh_rarely_changes,r_name,2,string,VARCHAR,N,N,,AFRICA;AMERICA;ASIA;EUROPE;MIDDLE EAST,,N,internal,Region name.,AMERICA,Region,commerce-data
+tpch_erp,region,The five world regions.,full_refresh_rarely_changes,r_comment,3,string,VARCHAR,Y,N,,,,N,internal,Free-text comment.,"hs use ironic, even requests.",,commerce-data
+tpch_erp,nation,The 25 nations customers and suppliers belong to.,full_refresh_rarely_changes,n_nationkey,1,integer,INTEGER,N,Y,,,,N,internal,Nation identifier.,24,,commerce-data
+tpch_erp,nation,The 25 nations customers and suppliers belong to.,full_refresh_rarely_changes,n_name,2,string,VARCHAR,N,N,,,,N,internal,Nation name.,UNITED STATES,Country,commerce-data
+tpch_erp,nation,The 25 nations customers and suppliers belong to.,full_refresh_rarely_changes,n_regionkey,3,integer,INTEGER,N,N,region.r_regionkey,,,N,internal,Region the nation belongs to.,1,,commerce-data
+tpch_erp,nation,The 25 nations customers and suppliers belong to.,full_refresh_rarely_changes,n_comment,4,string,VARCHAR,Y,N,,,,N,internal,Free-text comment.,y final packages.,,commerce-data
+tpch_erp,customer,Customers who place orders.,cdc,c_custkey,1,bigint,BIGINT,N,Y,,,,N,internal,Customer identifier.,1,Customer,commerce-data
+tpch_erp,customer,Customers who place orders.,cdc,c_name,2,string,VARCHAR,N,N,,,,Y,restricted,Customer name.,Customer#000000001,Customer name,commerce-data
+tpch_erp,customer,Customers who place orders.,cdc,c_address,3,string,VARCHAR,Y,N,,,,Y,restricted,Customer street address.,"IVhzIApeRb ot,c,E",,commerce-data
+tpch_erp,customer,Customers who place orders.,cdc,c_nationkey,4,integer,INTEGER,N,N,nation.n_nationkey,,,N,internal,Nation the customer is based in.,15,,commerce-data
+tpch_erp,customer,Customers who place orders.,cdc,c_phone,5,string,VARCHAR,Y,N,,,,Y,restricted,Customer phone number.,25-989-741-2988,,commerce-data
+tpch_erp,customer,Customers who place orders.,cdc,c_acctbal,6,"decimal(15,2)","DECIMAL(15,2)",Y,N,,,USD,N,confidential,Current account balance.,711.56,Account balance,commerce-data
+tpch_erp,customer,Customers who place orders.,cdc,c_mktsegment,7,string,VARCHAR,Y,N,,AUTOMOBILE;BUILDING;FURNITURE;HOUSEHOLD;MACHINERY,,N,internal,Market segment the customer belongs to.,BUILDING,Market segment,commerce-data
+tpch_erp,customer,Customers who place orders.,cdc,c_comment,8,string,VARCHAR,Y,N,,,,N,internal,Free-text comment.,"to the even, regular platelets.",,commerce-data
+tpch_erp,supplier,Suppliers that provide parts.,cdc,s_suppkey,1,bigint,BIGINT,N,Y,,,,N,internal,Supplier identifier.,1,Supplier,commerce-data
+tpch_erp,supplier,Suppliers that provide parts.,cdc,s_name,2,string,VARCHAR,N,N,,,,N,internal,Supplier name.,Supplier#000000001,,commerce-data
+tpch_erp,supplier,Suppliers that provide parts.,cdc,s_address,3,string,VARCHAR,Y,N,,,,N,confidential,Supplier street address.,"N kD4on9OM Ipw3,gf0JBoQDd7tgrzrddZ",,commerce-data
+tpch_erp,supplier,Suppliers that provide parts.,cdc,s_nationkey,4,integer,INTEGER,N,N,nation.n_nationkey,,,N,internal,Nation the supplier is based in.,17,,commerce-data
+tpch_erp,supplier,Suppliers that provide parts.,cdc,s_phone,5,string,VARCHAR,Y,N,,,,N,confidential,Supplier phone number.,27-918-335-1736,,commerce-data
+tpch_erp,supplier,Suppliers that provide parts.,cdc,s_acctbal,6,"decimal(15,2)","DECIMAL(15,2)",Y,N,,,USD,N,confidential,Current account balance.,5755.94,,commerce-data
+tpch_erp,supplier,Suppliers that provide parts.,cdc,s_comment,7,string,VARCHAR,Y,N,,,,N,internal,Free-text comment.,each slyly above the careful,,commerce-data
+tpch_erp,part,Parts sold to customers.,cdc,p_partkey,1,bigint,BIGINT,N,Y,,,,N,internal,Part identifier.,1,Product,commerce-data
+tpch_erp,part,Parts sold to customers.,cdc,p_name,2,string,VARCHAR,N,N,,,,N,internal,Part name.,goldenrod lavender spring chocolate lace,,commerce-data
+tpch_erp,part,Parts sold to customers.,cdc,p_mfgr,3,string,VARCHAR,Y,N,,,,N,internal,Manufacturer.,Manufacturer#1,,commerce-data
+tpch_erp,part,Parts sold to customers.,cdc,p_brand,4,string,VARCHAR,Y,N,,,,N,internal,Brand.,Brand#13,Brand,commerce-data
+tpch_erp,part,Parts sold to customers.,cdc,p_type,5,string,VARCHAR,Y,N,,,,N,internal,Part type.,PROMO BURNISHED COPPER,,commerce-data
+tpch_erp,part,Parts sold to customers.,cdc,p_size,6,integer,INTEGER,Y,N,,,,N,internal,Part size.,7,,commerce-data
+tpch_erp,part,Parts sold to customers.,cdc,p_container,7,string,VARCHAR,Y,N,,,,N,internal,Shipping container type.,JUMBO PKG,,commerce-data
+tpch_erp,part,Parts sold to customers.,cdc,p_retailprice,8,"decimal(15,2)","DECIMAL(15,2)",Y,N,,,USD,N,internal,List price.,901.00,List price,commerce-data
+tpch_erp,part,Parts sold to customers.,cdc,p_comment,9,string,VARCHAR,Y,N,,,,N,internal,Free-text comment.,ly. slyly ironi,,commerce-data
+tpch_erp,partsupp,"Which supplier offers which part, with stock and cost.",cdc,ps_partkey,1,bigint,BIGINT,N,Y,part.p_partkey,,,N,internal,Part supplied.,1,,commerce-data
+tpch_erp,partsupp,"Which supplier offers which part, with stock and cost.",cdc,ps_suppkey,2,bigint,BIGINT,N,Y,supplier.s_suppkey,,,N,internal,Supplier offering the part.,2,,commerce-data
+tpch_erp,partsupp,"Which supplier offers which part, with stock and cost.",cdc,ps_availqty,3,integer,BIGINT,Y,N,,,units,N,internal,Quantity available from this supplier.,3325,,commerce-data
+tpch_erp,partsupp,"Which supplier offers which part, with stock and cost.",cdc,ps_supplycost,4,"decimal(15,2)","DECIMAL(15,2)",Y,N,,,USD,N,confidential,Cost of the part from this supplier.,771.64,Supply cost,commerce-data
+tpch_erp,partsupp,"Which supplier offers which part, with stock and cost.",cdc,ps_comment,5,string,VARCHAR,Y,N,,,,N,internal,Free-text comment.,requests after the carefully ironic,,commerce-data
+tpch_erp,orders,Customer orders (order header).,cdc,o_orderkey,1,bigint,BIGINT,N,Y,,,,N,internal,Order identifier.,1,Order,commerce-data
+tpch_erp,orders,Customer orders (order header).,cdc,o_custkey,2,bigint,BIGINT,N,N,customer.c_custkey,,,N,internal,Customer who placed the order.,370,,commerce-data
+tpch_erp,orders,Customer orders (order header).,cdc,o_orderstatus,3,string,VARCHAR,Y,N,,F=Fulfilled;O=Open;P=Partially fulfilled,,N,internal,Order status derived from its line items.,O,Order status,commerce-data
+tpch_erp,orders,Customer orders (order header).,cdc,o_totalprice,4,"decimal(15,2)","DECIMAL(15,2)",Y,N,,,USD,N,confidential,Total order value including tax and discounts.,172799.49,Order value,commerce-data
+tpch_erp,orders,Customer orders (order header).,cdc,o_orderdate,5,date,DATE,N,N,,,,N,internal,Date the order was placed.,1996-01-02,Order date,commerce-data
+tpch_erp,orders,Customer orders (order header).,cdc,o_orderpriority,6,string,VARCHAR,Y,N,,1-URGENT;2-HIGH;3-MEDIUM;4-NOT SPECIFIED;5-LOW,,N,internal,Order priority.,5-LOW,,commerce-data
+tpch_erp,orders,Customer orders (order header).,cdc,o_clerk,7,string,VARCHAR,Y,N,,,,Y,restricted,Clerk who handled the order.,Clerk#000000951,,commerce-data
+tpch_erp,orders,Customer orders (order header).,cdc,o_shippriority,8,integer,INTEGER,Y,N,,,,N,internal,Shipping priority.,0,,commerce-data
+tpch_erp,orders,Customer orders (order header).,cdc,o_comment,9,string,VARCHAR,Y,N,,,,N,internal,Free-text comment.,nstructions sleep furiously among,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_orderkey,1,bigint,BIGINT,N,Y,orders.o_orderkey,,,N,internal,Order the line belongs to.,1,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_partkey,2,bigint,BIGINT,N,N,part.p_partkey;partsupp.ps_partkey,,,N,internal,Part ordered.,1552,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_suppkey,3,bigint,BIGINT,N,N,supplier.s_suppkey;partsupp.ps_suppkey,,,N,internal,Supplier fulfilling the line.,93,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_linenumber,4,integer,BIGINT,N,Y,,,,N,internal,Line number within the order.,1,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_quantity,5,"decimal(15,2)","DECIMAL(15,2)",Y,N,,,units,N,internal,Quantity ordered.,17.00,Quantity,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_extendedprice,6,"decimal(15,2)","DECIMAL(15,2)",Y,N,,,USD,N,confidential,"Quantity times part price, before discount and tax.",24710.35,Gross line amount,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_discount,7,"decimal(15,2)","DECIMAL(15,2)",Y,N,,,ratio,N,internal,Discount rate applied to the line.,0.04,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_tax,8,"decimal(15,2)","DECIMAL(15,2)",Y,N,,,ratio,N,internal,Tax rate applied to the line.,0.02,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_returnflag,9,string,VARCHAR,Y,N,,A;N;R,,N,internal,Whether the line was returned.,N,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_linestatus,10,string,VARCHAR,Y,N,,F=Fulfilled;O=Open,,N,internal,Line status.,O,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_shipdate,11,date,DATE,Y,N,,,,N,internal,Date the line shipped.,1996-03-13,Ship date,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_commitdate,12,date,DATE,Y,N,,,,N,internal,Date the line was promised to ship.,1996-02-12,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_receiptdate,13,date,DATE,Y,N,,,,N,internal,Date the customer received the line.,1996-03-22,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_shipinstruct,14,string,VARCHAR,Y,N,,DELIVER IN PERSON;COLLECT COD;NONE;TAKE BACK RETURN,,N,internal,Shipping instructions.,DELIVER IN PERSON,,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_shipmode,15,string,VARCHAR,Y,N,,AIR;FOB;MAIL;RAIL;REG AIR;SHIP;TRUCK,,N,internal,Shipping mode.,TRUCK,Ship mode,commerce-data
+tpch_erp,lineitem,Order lines: one row per part on an order.,cdc,l_comment,16,string,VARCHAR,Y,N,,,,N,internal,Free-text comment.,egular courts above the,,commerce-data
