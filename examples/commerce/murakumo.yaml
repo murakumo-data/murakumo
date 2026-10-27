@@ -1,0 +1,34 @@
+# Murakumo project manifest. Every section is optional except project.name.
+# Reference: https://github.com/murakumo-data/murakumo
+version: 1
+
+project:
+  name: commerce
+  domains: [sales, product, mobility, weather]
+
+targets:
+  warehouse:
+    type: duckdb               # snowflake | databricks | bigquery | redshift | fabric | synapse | postgres | duckdb
+    database: commerce.duckdb
+  environments: [dev, prod]
+  # lakehouse:
+  #   table_format: iceberg    # iceberg | delta | hudi | native
+  #   catalog: polaris         # unity | polaris | glue | nessie
+  #   storage: s3://my-lake/
+
+modelling:
+  pattern: kimball             # kimball | datavault | obt | 3nf | mixed
+  default_scd: 2
+  surrogate_keys: hash
+
+generation:
+  transform: dbt
+  orchestrator: airflow
+
+sources:
+  - name: tpch_erp
+    from: csv:../sample-dictionaries/tpch_erp.csv
+  - name: nyc_tlc
+    from: csv:../sample-dictionaries/nyc_tlc.csv
+  - name: open_meteo
+    from: csv:../sample-dictionaries/open_meteo.csv

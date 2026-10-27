@@ -1,0 +1,55 @@
+id: 9dc8f24d-b8d2-4c7a-8ec7-f2306976bb7a
+name: taxi_zone_lookup
+description: Reference list of TLC taxi zones, used to decode pickup and dropoff location IDs.
+properties:
+  update_pattern: full_refresh_rarely_changes
+source: nyc_tlc
+owner: mobility-data
+attributes:
+  - id: e9751148-f1fd-450d-9729-2b433dde08dc
+    name: LocationID
+    description: Taxi zone identifier.
+    type: integer
+    nullable: false
+    key: primary
+    source_type: BIGINT
+    classification: internal
+    example: '186'
+    business_term: Taxi zone
+  - id: 3b7a6b1a-9086-4441-b9d6-27fac43bbe44
+    name: Borough
+    description: New York City borough containing the zone.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      - Manhattan
+      - Brooklyn
+      - Queens
+      - Bronx
+      - Staten Island
+      - EWR
+      - Unknown
+      - N/A
+    example: Manhattan
+    business_term: Borough
+  - id: 953f0148-359e-458d-961b-fddc95ff345d
+    name: Zone
+    description: Neighbourhood or area name of the zone.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: Penn Station/Madison Sq West
+  - id: 05156c40-5c76-4fad-8ef6-91adb2f06510
+    name: service_zone
+    description: TLC service area the zone belongs to.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      - Yellow Zone
+      - Boro Zone
+      - Airports
+      - EWR
+      - N/A
+    example: Yellow Zone

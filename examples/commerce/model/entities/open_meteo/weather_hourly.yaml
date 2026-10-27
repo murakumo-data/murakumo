@@ -1,0 +1,153 @@
+id: ff4a3f54-e1a2-45ae-9422-8268d7835f68
+name: weather_hourly
+description: Hourly historical weather observations (reanalysis) per location from the Open-Meteo archive API.
+properties:
+  update_pattern: api_daily_incremental
+source: open_meteo
+owner: weather-data
+load: incremental
+watermark: observed_at
+attributes:
+  - id: abb41009-bf65-4e9f-9c91-4a8cf6bf55f6
+    name: location_key
+    description: Our identifier for the requested point, e.g. a borough centroid; the API itself is queried by coordinates.
+    type: string
+    nullable: false
+    key: primary
+    source_type: request parameter
+    classification: internal
+    example: manhattan
+    business_term: Weather location
+  - id: 0d2c6439-d07f-41c1-a76a-b27b96d67f78
+    name: latitude
+    description: Latitude of the weather grid cell the API resolved to.
+    type: decimal(9,6)
+    nullable: false
+    source_type: number
+    classification: internal
+    unit: degrees
+    example: '40.738136'
+  - id: 8c06c384-f47d-47a5-802c-aa985ce363b0
+    name: longitude
+    description: Longitude of the weather grid cell the API resolved to.
+    type: decimal(9,6)
+    nullable: false
+    source_type: number
+    classification: internal
+    unit: degrees
+    example: '-74.04254'
+  - id: f0f00eae-6aa3-401f-81a4-6468f5683e37
+    name: timezone
+    description: IANA time zone used for the time values.
+    type: string
+    nullable: false
+    source_type: string
+    classification: internal
+    example: America/New_York
+  - id: 03875ba7-3840-46e0-aeb9-0975b6fa64ce
+    name: observed_at
+    description: Start of the hour, in local time for the chosen time zone.
+    type: timestamp
+    nullable: false
+    key: primary
+    source_type: string (iso8601)
+    classification: internal
+    example: 2024-01-01T00:00
+    business_term: Observation hour
+  - id: eacf7afa-a057-4f8a-916a-458a2c9c5da7
+    name: temperature_2m
+    description: Air temperature 2 metres above ground.
+    type: decimal(5,1)
+    source_type: number
+    classification: internal
+    unit: °C
+    example: '1.9'
+    business_term: Temperature
+  - id: 81f2b6ac-a65a-4f50-b82e-ab2056e78cd7
+    name: relative_humidity_2m
+    description: Relative humidity 2 metres above ground.
+    type: integer
+    source_type: number
+    classification: internal
+    unit: '%'
+    example: '74'
+  - id: d11bde11-e8e7-4253-ae65-6dde9ad13170
+    name: precipitation
+    description: Total precipitation (rain, showers, snow) in the preceding hour.
+    type: decimal(6,1)
+    source_type: number
+    classification: internal
+    unit: mm
+    example: '0.0'
+    business_term: Precipitation
+  - id: 38931773-29d0-4b00-8513-195afc36dfa4
+    name: rain
+    description: Rain from large-scale weather systems in the preceding hour.
+    type: decimal(6,1)
+    source_type: number
+    classification: internal
+    unit: mm
+    example: '0.0'
+  - id: 89082ff2-9781-4bda-97fd-b8db7d5e9aca
+    name: snowfall
+    description: Snowfall in the preceding hour.
+    type: decimal(6,2)
+    source_type: number
+    classification: internal
+    unit: cm
+    example: '0.00'
+  - id: c22aad79-4b18-47dd-bfac-cc5727d801aa
+    name: snow_depth
+    description: Snow depth on the ground.
+    type: decimal(6,2)
+    source_type: number
+    classification: internal
+    unit: m
+    example: '0.00'
+  - id: abfc895d-7fc7-4b51-ab92-ccae02b63751
+    name: weather_code
+    description: Weather condition as a WMO weather interpretation code.
+    type: integer
+    source_type: number
+    classification: internal
+    accepted_values:
+      '0': Clear sky
+      '1': Mainly clear
+      '2': Partly cloudy
+      '3': Overcast
+      '45': Fog
+      '51': Light drizzle
+      '61': Slight rain
+      '63': Moderate rain
+      '65': Heavy rain
+      '71': Slight snow
+      '73': Moderate snow
+      '75': Heavy snow
+      '95': Thunderstorm
+    unit: wmo code
+    example: '3'
+    business_term: Weather condition
+  - id: d75c5e9c-6858-4f2f-a62d-1eb6a712e83c
+    name: cloud_cover
+    description: Total cloud cover as an area fraction.
+    type: integer
+    source_type: number
+    classification: internal
+    unit: '%'
+    example: '100'
+  - id: 4cdabbd0-5a52-42dd-b3cf-a80737de419a
+    name: wind_speed_10m
+    description: Wind speed 10 metres above ground.
+    type: decimal(5,1)
+    source_type: number
+    classification: internal
+    unit: km/h
+    example: '6.3'
+  - id: 14d750f1-67f0-41de-9f8a-4e49fa36c13b
+    name: wind_gusts_10m
+    description: Maximum wind gust 10 metres above ground in the preceding hour.
+    type: decimal(5,1)
+    source_type: number
+    classification: internal
+    unit: km/h
+    example: '13.0'

@@ -1,0 +1,190 @@
+id: 1ec8f7ad-70a5-4e3a-88ed-aeac0a0d36e9
+name: yellow_tripdata
+description: One row per completed yellow taxi trip, published monthly as Parquet.
+properties:
+  update_pattern: monthly_file_append
+source: nyc_tlc
+owner: mobility-data
+load: append
+attributes:
+  - id: 1865f9bd-21a8-49e4-8124-623bc6da714d
+    name: VendorID
+    description: TPEP provider that supplied the record.
+    type: integer
+    source_type: INTEGER
+    classification: internal
+    accepted_values:
+      '1': Creative Mobile Technologies
+      '2': Curb Mobility
+      '6': Myle Technologies
+      '7': Helix
+    example: '2'
+    business_term: Taxi technology vendor
+  - id: 9592a70c-92a2-4f50-a577-da851e6dd12a
+    name: tpep_pickup_datetime
+    description: Date and time the meter was engaged (local New York time).
+    type: timestamp
+    nullable: false
+    source_type: TIMESTAMP
+    classification: internal
+    example: '2024-01-01 00:57:55'
+    business_term: Pickup time
+  - id: da215f3a-a523-42ac-8eed-f65b7f9320d0
+    name: tpep_dropoff_datetime
+    description: Date and time the meter was disengaged (local New York time).
+    type: timestamp
+    nullable: false
+    source_type: TIMESTAMP
+    classification: internal
+    example: '2024-01-01 01:17:43'
+    business_term: Dropoff time
+  - id: 00599232-4b29-4001-8f68-2a704a60b938
+    name: passenger_count
+    description: Number of passengers, entered by the driver.
+    type: integer
+    source_type: BIGINT
+    classification: internal
+    example: '1'
+    business_term: Passenger count
+  - id: 1889d2bb-d301-4ee1-ae84-23a6fa579ac4
+    name: trip_distance
+    description: Elapsed trip distance reported by the taximeter.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: internal
+    unit: miles
+    example: '1.72'
+    business_term: Trip distance
+  - id: 089972e2-d6be-46e7-97fd-dd07a33a146a
+    name: RatecodeID
+    description: Final rate code in effect at the end of the trip.
+    type: integer
+    source_type: BIGINT
+    classification: internal
+    accepted_values:
+      '1': Standard rate
+      '2': JFK
+      '3': Newark
+      '4': Nassau or Westchester
+      '5': Negotiated fare
+      '6': Group ride
+      '99': Unknown
+    example: '1'
+    business_term: Rate code
+  - id: 6e193909-b0f4-477f-a403-943b2c9b6593
+    name: store_and_fwd_flag
+    description: Y if the record was held in vehicle memory before sending because the vehicle had no server connection.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      - Y
+      - N
+    example: N
+  - id: 32208d24-bf4d-4329-a2ed-c1a60dace7ef
+    name: PULocationID
+    description: TLC taxi zone where the meter was engaged.
+    type: integer
+    source_type: INTEGER
+    classification: internal
+    example: '186'
+    business_term: Pickup zone
+  - id: e7ed8292-aa00-4bd9-ad9c-72de454bae49
+    name: DOLocationID
+    description: TLC taxi zone where the meter was disengaged.
+    type: integer
+    source_type: INTEGER
+    classification: internal
+    example: '79'
+    business_term: Dropoff zone
+  - id: 80057ff3-e3b3-4670-b11c-26cd217df9b1
+    name: payment_type
+    description: How the passenger paid for the trip.
+    type: integer
+    source_type: BIGINT
+    classification: internal
+    accepted_values:
+      '0': Flex fare
+      '1': Credit card
+      '2': Cash
+      '3': No charge
+      '4': Dispute
+      '5': Unknown
+      '6': Voided trip
+    example: '1'
+    business_term: Payment method
+  - id: b870a07d-7f1f-4b78-86f3-3b3bdf7aa77c
+    name: fare_amount
+    description: Time-and-distance fare calculated by the meter.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: confidential
+    unit: USD
+    example: '17.70'
+    business_term: Base fare
+  - id: f47ce61c-9f42-46a5-9490-dc5c34425db8
+    name: extra
+    description: Miscellaneous extras and surcharges, such as rush-hour and overnight charges.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: confidential
+    unit: USD
+    example: '1.00'
+  - id: 0bd0113a-b360-4fec-86d5-c7a42db40eb6
+    name: mta_tax
+    description: MTA tax triggered automatically by the metered rate in use.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: confidential
+    unit: USD
+    example: '0.50'
+  - id: 878a8257-5228-4a09-87bd-ddb2d3366b88
+    name: tip_amount
+    description: Tip amount; populated for credit card tips only, cash tips are not recorded.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: confidential
+    unit: USD
+    example: '3.72'
+    business_term: Tip
+  - id: fff5a18c-f1d9-4be3-9785-205ab6be80e4
+    name: tolls_amount
+    description: Total tolls paid during the trip.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: confidential
+    unit: USD
+    example: '0.00'
+  - id: 7813d1ee-dd0f-433e-ab32-fee515ad08e2
+    name: improvement_surcharge
+    description: Improvement surcharge assessed at flag drop.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: confidential
+    unit: USD
+    example: '1.00'
+  - id: d157a731-7ac7-44a6-871c-cf6bd179147f
+    name: total_amount
+    description: Total amount charged to passengers; excludes cash tips.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: confidential
+    unit: USD
+    example: '22.70'
+    business_term: Trip revenue
+  - id: f29fad88-16da-415c-bd22-196d13cf1107
+    name: congestion_surcharge
+    description: New York State congestion surcharge collected for the trip.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: confidential
+    unit: USD
+    example: '2.50'
+  - id: c14aa8dd-d274-4227-8ec2-23078ca4e7e5
+    name: Airport_fee
+    description: Fee for pickups at LaGuardia and JFK airports.
+    type: decimal(10,2)
+    source_type: DOUBLE
+    classification: confidential
+    unit: USD
+    example: '0.00'

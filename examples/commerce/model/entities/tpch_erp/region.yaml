@@ -1,0 +1,39 @@
+id: 9d9ff7f2-a053-48a1-ab0c-4f87e83e0b5e
+name: region
+description: The five world regions.
+properties:
+  update_pattern: full_refresh_rarely_changes
+source: tpch_erp
+owner: commerce-data
+attributes:
+  - id: d82058fc-8706-45a2-bfde-e137afa6b028
+    name: r_regionkey
+    description: Region identifier.
+    type: integer
+    nullable: false
+    key: primary
+    source_type: INTEGER
+    classification: internal
+    example: '1'
+  - id: e6372c5f-addc-48e4-a4d0-618705fd334e
+    name: r_name
+    description: Region name.
+    type: string
+    nullable: false
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      - AFRICA
+      - AMERICA
+      - ASIA
+      - EUROPE
+      - MIDDLE EAST
+    example: AMERICA
+    business_term: Region
+  - id: caf73882-a416-4d35-a028-4b9add135c8a
+    name: r_comment
+    description: Free-text comment.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: hs use ironic, even requests.

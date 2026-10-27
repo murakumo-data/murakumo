@@ -1,0 +1,38 @@
+id: e9fd37dc-809e-483e-88b8-39e92885bb70
+name: dim_part
+description: Parts we sell.
+layer: marts
+kind: dimension
+domain: product
+history: scd1
+attributes:
+  - id: fb271224-710b-4179-b132-0d949dff2aa9
+    name: part_id
+    type: bigint
+    nullable: false
+    key: primary
+  - id: 1d25400b-d8ba-4ee3-920c-2153d150d146
+    name: part_name
+    type: string
+  - id: a10a6ff1-6dda-4045-b8aa-ecd926379f0f
+    name: brand
+    type: string
+  - id: 7128c19b-fd56-4e96-8c7d-8a44cb3aeb4e
+    name: retail_price
+    type: money
+    tests:
+      - type: range
+        min: 0.0
+mappings:
+  - target: part_id
+    sources:
+      - part.p_partkey
+  - target: part_name
+    sources:
+      - part.p_name
+  - target: brand
+    sources:
+      - part.p_brand
+  - target: retail_price
+    sources:
+      - part.p_retailprice

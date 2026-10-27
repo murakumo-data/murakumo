@@ -1,0 +1,92 @@
+id: 983210c5-a089-45c5-84db-6170b893bcd7
+name: orders
+description: Customer orders (order header).
+properties:
+  update_pattern: cdc
+source: tpch_erp
+owner: commerce-data
+load: cdc
+attributes:
+  - id: 79e1d1ad-8cf5-4d4b-82a0-01adad309b20
+    name: o_orderkey
+    description: Order identifier.
+    type: bigint
+    nullable: false
+    key: primary
+    source_type: BIGINT
+    classification: internal
+    example: '1'
+    business_term: Order
+  - id: b54d1363-1c6b-4e6d-aadf-7964cc67c3d0
+    name: o_custkey
+    description: Customer who placed the order.
+    type: bigint
+    nullable: false
+    source_type: BIGINT
+    classification: internal
+    example: '370'
+  - id: 77b7f25f-21cc-4f09-a6b7-0e413eec2d86
+    name: o_orderstatus
+    description: Order status derived from its line items.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      F: Fulfilled
+      O: Open
+      P: Partially fulfilled
+    example: O
+    business_term: Order status
+  - id: 27b12311-bbea-45ff-a120-4e0d6457a181
+    name: o_totalprice
+    description: Total order value including tax and discounts.
+    type: decimal(15,2)
+    source_type: DECIMAL(15,2)
+    classification: confidential
+    unit: USD
+    example: '172799.49'
+    business_term: Order value
+  - id: d478b0db-8197-4442-b5b2-233b48cabb72
+    name: o_orderdate
+    description: Date the order was placed.
+    type: date
+    nullable: false
+    source_type: DATE
+    classification: internal
+    example: '1996-01-02'
+    business_term: Order date
+  - id: b11c9b6e-47b1-45bb-9503-58bf5d38461e
+    name: o_orderpriority
+    description: Order priority.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      - 1-URGENT
+      - 2-HIGH
+      - 3-MEDIUM
+      - 4-NOT SPECIFIED
+      - 5-LOW
+    example: 5-LOW
+  - id: 893a2bde-48e8-4e24-a187-25655b07b8ab
+    name: o_clerk
+    description: Clerk who handled the order.
+    type: string
+    source_type: VARCHAR
+    classification: restricted
+    pii: true
+    example: Clerk#000000951
+  - id: d49bd351-3d77-4d9b-a34f-5ac7fc228dca
+    name: o_shippriority
+    description: Shipping priority.
+    type: integer
+    source_type: INTEGER
+    classification: internal
+    example: '0'
+  - id: 237ca90e-34f5-4437-b8a7-9d01ba4c59c6
+    name: o_comment
+    description: Free-text comment.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: nstructions sleep furiously among

@@ -15,7 +15,7 @@ my_platform/
     relationships.yaml          every relationship, in one list
     metrics.yaml                every metric, in one list
   custom/                       hand-written code, never touched by Murakumo
-  generated/                    written by `murakumo generate` (coming in milestone 3)
+  generated/                    written by `murakumo generate`; see docs/generating.md
 ```
 
 New entities go in `entities/<source>/` for raw tables and `entities/<layer>/` otherwise. If you
@@ -64,7 +64,7 @@ mappings:
     sources: [yellow_tripdata.total_amount]
   - target: trip_id
     sources: [yellow_tripdata.VendorID, yellow_tripdata.tpep_pickup_datetime]
-    expression: md5(concat_ws('|', VendorID, tpep_pickup_datetime))
+    expression: md5(concat_ws('|', VendorID, tpep_pickup_datetime))   # DuckDB SQL, translated per warehouse
 tests:                          # table-level rules
   - type: unique_combination
     columns: [pickup_at, pickup_zone_id]
@@ -174,6 +174,7 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK402 | error | A dictionary row has no table or column name, or the file has no rows |
 | MK403 | warning | A dictionary value could not be used (type, classification, foreign key) |
 | MK404 | warning | An import found an unknown type, no tables, or too small a sample |
+| MK501–507 | mixed | Generation problems; see [docs/generating.md](generating.md#rule-codes) |
 
 ## Editor support
 

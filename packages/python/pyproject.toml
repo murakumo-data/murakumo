@@ -18,10 +18,12 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
 ]
 dependencies = [
+    "jinja2>=3.1",
     "openpyxl>=3.1",
     "pydantic>=2.9",
     "pyyaml>=6.0",
     "rich>=13.9",
+    "sqlglot>=26",
     "typer>=0.15",
 ]
 
@@ -30,6 +32,8 @@ dependencies = [
 duckdb = ["duckdb>=1.1"]
 # Introspect PostgreSQL databases.
 postgres = ["psycopg[binary]>=3.2"]
+# Run `murakumo verify`: build and test the generated dbt project on DuckDB.
+verify = ["dbt-duckdb>=1.9"]
 
 [project.urls]
 Homepage = "https://github.com/murakumo-data/murakumo"
@@ -40,6 +44,7 @@ murakumo = "murakumo.cli:app"
 
 [dependency-groups]
 dev = [
+    "dbt-duckdb>=1.9",
     "duckdb>=1.1",
     "psycopg[binary]>=3.2",
     "pytest>=8.3",

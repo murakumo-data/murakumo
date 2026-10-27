@@ -10,6 +10,19 @@ Three public sources used to develop and test Murakumo. Together they cover ever
 
 The TPC-H names, addresses and phone numbers are synthetic, but they are flagged as PII in the dictionary so classification and masking can be tested.
 
+## The commerce project
+
+[commerce/](commerce) is a complete Murakumo project built from these sources: the three
+dictionaries imported through `murakumo.yaml`, plus three marts written by hand (an SCD2
+customer dimension, a part dimension and an incremental order-line fact). Its `generated/`
+folder is committed, so you can read the dbt project and DDL Murakumo produces, and CI checks it
+stays up to date.
+
+```bash
+cd packages/python
+uv run murakumo verify -p ../../examples/commerce     # build and test it on DuckDB
+```
+
 ## Data dictionaries
 
 `sample-dictionaries/` holds one CSV per source and `sample_dictionaries.xlsx` with one sheet per source. They are the reference input for the CSV and Excel importers. Regenerate them with:

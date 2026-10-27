@@ -1,0 +1,83 @@
+id: ad4976d5-9257-4d1d-bbee-3fcdc449ad4f
+name: customer
+description: Customers who place orders.
+properties:
+  update_pattern: cdc
+source: tpch_erp
+owner: commerce-data
+load: cdc
+attributes:
+  - id: 2d480a03-ada0-418e-8f13-7a1e47567394
+    name: c_custkey
+    description: Customer identifier.
+    type: bigint
+    nullable: false
+    key: primary
+    source_type: BIGINT
+    classification: internal
+    example: '1'
+    business_term: Customer
+  - id: b96ab41f-6e7c-4fc8-be5f-fe18c7a831a0
+    name: c_name
+    description: Customer name.
+    type: string
+    nullable: false
+    source_type: VARCHAR
+    classification: restricted
+    pii: true
+    example: Customer#000000001
+    business_term: Customer name
+  - id: cbcb92b4-a104-44ad-b536-70d136805b31
+    name: c_address
+    description: Customer street address.
+    type: string
+    source_type: VARCHAR
+    classification: restricted
+    pii: true
+    example: IVhzIApeRb ot,c,E
+  - id: afd6f1c9-d235-42c1-8937-8e573d13feeb
+    name: c_nationkey
+    description: Nation the customer is based in.
+    type: integer
+    nullable: false
+    source_type: INTEGER
+    classification: internal
+    example: '15'
+  - id: 4b1f1f0d-cb09-425d-a69c-5bc46fa7fe40
+    name: c_phone
+    description: Customer phone number.
+    type: string
+    source_type: VARCHAR
+    classification: restricted
+    pii: true
+    example: 25-989-741-2988
+  - id: dde84431-8c7c-48d5-9142-7219d7d74a6e
+    name: c_acctbal
+    description: Current account balance.
+    type: decimal(15,2)
+    source_type: DECIMAL(15,2)
+    classification: confidential
+    unit: USD
+    example: '711.56'
+    business_term: Account balance
+  - id: b4c88310-f957-4cfb-9ae4-7b3705610c1c
+    name: c_mktsegment
+    description: Market segment the customer belongs to.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      - AUTOMOBILE
+      - BUILDING
+      - FURNITURE
+      - HOUSEHOLD
+      - MACHINERY
+    example: BUILDING
+    business_term: Market segment
+  - id: 56d51acf-2b55-4f66-90a3-a4bef9382d52
+    name: c_comment
+    description: Free-text comment.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: to the even, regular platelets.

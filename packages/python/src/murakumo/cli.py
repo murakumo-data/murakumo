@@ -164,3 +164,8 @@ from murakumo import cli_model  # noqa: E402
 app.add_typer(cli_model.import_app, name="import")
 app.add_typer(cli_model.add_app, name="add")
 app.add_typer(cli_model.remove_app, name="remove")
+
+from murakumo import cli_generate  # noqa: E402
+
+app.command("generate")(cli_generate.generate_command)
+app.command("verify")(cli_generate.verify_command)

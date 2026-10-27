@@ -1,0 +1,51 @@
+id: 93ee40fd-93a5-4ca4-86fa-ed50542bb2ea
+name: partsupp
+description: Which supplier offers which part, with stock and cost.
+properties:
+  update_pattern: cdc
+source: tpch_erp
+owner: commerce-data
+load: cdc
+attributes:
+  - id: 3414f270-f979-4e51-b107-81ac659142fc
+    name: ps_partkey
+    description: Part supplied.
+    type: bigint
+    nullable: false
+    key: primary
+    source_type: BIGINT
+    classification: internal
+    example: '1'
+  - id: 98767b29-874a-4e76-9e79-d479cf55afa9
+    name: ps_suppkey
+    description: Supplier offering the part.
+    type: bigint
+    nullable: false
+    key: primary
+    source_type: BIGINT
+    classification: internal
+    example: '2'
+  - id: 6dcd2cc3-ec08-401c-97bf-bc9026232ab0
+    name: ps_availqty
+    description: Quantity available from this supplier.
+    type: integer
+    source_type: BIGINT
+    classification: internal
+    unit: units
+    example: '3325'
+  - id: 590512e4-6f24-4b8d-b165-8d241bcb0fdc
+    name: ps_supplycost
+    description: Cost of the part from this supplier.
+    type: decimal(15,2)
+    source_type: DECIMAL(15,2)
+    classification: confidential
+    unit: USD
+    example: '771.64'
+    business_term: Supply cost
+  - id: 95307f64-3516-4972-9eee-2d5e86557790
+    name: ps_comment
+    description: Free-text comment.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: requests after the carefully ironic

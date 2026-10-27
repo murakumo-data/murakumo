@@ -1,0 +1,79 @@
+id: acc4fb45-9161-4d13-941e-206d8bb17d37
+name: part
+description: Parts sold to customers.
+properties:
+  update_pattern: cdc
+source: tpch_erp
+owner: commerce-data
+load: cdc
+attributes:
+  - id: ef99a852-b090-4f4d-b591-9f8fb57013ba
+    name: p_partkey
+    description: Part identifier.
+    type: bigint
+    nullable: false
+    key: primary
+    source_type: BIGINT
+    classification: internal
+    example: '1'
+    business_term: Product
+  - id: 77f7b655-73e6-4c28-8301-33c6d573472f
+    name: p_name
+    description: Part name.
+    type: string
+    nullable: false
+    source_type: VARCHAR
+    classification: internal
+    example: goldenrod lavender spring chocolate lace
+  - id: 99b7c86f-be62-4197-9632-d41dc31d5368
+    name: p_mfgr
+    description: Manufacturer.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: Manufacturer#1
+  - id: fdee8608-ea1e-46fd-8c89-cbcd2609a525
+    name: p_brand
+    description: Brand.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: Brand#13
+    business_term: Brand
+  - id: f82e9933-d8c8-459d-9b10-4e984b1ad464
+    name: p_type
+    description: Part type.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: PROMO BURNISHED COPPER
+  - id: 8c0525be-05fe-4edc-8e7c-a1894bc35137
+    name: p_size
+    description: Part size.
+    type: integer
+    source_type: INTEGER
+    classification: internal
+    example: '7'
+  - id: 4493e8da-d391-474f-b4ce-ae2586e70c3a
+    name: p_container
+    description: Shipping container type.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: JUMBO PKG
+  - id: 8f20616a-1edc-4236-82d5-28440c7e5f3e
+    name: p_retailprice
+    description: List price.
+    type: decimal(15,2)
+    source_type: DECIMAL(15,2)
+    classification: internal
+    unit: USD
+    example: '901.00'
+    business_term: List price
+  - id: 5225edfb-152e-4150-8875-7bf62684b20d
+    name: p_comment
+    description: Free-text comment.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: ly. slyly ironi
