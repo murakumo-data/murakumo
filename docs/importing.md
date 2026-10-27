@@ -125,9 +125,11 @@ murakumo add entity dim_customer --layer marts --kind dimension
 murakumo add column dim_customer customer_key bigint --pk
 murakumo add column dim_customer email string --pii --classification confidential
 murakumo add relationship fct_order dim_customer --on customer_key=customer_key
-murakumo remove column dim_customer email
-murakumo remove entity dim_customer       # also removes its relationships and file
+murakumo rename entity dim_customer dim_client       # relationships, mappings, metrics and the file follow
+murakumo rename column dim_client customer_key client_key   # so do keys, grain, tests and expressions
+murakumo remove column dim_client email
+murakumo remove entity dim_client         # also removes its relationships and file
 ```
 
 Every change is saved and then validated, so you see straight away what else needs fixing. The
-canvas will use the same operations.
+[canvas](canvas.md) makes the same changes through the same code.
