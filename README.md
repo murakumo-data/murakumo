@@ -11,7 +11,7 @@
 | Path | What it is |
 | --- | --- |
 | [packages/python](packages/python) | Engine and `murakumo` CLI (`pip install murakumo`) |
-| [packages/npm](packages/npm) | npm package placeholder (`npm install murakumo`), future JavaScript SDK |
+| [packages/npm](packages/npm) | npm package (`npm install -g murakumo`): runs the PyPI release through uv |
 | [apps/canvas](apps/canvas) | Modelling canvas (React + React Flow), served by `murakumo canvas` |
 | [docs](docs) | [Starting a project and setting up](docs/setup.md), [the end-to-end test](docs/end-to-end-test.md), [model files and validation rules](docs/model.md), [importing metadata](docs/importing.md), [generating and verifying](docs/generating.md), [Snowflake](docs/snowflake.md), [the canvas](docs/canvas.md) |
 | [examples](examples) | Sample data dictionaries, and [commerce](examples/commerce): a full project with its generated dbt code |

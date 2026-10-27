@@ -77,3 +77,13 @@ jobs:
         env:
           MURAKUMO_REQUIRE_CANVAS: "1"
       - run: tools/smoke_test.sh packages/python/dist/murakumo-*-py3-none-any.whl
+      - name: The npm launcher runs the built wheel
+        run: |
+          wheel=$(ls "$PWD"/packages/python/dist/murakumo-*-py3-none-any.whl)
+          cd "$(mktemp -d)"
+          npm pack "$GITHUB_WORKSPACE/packages/npm"
+          npm install -g --prefix ./npm-global ./murakumo-*.tgz
+          export MURAKUMO_SPEC="murakumo[canvas,verify,duckdb] @ file://$wheel"
+          ./npm-global/bin/murakumo --version
+          ./npm-global/bin/murakumo init demo --yes
+          cd demo && ../npm-global/bin/murakumo validate
