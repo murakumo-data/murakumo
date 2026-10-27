@@ -17,5 +17,5 @@ select
     cast(versions.dbt_valid_from as TIMESTAMP) as valid_from,
     cast(versions.dbt_valid_to as TIMESTAMP) as valid_to,
     versions.dbt_valid_to is null as is_current,
-    current_timestamp as _updated_at
+    cast(current_timestamp as TIMESTAMPTZ) as _updated_at
 from versions

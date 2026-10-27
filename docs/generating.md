@@ -77,10 +77,11 @@ one: `money` is `NUMBER(38,4)` on Snowflake and `DECIMAL(38,4)` on Databricks; `
 
 ## Verify
 
-`murakumo verify` proves the generated project works, without a warehouse and without touching
-`generated/`:
+`murakumo verify` proves the generated project works, without touching `generated/`. It runs
+on DuckDB, locally and with no warehouse, or on Snowflake with `--warehouse snowflake` (see
+[snowflake.md](snowflake.md)):
 
-1. it generates the project for DuckDB in a temporary folder;
+1. it generates the project for that warehouse in a temporary folder;
 2. creates the raw tables from the generated DDL;
 3. loads them with synthetic rows that follow the model: unique keys (composite too), foreign
    keys that point at real parent rows, accepted values, NOT NULL, and range rules;
@@ -95,10 +96,10 @@ murakumo verify --keep build/    # keep the dbt project and verify.duckdb to loo
 ```
 
 With `--data`, a raw table is loaded from a real Parquet, CSV or JSON file (local or `https://`)
-instead, matching columns by name; `--limit` caps the rows. Real data is where tests start to
-find real problems.
+instead, matching columns by name, or on Snowflake from a table (`snowflake:DB.SCHEMA.TABLE`);
+`--limit` caps the rows. Real data is where tests start to find real problems.
 
-Verify needs dbt and DuckDB: `pip install "murakumo[verify]"`.
+Verify needs dbt and DuckDB: `pip install "murakumo[verify]"`, plus `dbt-snowflake` for Snowflake.
 
 ## Rule codes
 

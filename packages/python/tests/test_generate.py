@@ -81,10 +81,21 @@ def test_staging_renames_casts_and_audits(taxi):
 
 
 def test_mapping_expressions_are_rewritten_per_dialect(taxi):
-    for warehouse, fragment in [("duckdb", "CONCAT_WS('|', yellow_tripdata.vendor_id"), ("snowflake", "COALESCE(")]:
+    for warehouse, fragment in [
+        ("duckdb", "CONCAT_WS('|', CAST(yellow_tripdata.vendor_id AS TEXT)"),
+        # SQLGlot keeps DuckDB's null handling with COALESCE; the cast makes that valid for numbers.
+        ("snowflake", "COALESCE(CAST(yellow_tripdata.vendor_id AS VARCHAR), '')"),
+        ("bigquery", "TO_HEX(MD5("),
+    ]:
         trip_id = plan_for(taxi, warehouse).model("fct_trip").columns[0]
         assert fragment in trip_id.sql
         assert "VendorID" not in trip_id.sql  # raw names became staged names
+
+
+def test_updated_at_is_cast_to_the_contract_type(taxi):
+    # Snowflake's current_timestamp is TIMESTAMP_LTZ; the contract says TIMESTAMP_TZ.
+    updated = plan_for(taxi, "snowflake").model("fct_trip").columns[-1]
+    assert updated.sql == "cast(current_timestamp as TIMESTAMP_TZ)" and updated.data_type == "TIMESTAMP_TZ"
 
 
 def test_incremental_fact(taxi):
@@ -173,7 +184,28 @@ def test_dbt_yaml_is_valid_and_complete(taxi):
     assert fact["config"]["contract"]["enforced"] is True
     assert all("data_type" in c for c in fact["columns"])
     sources = yaml.safe_load(files["dbt/models/staging/nyc_tlc/_nyc_tlc__sources.yml"])
-    assert sources["sources"][0]["schema"] == "raw_nyc_tlc"
+    # verify on a shared warehouse prefixes every schema of a run
+    assert sources["sources"][0]["schema"] == "{{ env_var('MURAKUMO_SCHEMA_PREFIX', '') }}raw_nyc_tlc"
+    assert "MURAKUMO_SCHEMA_PREFIX" in files["dbt/macros/murakumo/schema_names.sql"]
+
+
+def test_warehouse_database_ignores_duckdb_file_names(taxi):
+    from murakumo.generate.dbt import warehouse_database
+
+    assert taxi.manifest.targets.warehouse.database == "taxi.duckdb"
+    assert warehouse_database(taxi.manifest) == "TAXI"
+    profiles = yaml.safe_load(generate(taxi, "snowflake").files["dbt/profiles.yml"])
+    assert profiles["taxi"]["outputs"]["dev"]["database"] == "{{ env_var('SNOWFLAKE_DATABASE', 'TAXI') }}"
+    duckdb_profile = yaml.safe_load(generate(taxi).files["dbt/profiles.yml"])
+    assert "taxi.duckdb" in duckdb_profile["taxi"]["outputs"]["dev"]["path"]
+
+
+def test_raw_ddl_takes_a_schema_prefix(taxi):
+    from murakumo.generate.ddl import DDL
+
+    sql = DDL(plan_for(taxi, "snowflake"), schema_prefix="verify_1_").raw()
+    assert "CREATE SCHEMA IF NOT EXISTS verify_1_raw_nyc_tlc;" in sql
+    assert 'verify_1_raw_nyc_tlc.yellow_tripdata (\n    "VendorID" NUMBER(10,0)' in sql
 
 
 def test_generation_is_deterministic(taxi):

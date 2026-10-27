@@ -11,7 +11,7 @@
 | [packages/python](packages/python) | Engine and `murakumo` CLI (`pip install murakumo`) |
 | [packages/npm](packages/npm) | npm package placeholder (`npm install murakumo`), future JavaScript SDK |
 | [apps/canvas](apps/canvas) | Modelling canvas (React + React Flow) |
-| [docs](docs) | Reference: [model files and validation rules](docs/model.md), [importing metadata](docs/importing.md), [generating and verifying](docs/generating.md) |
+| [docs](docs) | Reference: [model files and validation rules](docs/model.md), [importing metadata](docs/importing.md), [generating and verifying](docs/generating.md), [Snowflake](docs/snowflake.md) |
 | [examples](examples) | Sample data dictionaries, and [commerce](examples/commerce): a full project with its generated dbt code |
 | [tools](tools) | Developer scripts |
 

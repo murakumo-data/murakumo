@@ -2,7 +2,7 @@
 version: 2
 sources:
   - name: tpch_erp
-    schema: raw_tpch_erp
+    schema: '{{ env_var(''MURAKUMO_SCHEMA_PREFIX'', '''') }}raw_tpch_erp'
     loaded_at_field: _ingested_at
     tables:
       - name: customer

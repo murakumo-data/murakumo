@@ -12,5 +12,5 @@ select
     cast(part.p_name as VARCHAR) as part_name,
     cast(part.p_brand as VARCHAR) as brand,
     cast(part.p_retailprice as DECIMAL(18,4)) as retail_price,
-    current_timestamp as _updated_at
+    cast(current_timestamp as TIMESTAMPTZ) as _updated_at
 from part

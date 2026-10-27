@@ -23,13 +23,15 @@ murakumo add column dim_customer email string --pii    # add or remove sources, 
 murakumo generate                                      # generated/: dbt project and DDL for your warehouse
 murakumo generate --check                              # fail CI if generated/ is out of date
 murakumo verify                                        # build and test it all on DuckDB, twice
+murakumo verify --warehouse snowflake                  # or on Snowflake, in throwaway schemas
 ```
 
-Extras: `pip install "murakumo[duckdb,postgres,verify]"` for databases, files and `murakumo verify`.
+Extras: `pip install "murakumo[duckdb,postgres,snowflake,verify]"` for databases, files and `murakumo verify`.
 
 Docs: [model files and validation rules](https://github.com/murakumo-data/murakumo/blob/main/docs/model.md),
 [importing metadata](https://github.com/murakumo-data/murakumo/blob/main/docs/importing.md),
-[generating and verifying](https://github.com/murakumo-data/murakumo/blob/main/docs/generating.md).
+[generating and verifying](https://github.com/murakumo-data/murakumo/blob/main/docs/generating.md),
+[Snowflake](https://github.com/murakumo-data/murakumo/blob/main/docs/snowflake.md).
 
 ## Development
 

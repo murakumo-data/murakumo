@@ -2,7 +2,7 @@
 version: 2
 sources:
   - name: open_meteo
-    schema: raw_open_meteo
+    schema: '{{ env_var(''MURAKUMO_SCHEMA_PREFIX'', '''') }}raw_open_meteo'
     loaded_at_field: _ingested_at
     tables:
       - name: weather_daily

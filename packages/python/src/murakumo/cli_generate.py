@@ -70,8 +70,14 @@ def verify_command(
     limit: int | None = typer.Option(None, help="Load at most this many rows from each --data file."),
     keep: Path | None = typer.Option(None, help="Keep the build folder here, to inspect the project and database."),
     once: bool = typer.Option(False, "--once", help="Build once; skip the second, incremental build."),
+    warehouse: Warehouse = typer.Option(
+        Warehouse.DUCKDB, "--warehouse", help="duckdb (local, default) or snowflake (uses SNOWFLAKE_* variables)."
+    ),
+    keep_tables: bool = typer.Option(
+        False, "--keep-tables", help="On Snowflake, keep the run's schemas instead of dropping them."
+    ),
 ) -> None:
-    """Build the generated dbt project on DuckDB and run every test, twice."""
+    """Build the generated dbt project and run every test, twice: on DuckDB, or on Snowflake."""
     from murakumo.generate.verify import verify
     from murakumo.importers.database import SourceUnavailable
 
@@ -93,9 +99,18 @@ def verify_command(
             raise typer.Exit(1)
         files[table] = location
 
-    with console.status("Generating for DuckDB, loading raw tables and running dbt build..."):
+    with console.status(f"Generating for {warehouse.value}, loading raw tables and running dbt build..."):
         try:
-            result = verify(project, rows=rows, data=files, limit=limit, keep=keep, rerun=not once)
+            result = verify(
+                project,
+                rows=rows,
+                data=files,
+                limit=limit,
+                keep=keep,
+                rerun=not once,
+                warehouse=warehouse,
+                keep_tables=keep_tables,
+            )
         except SourceUnavailable as exc:
             fail(str(exc))
             raise typer.Exit(1) from None
@@ -120,11 +135,14 @@ def verify_command(
     summary = f"{models} models and snapshots built, {passed}/{tests} tests passed"
     if result.rerun is not None:
         summary += ", incremental rebuild " + ("passed" if result.rerun else "failed")
+    summary += f" on {result.warehouse}"
     if result.ok:
         console.print(f"[green]verified[/green]: {summary}.")
     else:
         console.print(f"[red]failed[/red]: {summary}.")
     if keep:
-        console.print(f"Build kept in {keep}: open {keep / 'verify.duckdb'} with DuckDB to look at the tables.")
+        console.print(f"dbt project kept in {keep}.")
+    if result.location and (keep_tables or warehouse is Warehouse.DUCKDB):
+        console.print(f"Tables kept in {result.location}.")
     if not result.ok:
         raise typer.Exit(1)

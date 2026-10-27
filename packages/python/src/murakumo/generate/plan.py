@@ -173,6 +173,12 @@ class Planner:
     def file(self, entity: Entity):
         return self.project.origins.get(entity.id)
 
+    def updated_at(self) -> Column:
+        """When the row was last built. Cast, because ``current_timestamp`` has a different type per
+        warehouse (Snowflake: TIMESTAMP_LTZ) and enforced contracts compare types exactly."""
+        data_type = self.target.physical_name("timestamp_tz")
+        return Column("_updated_at", self.cast("current_timestamp", data_type), data_type)
+
     def physical(self, attribute: Attribute) -> str:
         return self.target.physical(attribute.logical_type)
 
@@ -314,7 +320,7 @@ class Planner:
                     meta=_meta(attribute),
                 )
             )
-        columns.append(Column("_updated_at", "current_timestamp", self.target.physical_name("timestamp_tz")))
+        columns.append(self.updated_at())
 
         names = {a.name.lower(): a.name for a in entity.attributes}
         tests: list[Test] = []
@@ -401,7 +407,7 @@ class Planner:
                 self.target.physical_name("boolean"),
                 "True for the latest version.",
             ),
-            Column("_updated_at", "current_timestamp", self.target.physical_name("timestamp_tz")),
+            self.updated_at(),
         ]
         dimension = DbtModel(
             name=entity.name,
@@ -522,7 +528,7 @@ class Planner:
             alias, column = resolved[key]
             return exp.column(column, table=alias, quoted=not re.fullmatch(r"[a-z_][a-z0-9_]*", column))
 
-        return tree.transform(rewrite).sql(dialect=self.target.dialect)
+        return _text_concat_arguments(tree.transform(rewrite)).sql(dialect=self.target.dialect)
 
     def warehouse_config(self, entity: Entity) -> dict:
         config: dict = {}
@@ -594,6 +600,23 @@ class Planner:
                 continue
         self.relationship_tests()
         return self.plan
+
+
+def _text_concat_arguments(tree: exp.Expression) -> exp.Expression:
+    """Cast concat and concat_ws arguments to text, as DuckDB does implicitly.
+
+    Other warehouses need it explicit: SQLGlot keeps DuckDB's null handling by wrapping each
+    argument in ``coalesce(x, '')``, and on Snowflake that fails for a number column.
+    """
+    for node in list(tree.find_all(exp.Concat, exp.ConcatWs)):
+        arguments = node.expressions
+        start = 1 if isinstance(node, exp.ConcatWs) else 0  # the separator stays as it is
+        node.set(
+            "expressions",
+            arguments[:start]
+            + [a if isinstance(a, exp.Literal) and a.is_string else exp.cast(a, "VARCHAR") for a in arguments[start:]],
+        )
+    return tree
 
 
 def quote_identifier(name: str, dialect: str) -> str:
