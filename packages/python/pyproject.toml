@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "murakumo"
+version = "0.0.2"
+description = "Model-first data engineering: design the logical model, generate the platform. Early placeholder release."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+keywords = ["data-engineering", "data-modelling", "dbt", "lakehouse", "iceberg", "code-generation"]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database",
+    "Topic :: Software Development :: Code Generators",
+]
+
+[project.urls]
+Homepage = "https://github.com/murakumo-data/murakumo"
+Repository = "https://github.com/murakumo-data/murakumo"
+
+[project.scripts]
+murakumo = "murakumo:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/murakumo"]

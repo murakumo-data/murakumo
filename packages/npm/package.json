@@ -1,0 +1,17 @@
+{
+  "name": "murakumo",
+  "version": "0.0.2",
+  "description": "Model-first data engineering: design the logical model, generate the platform. Early placeholder release.",
+  "keywords": ["data-engineering", "data-modelling", "dbt", "lakehouse", "iceberg", "code-generation"],
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/murakumo-data/murakumo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/murakumo-data/murakumo.git",
+    "directory": "packages/npm"
+  },
+  "bin": {
+    "murakumo": "bin/murakumo.js"
+  },
+  "files": ["bin", "README.md"]
+}
