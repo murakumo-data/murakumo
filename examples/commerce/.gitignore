@@ -1,0 +1,4 @@
+# Local warehouse files and secrets
+*.duckdb
+*.duckdb.wal
+.env

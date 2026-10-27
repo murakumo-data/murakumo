@@ -1,0 +1,96 @@
+id: 28e37849-6c1e-4550-a434-4e73f558c8c5
+name: weather_daily
+description: Daily aggregated historical weather per location from the Open-Meteo archive API.
+properties:
+  update_pattern: api_daily_incremental
+source: open_meteo
+owner: weather-data
+load: incremental
+watermark: observed_date
+attributes:
+  - id: 58d42268-7296-4370-8e60-5ac6c1ec0082
+    name: location_key
+    description: Our identifier for the requested point, e.g. a borough centroid; the API itself is queried by coordinates.
+    type: string
+    nullable: false
+    key: primary
+    source_type: request parameter
+    classification: internal
+    example: manhattan
+    business_term: Weather location
+  - id: 034a560b-cb0a-4a04-97bd-d1a84ea00a87
+    name: latitude
+    description: Latitude of the weather grid cell the API resolved to.
+    type: decimal(9,6)
+    nullable: false
+    source_type: number
+    classification: internal
+    unit: degrees
+    example: '40.738136'
+  - id: 8f457f71-953d-4853-8393-83994470c78c
+    name: longitude
+    description: Longitude of the weather grid cell the API resolved to.
+    type: decimal(9,6)
+    nullable: false
+    source_type: number
+    classification: internal
+    unit: degrees
+    example: '-74.04254'
+  - id: 7b467362-dd22-47bd-8c99-1d04d3c04d91
+    name: timezone
+    description: IANA time zone used for the time values.
+    type: string
+    nullable: false
+    source_type: string
+    classification: internal
+    example: America/New_York
+  - id: 7b8b8795-6a51-4939-ba17-d06a55f3880c
+    name: observed_date
+    description: Calendar day in the chosen time zone.
+    type: date
+    nullable: false
+    key: primary
+    source_type: string (iso8601)
+    classification: internal
+    example: '2024-01-01'
+    business_term: Observation date
+  - id: 288de185-6145-4f44-b820-630a77dcf49b
+    name: temperature_2m_max
+    description: Maximum daily air temperature 2 metres above ground.
+    type: decimal(5,1)
+    source_type: number
+    classification: internal
+    unit: °C
+    example: '4.8'
+  - id: 55a1388c-0405-46c9-b4c9-6a734309c512
+    name: temperature_2m_min
+    description: Minimum daily air temperature 2 metres above ground.
+    type: decimal(5,1)
+    source_type: number
+    classification: internal
+    unit: °C
+    example: '0.3'
+  - id: aa66c1ad-33a0-4631-92d9-8195b07e2acd
+    name: precipitation_sum
+    description: Total precipitation for the day.
+    type: decimal(6,1)
+    source_type: number
+    classification: internal
+    unit: mm
+    example: '0.0'
+  - id: 7d5df222-e428-43de-8f03-9e29ac42b34f
+    name: snowfall_sum
+    description: Total snowfall for the day.
+    type: decimal(6,2)
+    source_type: number
+    classification: internal
+    unit: cm
+    example: '0.00'
+  - id: 45eaa0bd-9076-4918-b296-44c104be9d29
+    name: weather_code
+    description: Most severe WMO weather code during the day.
+    type: integer
+    source_type: number
+    classification: internal
+    unit: wmo code
+    example: '3'

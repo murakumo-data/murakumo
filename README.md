@@ -11,8 +11,8 @@
 | [packages/python](packages/python) | Engine and `murakumo` CLI (`pip install murakumo`) |
 | [packages/npm](packages/npm) | npm package placeholder (`npm install murakumo`), future JavaScript SDK |
 | [apps/canvas](apps/canvas) | Modelling canvas (React + React Flow) |
-| [docs](docs) | Reference: [model files and validation rules](docs/model.md), [importing metadata](docs/importing.md) |
-| [examples](examples) | Sample sources and data dictionaries used for development and tests |
+| [docs](docs) | Reference: [model files and validation rules](docs/model.md), [importing metadata](docs/importing.md), [generating and verifying](docs/generating.md) |
+| [examples](examples) | Sample data dictionaries, and [commerce](examples/commerce): a full project with its generated dbt code |
 | [tools](tools) | Developer scripts |
 
 ## Getting started
@@ -22,7 +22,7 @@ Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 22+.
 ```bash
 cd packages/python && uv sync && uv run murakumo --version
 uv run murakumo init ../../local-data/demo && uv run murakumo validate ../../local-data/demo
-uv run murakumo import excel ../../examples/sample-dictionaries/sample_dictionaries.xlsx -p ../../local-data/demo
+uv run murakumo verify -p ../../examples/commerce
 cd apps/canvas && npm install && npm run dev
 ```
 

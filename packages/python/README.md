@@ -2,7 +2,7 @@
 
 **Model-first data engineering.** Design the logical model (entities, relationships, mappings) on a canvas, and Murakumo generates and maintains everything downstream: DDL, dbt projects, Spark and Python jobs, streaming configs, tests, audit tables, data contracts and orchestration, on an open lakehouse.
 
-Early development: the model, importers and validation work; code generation is not built yet. Source: [github.com/murakumo-data/murakumo](https://github.com/murakumo-data/murakumo).
+Early development: the model, importers, validation, and dbt and DDL generation work. Source: [github.com/murakumo-data/murakumo](https://github.com/murakumo-data/murakumo).
 
 ## Usage
 
@@ -19,12 +19,17 @@ murakumo import csv dictionary.csv                     # or: excel, database, fi
 murakumo import database env:ERP_URL --source erp      # needs murakumo[postgres] or murakumo[duckdb]
 murakumo import                                        # every source with a from: line in murakumo.yaml
 murakumo add column dim_customer email string --pii    # add or remove sources, entities, columns, relationships
+
+murakumo generate                                      # generated/: dbt project and DDL for your warehouse
+murakumo generate --check                              # fail CI if generated/ is out of date
+murakumo verify                                        # build and test it all on DuckDB, twice
 ```
 
-Database and file support are extras: `pip install "murakumo[duckdb,postgres]"`.
+Extras: `pip install "murakumo[duckdb,postgres,verify]"` for databases, files and `murakumo verify`.
 
 Docs: [model files and validation rules](https://github.com/murakumo-data/murakumo/blob/main/docs/model.md),
-[importing metadata](https://github.com/murakumo-data/murakumo/blob/main/docs/importing.md).
+[importing metadata](https://github.com/murakumo-data/murakumo/blob/main/docs/importing.md),
+[generating and verifying](https://github.com/murakumo-data/murakumo/blob/main/docs/generating.md).
 
 ## Development
 

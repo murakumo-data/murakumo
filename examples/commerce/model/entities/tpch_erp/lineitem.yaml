@@ -1,0 +1,162 @@
+id: eb21bd3e-0c90-4f5e-9d4a-a036211ae32d
+name: lineitem
+description: 'Order lines: one row per part on an order.'
+properties:
+  update_pattern: cdc
+source: tpch_erp
+owner: commerce-data
+load: cdc
+attributes:
+  - id: 6667be2b-a0eb-480b-b296-886da0114c20
+    name: l_orderkey
+    description: Order the line belongs to.
+    type: bigint
+    nullable: false
+    key: primary
+    source_type: BIGINT
+    classification: internal
+    example: '1'
+  - id: 180dc507-e8e6-4fd6-b9a9-83f403f58efd
+    name: l_partkey
+    description: Part ordered.
+    type: bigint
+    nullable: false
+    source_type: BIGINT
+    classification: internal
+    example: '1552'
+  - id: 53702c43-3c30-451e-ae02-b38d1810f36a
+    name: l_suppkey
+    description: Supplier fulfilling the line.
+    type: bigint
+    nullable: false
+    source_type: BIGINT
+    classification: internal
+    example: '93'
+  - id: 1d371f21-3879-4bdb-81f5-5ded4d66b937
+    name: l_linenumber
+    description: Line number within the order.
+    type: integer
+    nullable: false
+    key: primary
+    source_type: BIGINT
+    classification: internal
+    example: '1'
+  - id: 52d8049e-1b69-4165-937f-782bfe097f95
+    name: l_quantity
+    description: Quantity ordered.
+    type: decimal(15,2)
+    source_type: DECIMAL(15,2)
+    classification: internal
+    unit: units
+    example: '17.00'
+    business_term: Quantity
+  - id: 0b760888-dea8-4612-a91c-91f6f115f4bd
+    name: l_extendedprice
+    description: Quantity times part price, before discount and tax.
+    type: decimal(15,2)
+    source_type: DECIMAL(15,2)
+    classification: confidential
+    unit: USD
+    example: '24710.35'
+    business_term: Gross line amount
+    tests:
+      - type: range
+        min: 0.0
+  - id: 8172b1d2-d3df-4986-b441-b01919737acf
+    name: l_discount
+    description: Discount rate applied to the line.
+    type: decimal(15,2)
+    source_type: DECIMAL(15,2)
+    classification: internal
+    unit: ratio
+    example: '0.04'
+    tests:
+      - type: range
+        min: 0.0
+        max: 1.0
+  - id: 7bc7e200-6739-4a4f-b544-ad3699d5ce1f
+    name: l_tax
+    description: Tax rate applied to the line.
+    type: decimal(15,2)
+    source_type: DECIMAL(15,2)
+    classification: internal
+    unit: ratio
+    example: '0.02'
+  - id: c57f9910-5048-4e2e-85bc-ba66ece75c45
+    name: l_returnflag
+    description: Whether the line was returned.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      - A
+      - N
+      - R
+    example: N
+  - id: a345ad72-d242-4529-be64-1605340afdd7
+    name: l_linestatus
+    description: Line status.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      F: Fulfilled
+      O: Open
+    example: O
+  - id: e7ec7383-1dae-4d15-a197-d5c6b01a0108
+    name: l_shipdate
+    description: Date the line shipped.
+    type: date
+    source_type: DATE
+    classification: internal
+    example: '1996-03-13'
+    business_term: Ship date
+  - id: 99571642-d3d5-4a3b-af5d-8d95ca3df1ee
+    name: l_commitdate
+    description: Date the line was promised to ship.
+    type: date
+    source_type: DATE
+    classification: internal
+    example: '1996-02-12'
+  - id: 660ab6dc-d8dd-4351-80ba-9ecf184be761
+    name: l_receiptdate
+    description: Date the customer received the line.
+    type: date
+    source_type: DATE
+    classification: internal
+    example: '1996-03-22'
+  - id: 3c06d979-8428-4db2-a73d-a0178837343b
+    name: l_shipinstruct
+    description: Shipping instructions.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      - DELIVER IN PERSON
+      - COLLECT COD
+      - NONE
+      - TAKE BACK RETURN
+    example: DELIVER IN PERSON
+  - id: f724c8a6-7896-4571-b18e-3fb7139924c9
+    name: l_shipmode
+    description: Shipping mode.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    accepted_values:
+      - AIR
+      - FOB
+      - MAIL
+      - RAIL
+      - REG AIR
+      - SHIP
+      - TRUCK
+    example: TRUCK
+    business_term: Ship mode
+  - id: fe051d97-0945-4a2e-90da-06cd9fef168c
+    name: l_comment
+    description: Free-text comment.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: egular courts above the

@@ -1,0 +1,57 @@
+id: 18a17f77-9fc2-4845-af46-08712f478c4c
+name: dim_customer
+description: Customers, with every change to their segment, balance or country kept as a new version.
+layer: marts
+kind: dimension
+domain: sales
+history: scd2
+attributes:
+  - id: 35db6dbb-53e8-460c-a9bb-ce27e6917e94
+    name: customer_id
+    type: bigint
+    nullable: false
+    key: primary
+  - id: c1d993e5-8711-49d5-b4d4-6dba0920f0a1
+    name: customer_name
+    type: string
+    classification: restricted
+    pii: true
+  - id: 1ffd7ad3-fcc8-4568-90fd-35ce38028b0f
+    name: phone
+    type: string
+    classification: restricted
+    pii: true
+  - id: 8ee94507-92a2-4992-9fea-9feac243f325
+    name: nation_name
+    type: string
+  - id: cde10d7b-8cb5-4d0d-b983-471a76d79d0e
+    name: market_segment
+    type: string
+    accepted_values:
+      - AUTOMOBILE
+      - BUILDING
+      - FURNITURE
+      - HOUSEHOLD
+      - MACHINERY
+  - id: 2a955198-4d7a-4867-9126-055948783a65
+    name: account_balance
+    type: money
+mappings:
+  - target: customer_id
+    sources:
+      - customer.c_custkey
+  - target: customer_name
+    sources:
+      - customer.c_name
+  - target: phone
+    sources:
+      - customer.c_phone
+  - target: nation_name
+    sources:
+      - nation.n_name
+  - target: market_segment
+    sources:
+      - customer.c_mktsegment
+  - target: account_balance
+    sources:
+      - customer.c_acctbal

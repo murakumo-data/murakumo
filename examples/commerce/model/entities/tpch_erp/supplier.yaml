@@ -1,0 +1,64 @@
+id: 8503930f-d0e4-40cb-8462-fe14723c776a
+name: supplier
+description: Suppliers that provide parts.
+properties:
+  update_pattern: cdc
+source: tpch_erp
+owner: commerce-data
+load: cdc
+attributes:
+  - id: 400ea484-acb2-4413-a5b0-ffd3205f51a5
+    name: s_suppkey
+    description: Supplier identifier.
+    type: bigint
+    nullable: false
+    key: primary
+    source_type: BIGINT
+    classification: internal
+    example: '1'
+    business_term: Supplier
+  - id: 1796eb44-79ea-494f-a252-9d59999b760e
+    name: s_name
+    description: Supplier name.
+    type: string
+    nullable: false
+    source_type: VARCHAR
+    classification: internal
+    example: Supplier#000000001
+  - id: e3778432-4d72-4bad-9101-32acd8e0f443
+    name: s_address
+    description: Supplier street address.
+    type: string
+    source_type: VARCHAR
+    classification: confidential
+    example: N kD4on9OM Ipw3,gf0JBoQDd7tgrzrddZ
+  - id: 23dfc283-cc1b-403d-b69d-2acdfd8ce2ee
+    name: s_nationkey
+    description: Nation the supplier is based in.
+    type: integer
+    nullable: false
+    source_type: INTEGER
+    classification: internal
+    example: '17'
+  - id: b03b8e26-53c7-4d4d-845b-f81af6ff79f6
+    name: s_phone
+    description: Supplier phone number.
+    type: string
+    source_type: VARCHAR
+    classification: confidential
+    example: 27-918-335-1736
+  - id: 5edc007c-d035-48ef-b772-4daa2b5ef4d3
+    name: s_acctbal
+    description: Current account balance.
+    type: decimal(15,2)
+    source_type: DECIMAL(15,2)
+    classification: confidential
+    unit: USD
+    example: '5755.94'
+  - id: de9721ed-bf08-4865-a57c-c8bf79b67d55
+    name: s_comment
+    description: Free-text comment.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: each slyly above the careful

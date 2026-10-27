@@ -1,0 +1,18 @@
+{{ header }}
+with source as (
+
+    select * from {{ model.relation }}
+
+),
+
+final as (
+
+    select
+{%- for column in model.columns %}
+        {{ column.sql }} as {{ quote(column.name) }}{{ "," if not loop.last }}
+{%- endfor %}
+    from source
+
+)
+
+select * from final

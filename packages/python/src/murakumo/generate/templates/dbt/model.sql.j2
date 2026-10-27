@@ -1,0 +1,30 @@
+{{ header }}
+{%- if config %}
+{{ '{{' }} config({{ config }}) {{ '}}' }}
+{% endif %}
+with {{ model.alias }} as (
+
+    select * from {{ model.relation }}
+
+){% for join in model.joins %},
+
+{{ join.alias }} as (
+
+    select * from {{ join.relation }}
+
+){% endfor %}
+
+select
+{%- for column in model.columns %}
+    {{ column.sql }} as {{ quote(column.name) }}{{ "," if not loop.last }}
+{%- endfor %}
+from {{ model.alias }}
+{%- for join in model.joins %}
+left join {{ join.alias }}
+    on {{ join.on }}
+{%- endfor %}
+{%- if model.incremental_filter %}
+{{ '{%' }} if is_incremental() {{ '%}' }}
+where {{ model.incremental_filter }}
+{{ '{%' }} endif {{ '%}' }}
+{%- endif %}

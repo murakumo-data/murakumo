@@ -1,0 +1,41 @@
+id: 24f31441-3a6f-45dc-8ab9-7ecd29e27d66
+name: nation
+description: The 25 nations customers and suppliers belong to.
+properties:
+  update_pattern: full_refresh_rarely_changes
+source: tpch_erp
+owner: commerce-data
+attributes:
+  - id: 5f579125-7cd7-4d84-a015-7b0f23a1a5c8
+    name: n_nationkey
+    description: Nation identifier.
+    type: integer
+    nullable: false
+    key: primary
+    source_type: INTEGER
+    classification: internal
+    example: '24'
+  - id: 56e9b3a7-cf37-4f38-8d75-a63bdec97c4b
+    name: n_name
+    description: Nation name.
+    type: string
+    nullable: false
+    source_type: VARCHAR
+    classification: internal
+    example: UNITED STATES
+    business_term: Country
+  - id: 94d597d4-8110-495f-98be-9b00e215b4dd
+    name: n_regionkey
+    description: Region the nation belongs to.
+    type: integer
+    nullable: false
+    source_type: INTEGER
+    classification: internal
+    example: '1'
+  - id: 28bbc6e9-b9df-4e3d-bcae-1c0a3a33fdc7
+    name: n_comment
+    description: Free-text comment.
+    type: string
+    source_type: VARCHAR
+    classification: internal
+    example: y final packages.

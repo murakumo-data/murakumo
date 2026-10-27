@@ -1,0 +1,78 @@
+id: 3f721466-3ca6-4fa1-a3f8-2aa6b1831e48
+name: fct_order_line
+description: One row per order line, with its net amount after discount.
+layer: marts
+kind: fact
+domain: sales
+grain:
+  - order_id
+  - line_number
+load: incremental
+watermark: ordered_on
+partition_by:
+  - month(ordered_on)
+attributes:
+  - id: 07258d64-c6d6-4ea8-b4f3-2a1219d9fa07
+    name: order_id
+    type: bigint
+    nullable: false
+  - id: 74c791bf-7564-435c-bbe7-092ba3bcaca3
+    name: line_number
+    type: integer
+    nullable: false
+  - id: 67a3a98d-f916-4316-8850-7170b0e927ac
+    name: customer_id
+    type: bigint
+    nullable: false
+  - id: b19f4ae5-ab59-456d-9562-47134f813587
+    name: part_id
+    type: bigint
+    nullable: false
+  - id: 18271a70-bea4-437c-b6ba-5c6f87b40326
+    name: ordered_on
+    type: date
+    nullable: false
+  - id: 218cc278-b7bc-471a-bbb5-570591bfcb4d
+    name: order_status
+    type: string
+    accepted_values:
+      F: Fulfilled
+      O: Open
+      P: Partially fulfilled
+  - id: 6b35e5a6-ce89-4e2c-95b5-a9f109fa8dac
+    name: quantity
+    type: decimal(15,2)
+  - id: 8d37c30f-f504-446a-8976-0d219b8b5636
+    name: net_amount
+    description: Extended price after discount, before tax.
+    type: money
+    tests:
+      - type: range
+        min: 0.0
+mappings:
+  - target: order_id
+    sources:
+      - lineitem.l_orderkey
+  - target: line_number
+    sources:
+      - lineitem.l_linenumber
+  - target: customer_id
+    sources:
+      - orders.o_custkey
+  - target: part_id
+    sources:
+      - lineitem.l_partkey
+  - target: ordered_on
+    sources:
+      - orders.o_orderdate
+  - target: order_status
+    sources:
+      - orders.o_orderstatus
+  - target: quantity
+    sources:
+      - lineitem.l_quantity
+  - target: net_amount
+    sources:
+      - lineitem.l_extendedprice
+      - lineitem.l_discount
+    expression: l_extendedprice * (1 - l_discount)

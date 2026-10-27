@@ -1,0 +1,103 @@
+relationships:
+  - id: cfb184b3-b704-446e-9155-a25ef237a58c
+    name: nation__n_regionkey
+    from: nation
+    to: region
+    keys:
+      - from: n_regionkey
+        to: r_regionkey
+  - id: f6e3b772-3882-41ec-89a8-b7631a2a7adc
+    name: customer__c_nationkey
+    from: customer
+    to: nation
+    keys:
+      - from: c_nationkey
+        to: n_nationkey
+  - id: e43f7f76-6639-48a8-89e1-d1ab9a031f63
+    name: supplier__s_nationkey
+    from: supplier
+    to: nation
+    keys:
+      - from: s_nationkey
+        to: n_nationkey
+  - id: 7b65ffc1-020a-48a2-ba39-703e6c3a4ddb
+    name: partsupp__ps_partkey
+    from: partsupp
+    to: part
+    keys:
+      - from: ps_partkey
+        to: p_partkey
+  - id: 45af8869-590a-4570-90da-290ac91cc893
+    name: partsupp__ps_suppkey
+    from: partsupp
+    to: supplier
+    keys:
+      - from: ps_suppkey
+        to: s_suppkey
+  - id: 340504dd-232e-44d3-996f-9617bdcabf06
+    name: orders__o_custkey
+    from: orders
+    to: customer
+    keys:
+      - from: o_custkey
+        to: c_custkey
+  - id: 525cd55c-42d5-47f7-ab63-38dbd75eb337
+    name: lineitem__l_orderkey
+    from: lineitem
+    to: orders
+    keys:
+      - from: l_orderkey
+        to: o_orderkey
+  - id: 653792be-f403-499c-be0e-578a1eb25b4a
+    name: lineitem__l_partkey
+    from: lineitem
+    to: part
+    keys:
+      - from: l_partkey
+        to: p_partkey
+  - id: 2ebdc99e-847f-400f-bd00-248f3fad7516
+    name: lineitem__l_partkey_l_suppkey
+    from: lineitem
+    to: partsupp
+    keys:
+      - from: l_partkey
+        to: ps_partkey
+      - from: l_suppkey
+        to: ps_suppkey
+  - id: f8df139a-c661-45c4-aec4-31bc361e4d3b
+    name: lineitem__l_suppkey
+    from: lineitem
+    to: supplier
+    keys:
+      - from: l_suppkey
+        to: s_suppkey
+  - id: fcbc3e49-90ee-46f7-afaa-dc9193b63e2f
+    name: yellow_tripdata__PULocationID
+    from: yellow_tripdata
+    to: taxi_zone_lookup
+    optional: true
+    keys:
+      - from: PULocationID
+        to: LocationID
+  - id: 00a1849f-cd68-4f45-b59c-b57c62834390
+    name: yellow_tripdata__DOLocationID
+    from: yellow_tripdata
+    to: taxi_zone_lookup
+    optional: true
+    keys:
+      - from: DOLocationID
+        to: LocationID
+  - id: d55c4483-64db-44a2-a07d-e887ad1bd127
+    name: fct_order_line__customer
+    from: fct_order_line
+    to: dim_customer
+    keys:
+      - from: customer_id
+        to: customer_id
+  - id: 2415c122-ad9f-448d-8295-bd8056a35508
+    name: fct_order_line__part
+    from: fct_order_line
+    to: dim_part
+    keys:
+      - from: part_id
+        to: part_id
