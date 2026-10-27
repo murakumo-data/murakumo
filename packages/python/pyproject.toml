@@ -18,11 +18,18 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
 ]
 dependencies = [
+    "openpyxl>=3.1",
     "pydantic>=2.9",
     "pyyaml>=6.0",
     "rich>=13.9",
     "typer>=0.15",
 ]
+
+[project.optional-dependencies]
+# Introspect DuckDB databases and read the schema of Parquet, CSV and JSON files.
+duckdb = ["duckdb>=1.1"]
+# Introspect PostgreSQL databases.
+postgres = ["psycopg[binary]>=3.2"]
 
 [project.urls]
 Homepage = "https://github.com/murakumo-data/murakumo"
@@ -33,6 +40,8 @@ murakumo = "murakumo.cli:app"
 
 [dependency-groups]
 dev = [
+    "duckdb>=1.1",
+    "psycopg[binary]>=3.2",
     "pytest>=8.3",
     "ruff>=0.8",
 ]

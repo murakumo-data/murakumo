@@ -7,11 +7,9 @@ from enum import StrEnum
 from pathlib import Path
 
 import typer
-from rich.console import Console
-from rich.markup import escape
-from rich.table import Table
 
 from murakumo import __version__
+from murakumo.console import console, err_console, print_diagnostics
 from murakumo.diagnostics import Level
 from murakumo.ir.model import Entity, Model, Relationship, SourceSystem
 from murakumo.manifest import Manifest
@@ -24,8 +22,6 @@ app = typer.Typer(
     help="Model-first data engineering: design the logical model, generate the platform.",
     no_args_is_help=True,
 )
-console = Console()
-err_console = Console(stderr=True)
 
 
 def _show_version(value: bool) -> None:
@@ -119,16 +115,7 @@ def validate(
         }
         typer.echo(json.dumps(payload, indent=2))
     else:
-        if diagnostics:
-            table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
-            table.add_column("")
-            table.add_column("Code")
-            table.add_column("Where", overflow="fold")
-            table.add_column("Problem", overflow="fold")
-            for d in sorted(diagnostics, key=lambda d: (d.level is not Level.ERROR, str(d.file), d.code)):
-                mark = "[red]error[/red]" if d.level is Level.ERROR else "[yellow]warn[/yellow]"
-                table.add_row(mark, d.code, escape(d.location(base)), escape(d.message))
-            console.print(table)
+        print_diagnostics(diagnostics, base)
         if project is not None:
             m = project.model
             console.print(
@@ -169,3 +156,11 @@ _SCHEMAS = {
 def schema(kind: SchemaKind = typer.Argument(SchemaKind.MODEL, help="Which schema to print.")) -> None:
     """Print the JSON Schema of the IR, for editors and the canvas. `manifest` describes murakumo.yaml."""
     typer.echo(json.dumps(_SCHEMAS[kind].model_json_schema(by_alias=True), indent=2))
+
+
+# Model commands live in their own module; registered here so `murakumo --help` lists them.
+from murakumo import cli_model  # noqa: E402
+
+app.add_typer(cli_model.import_app, name="import")
+app.add_typer(cli_model.add_app, name="add")
+app.add_typer(cli_model.remove_app, name="remove")

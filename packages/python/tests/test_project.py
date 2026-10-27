@@ -133,7 +133,7 @@ def test_a_broken_entity_is_not_reported_as_missing(project_dir):
 
 def test_cli_shows_names_in_locations(project_dir, monkeypatch):
     # A wide console, so the table does not wrap the locations across lines.
-    monkeypatch.setattr("murakumo.cli.console", Console(width=200))
+    monkeypatch.setattr("murakumo.console.console", Console(width=200))
     path = project_dir / ENTITIES_DIR / "marts" / "dim_taxi_zone.yaml"
     path.write_text(path.read_text().replace("name: zone_id", "name: zone_key"))
     result = runner.invoke(app, ["validate", str(project_dir)])

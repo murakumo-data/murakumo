@@ -27,7 +27,7 @@ Every source, entity, attribute, relationship and metric has an `id` (a UUID). N
 people read and what references use; ids are how Murakumo knows that a renamed column is the
 same column, so a rename becomes `ALTER ... RENAME` rather than a drop and an add.
 
-`murakumo init` and the importers write ids for you. If you write YAML by hand, leave `id` out
+`murakumo init`, `murakumo add` and the importers ([docs/importing.md](importing.md)) write ids for you. If you write YAML by hand, leave `id` out
 and run `murakumo validate --fix` to fill them in. Never copy an id to a new object.
 
 ## Entity
@@ -170,6 +170,10 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK308 | warning | An incremental load has no watermark |
 | MK309 | warning | SCD2 or SCD6 history without a primary or natural key |
 | MK311 | warning | A primary key column is nullable |
+| MK401 | error | An import would overwrite a table that belongs to another source or layer |
+| MK402 | error | A dictionary row has no table or column name, or the file has no rows |
+| MK403 | warning | A dictionary value could not be used (type, classification, foreign key) |
+| MK404 | warning | An import found an unknown type, no tables, or too small a sample |
 
 ## Editor support
 

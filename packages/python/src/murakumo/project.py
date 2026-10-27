@@ -234,10 +234,16 @@ _FIRST_KEYS = ("id", "name")
 
 
 def _ordered(data: Any) -> Any:
-    """Put id and name first in every mapping; the rest keep their model order."""
+    """Put id and name first in every mapping; the rest keep their model order.
+
+    Accepted values without labels are written as a plain list: [Y, N] rather than {Y: null, N: null}.
+    """
     if isinstance(data, dict):
         first = {k: data[k] for k in _FIRST_KEYS if k in data}
         rest = {k: v for k, v in data.items() if k not in first}
+        values = rest.get("accepted_values")
+        if isinstance(values, dict) and values and all(v is None for v in values.values()):
+            rest["accepted_values"] = list(values)
         return {k: _ordered(v) for k, v in {**first, **rest}.items()}
     if isinstance(data, list):
         return [_ordered(v) for v in data]
@@ -326,4 +332,8 @@ def save_model(project: Project, prune: bool = False) -> list[Path]:
         for stale in folder.rglob("*.yaml") if folder.is_dir() else []:
             if stale not in keep:
                 stale.unlink()
+        # Drop folders the removals left empty, deepest first; the top folders stay.
+        for empty in sorted(folder.rglob("*") if folder.is_dir() else [], reverse=True):
+            if empty.is_dir() and not any(empty.iterdir()):
+                empty.rmdir()
     return written
