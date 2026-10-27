@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "murakumo"
-version = "0.0.2"
-description = "Model-first data engineering: design the logical model, generate the platform. Early placeholder release."
+version = "0.1.0.dev0"
+description = "Model-first data engineering: design the logical model, generate the platform."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -17,13 +17,35 @@ classifiers = [
     "Topic :: Database",
     "Topic :: Software Development :: Code Generators",
 ]
+dependencies = [
+    "pydantic>=2.9",
+    "pyyaml>=6.0",
+    "rich>=13.9",
+    "typer>=0.15",
+]
 
 [project.urls]
 Homepage = "https://github.com/murakumo-data/murakumo"
 Repository = "https://github.com/murakumo-data/murakumo"
 
 [project.scripts]
-murakumo = "murakumo:main"
+murakumo = "murakumo.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/murakumo"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

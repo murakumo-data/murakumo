@@ -3,6 +3,9 @@ build/
 *.egg-info/
 __pycache__/
 .venv/
+.pytest_cache/
+.ruff_cache/
 node_modules/
 *.tgz
 .DS_Store
+local-data/
