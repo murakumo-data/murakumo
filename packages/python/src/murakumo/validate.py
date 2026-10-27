@@ -66,6 +66,10 @@ def validate_project(project: Project) -> list[Diagnostic]:
     declared_sources = {s.name.lower() for s in model.sources} | {s.name.lower() for s in manifest.sources}
     declared_domains = {d.name.lower() for d in manifest.project.domains}
 
+    def absent(name: str) -> bool:
+        """True when an entity does not exist, and not merely because its file failed to load."""
+        return model.entity(name) is None and name.lower() not in project.unloaded
+
     # Entities -----------------------------------------------------------------------------------
 
     for entity in model.entities:
@@ -81,9 +85,9 @@ def validate_project(project: Project) -> list[Diagnostic]:
             for ref in mapping.sources:
                 source_entity, column = ref.split(".", 1)
                 target = model.entity(source_entity)
-                if target is None:
+                if absent(source_entity):
                     out.append(error("MK207", f"mapping source entity {source_entity!r} does not exist", file, where))
-                elif target.attribute(column) is None:
+                elif target is not None and target.attribute(column) is None:
                     out.append(error("MK207", f"mapping source column {ref!r} does not exist", file, where))
 
     # Relationships ------------------------------------------------------------------------------
@@ -92,7 +96,7 @@ def validate_project(project: Project) -> list[Diagnostic]:
         where = f"relationships[{rel.name or index}]"
         source, target = model.entity(rel.from_), model.entity(rel.to)
         for side, name, found in (("from", rel.from_, source), ("to", rel.to, target)):
-            if found is None:
+            if found is None and absent(name):
                 out.append(error("MK204", f"{side} entity {name!r} does not exist", rel_file, where))
         if source is None or target is None:
             continue
@@ -143,7 +147,7 @@ def validate_project(project: Project) -> list[Diagnostic]:
     # Metrics ------------------------------------------------------------------------------------
 
     for metric in model.metrics:
-        if model.entity(metric.entity) is None:
+        if absent(metric.entity):
             out.append(
                 error(
                     "MK208", f"entity {metric.entity!r} does not exist", root / METRICS_FILE, f"metrics[{metric.name}]"

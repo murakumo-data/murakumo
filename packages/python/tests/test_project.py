@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from rich.console import Console
 from typer.testing import CliRunner
 
 from murakumo.cli import app
@@ -121,6 +122,23 @@ def test_unknown_key_and_bad_type_are_reported_with_names(project_dir):
     problems = {d.where: d.message for d in result.diagnostics if d.code == "MK002"}
     assert "colour" in problems
     assert "unknown logical type" in problems["attributes[amount].type"]
+
+
+def test_a_broken_entity_is_not_reported_as_missing(project_dir):
+    path = project_dir / ENTITIES_DIR / "marts" / "dim_taxi_zone.yaml"
+    path.write_text(path.read_text().replace("type: string", "type: varchar", 1))
+    # One error for the bad type; the relationships and mappings that use dim_taxi_zone stay quiet.
+    assert codes(load_and_validate(project_dir)) == ["MK002"]
+
+
+def test_cli_shows_names_in_locations(project_dir, monkeypatch):
+    # A wide console, so the table does not wrap the locations across lines.
+    monkeypatch.setattr("murakumo.cli.console", Console(width=200))
+    path = project_dir / ENTITIES_DIR / "marts" / "dim_taxi_zone.yaml"
+    path.write_text(path.read_text().replace("name: zone_id", "name: zone_key"))
+    result = runner.invoke(app, ["validate", str(project_dir)])
+    assert "relationships[fct_trip_pickup_zone]" in result.output
+    assert "mappings[zone_id]" in result.output
 
 
 def test_one_bad_file_does_not_hide_the_others(project_dir):

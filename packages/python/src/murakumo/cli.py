@@ -8,6 +8,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from murakumo import __version__
@@ -126,7 +127,7 @@ def validate(
             table.add_column("Problem", overflow="fold")
             for d in sorted(diagnostics, key=lambda d: (d.level is not Level.ERROR, str(d.file), d.code)):
                 mark = "[red]error[/red]" if d.level is Level.ERROR else "[yellow]warn[/yellow]"
-                table.add_row(mark, d.code, d.location(base), d.message)
+                table.add_row(mark, d.code, escape(d.location(base)), escape(d.message))
             console.print(table)
         if project is not None:
             m = project.model

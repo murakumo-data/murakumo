@@ -42,6 +42,9 @@ class Project:
     model: Model = field(default_factory=Model)
     # Which file each top-level object came from, so saving keeps the user's folder structure.
     origins: dict[UUID, Path] = field(default_factory=dict)
+    # Names of entities whose file failed to load. Rules skip references to them, so one bad
+    # column type is reported once, not again by every relationship that points at the entity.
+    unloaded: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -178,6 +181,8 @@ def load_project(root: Path) -> LoadResult:
             project.model.entities.append(entity)
             project.origins[entity.id] = path
             missing += _count_missing_ids(data)
+        elif isinstance(data, dict) and isinstance(data.get("name"), str):
+            project.unloaded.add(data["name"].lower())
 
     for key, filename, model, target in (
         ("relationships", RELATIONSHIPS_FILE, Relationship, project.model.relationships),
