@@ -1,0 +1,83 @@
+# The example manifest from the project brief, kept here so the schema never drifts from it.
+version: 1
+project:
+  name: acme_analytics
+  owner: data-platform@acme.com
+  domains: [sales, finance, product]
+
+targets:
+  warehouse:
+    type: snowflake            # snowflake | databricks | bigquery | redshift | fabric | synapse | postgres | duckdb
+    database: ANALYTICS
+    connection: env:SNOWFLAKE_URL
+  lakehouse:
+    table_format: iceberg      # iceberg | delta | hudi | native
+    catalog: polaris           # unity | polaris | glue | nessie
+    storage: s3://acme-lake/
+    system_of_record: lakehouse   # lakehouse | warehouse
+    zones: [landing, bronze, silver, gold]
+    path_template: "{zone}/{domain}/{entity}/"
+    partitioning: { min_table_size_gb: 1, default_grain: day, target_file_mb: 512 }
+    maintenance: { compaction: daily, expire_snapshots_days: 7, orphan_cleanup: weekly }
+    native_warehouse_tables: []   # gold tables also kept in native warehouse storage for speed
+  environments: [dev, test, prod]
+
+sources:
+  - name: erp
+    from: csv:./dictionaries/erp.csv
+    ingestion: { tool: airbyte, load: cdc }
+  - name: crm
+    from: introspect:env:CRM_DB_URL
+    ingestion: { tool: dlt, load: incremental, watermark: updated_at }
+  - name: clickstream
+    from: schema_registry:env:SR_URL
+    ingestion: { tool: kafka, load: streaming }
+
+modelling:
+  pattern: kimball             # kimball | datavault | obt | 3nf | mixed
+  layers: [raw, staging, intermediate, marts, semantic]
+  default_scd: 2
+  surrogate_keys: hash         # hash | sequence
+  cumulative_tables: true
+
+conventions:
+  naming: { staging: "stg_{source}__{entity}", fact: "fct_{name}", dim: "dim_{name}" }
+  case: snake
+  audit_columns: [_ingested_at, _batch_id, _source_system, _record_hash, _updated_at]
+
+generation:
+  transform: dbt               # dbt | sqlmesh | spark
+  python_engine: pyspark       # pyspark | polars | none
+  orchestrator: airflow        # airflow | dagster | prefect | databricks_workflows | snowflake_tasks | aws_glue | aws_step_functions | gcp_composer | gcp_workflows | azure_data_factory
+  streaming: { engine: flink, registry_compatibility: backward }
+  infrastructure: terraform
+  semantic_layer: metricflow
+
+quality:
+  framework: [dbt_tests, dbt_expectations, elementary]
+  default_tests: [unique_pk, not_null_pk, relationships, freshness]
+  reconciliation: true
+  write_audit_publish: true
+
+contracts:
+  standard: odcs
+  enforce_on: [marts]
+  breaking_change: block       # block | warn | version
+
+governance:
+  classification_tags: [pii, confidential]
+  masking: { pii: hash_unless_role_pii_reader }
+  retention_days: { raw: 90, staging: 365 }
+  lineage: openlineage
+  catalog_sync: datahub
+
+change_propagation:
+  staging: auto
+  intermediate: suggest
+  marts: suggest
+  contracted: locked
+  source_drift: quarantine     # quarantine | auto_add | fail
+
+packs:
+  - murakumo-pack-kimball@^1.4
+  - murakumo-pack-streaming@^0.9
