@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from murakumo.generate.plan import LANDING_COLUMNS, Plan, quote_identifier
 from murakumo.ir.model import Entity, Layer
 from murakumo.ir.types import parse_type
@@ -29,6 +31,7 @@ class DDL:
         self.target = plan.target
         self.dialect = plan.target.dialect
         self.warehouse = plan.target.warehouse
+        self.blocks: dict[UUID, str] = {}  # each entity's statements, for showing next to it
 
     def q(self, name: str) -> str:
         return quote_identifier(name, self.dialect)
@@ -68,6 +71,7 @@ class DDL:
             for column_name, _type, _nullable, comment in columns:
                 if comment:
                     sql += f"COMMENT ON COLUMN {table}.{self.q(column_name)} IS '{_comment(comment)}';\n"
+        self.blocks[entity.id] = sql
         return sql
 
     def schema(self, name: str) -> str:
@@ -143,8 +147,8 @@ def _nullable(entity: Entity, column: str) -> bool:
     return attribute.nullable if attribute is not None else True
 
 
-def render(plan: Plan) -> dict[str, str]:
-    ddl = DDL(plan)
+def render(plan: Plan, ddl: DDL | None = None) -> dict[str, str]:
+    ddl = ddl or DDL(plan)
     files = {"raw.sql": ddl.raw()}
     if any(m.layer not in ("staging", "intermediate") for m in plan.models):
         files["marts.sql"] = ddl.marts()

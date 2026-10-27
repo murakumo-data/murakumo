@@ -14,6 +14,8 @@ export type Attribute = {
   classification: string | null
 }
 
+export type Mapping = { target: string; sources: string[]; expression: string | null }
+
 export type Entity = {
   id: string
   name: string
@@ -23,6 +25,7 @@ export type Entity = {
   domain: string | null
   description: string | null
   attributes: Attribute[]
+  mappings: Mapping[]
 }
 
 export type JoinKey = { from: string; to: string }
@@ -68,6 +71,34 @@ export type State = {
   }
 }
 
+export type FileStatus = 'added' | 'changed' | 'removed' | 'unchanged'
+
+export type GeneratedFile = { path: string; status: FileStatus; entities: string[]; edited_by_hand: boolean }
+
+export type Migration = {
+  number: number
+  file: string
+  baseline: boolean
+  changes: { summary: string; destructive: boolean }[]
+  sql: string
+}
+
+// What `murakumo generate` and `murakumo migrate` would write now.
+export type Generated = {
+  warehouse: string
+  revision: string
+  blocked: string | null
+  diagnostics: Diagnostic[]
+  files: GeneratedFile[]
+  migration: Migration | null
+}
+
+export type EntityCode = {
+  blocked: string | null
+  files: { path: string; status: FileStatus; content: string }[]
+  ddl: string | null
+}
+
 export class ApiError extends Error {
   status: number
   state?: State
@@ -108,7 +139,7 @@ async function request<T>(method: string, path: string, body?: unknown, track = 
 
 export const api = {
   state: () => request<State>('GET', '/state'),
-  revision: () => request<{ revision: string }>('GET', '/revision', undefined, false).then((r) => r.revision),
+  revision: () => request<{ revision: string; generated: string }>('GET', '/revision', undefined, false),
   currentRevision: () => revision,
 
   addEntity: (body: { name: string; layer: Layer; kind?: string; source?: string | null; position?: Position }) =>
@@ -131,4 +162,19 @@ export const api = {
 
   saveLayout: (positions: Record<string, Position>) =>
     request<{ revision: string }>('PUT', '/layout', { positions }),
+
+  setMapping: (entityId: string, columnId: string, body: { sources: string[]; expression: string | null }) =>
+    request<State>('PUT', `/entities/${entityId}/mappings/${columnId}`, body),
+
+  generated: () => request<Generated>('GET', '/generated', undefined, false),
+  generatedFile: (path: string) =>
+    request<{ path: string; content: string | null; diff: string }>(
+      'GET',
+      `/generated/file?path=${encodeURIComponent(path)}`,
+      undefined,
+      false,
+    ),
+  entityCode: (id: string) => request<EntityCode>('GET', `/entities/${id}/code`, undefined, false),
+  generate: () => request<Generated>('POST', '/generate', undefined, false),
+  writeMigration: (name: string | null) => request<Generated>('POST', '/migrations', { name }, false),
 }

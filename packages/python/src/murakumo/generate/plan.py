@@ -106,6 +106,8 @@ class Snapshot:
     relation: str
     unique_key: list[str]
     description: str | None = None
+    entity: Entity | None = None
+    columns: list[Column] = field(default_factory=list)  # what it reads; dbt adds its own dbt_* columns
 
 
 @dataclass
@@ -384,6 +386,8 @@ class Planner:
             relation=f"ref('{versions.name}')",
             unique_key=keys,
             description=f"Every version of {entity.name}.",
+            entity=entity,
+            columns=versions.columns,
         )
         self.plan.snapshots.append(snapshot)
 

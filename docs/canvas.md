@@ -27,9 +27,22 @@ murakumo canvas path/to/project --port 9000 --no-open
   relationship is many-to-one; click the line to change the cardinality, make it optional, or
   give it a role (needed when two relationships join the same tables, like pickup and drop-off
   zones).
-- **Fix problems.** The toolbar shows validation errors and warnings, the same as
-  `murakumo validate`. Click it for the list; click an item to go to its entity. Entities with
-  problems carry a badge, and the inspector shows their messages.
+- **Map columns.** For entities in staging, intermediate, marts and semantic, the inspector lists
+  every column with where it comes from: `entity.column` sources (suggested as you type) and an
+  optional SQL expression, in DuckDB SQL and translated for your warehouse. Columns without a
+  mapping are highlighted.
+- **See the generated code.** The inspector's **Code** tab shows the dbt SQL generated for the
+  entity and its table's DDL, updated as you edit.
+- **Generate.** The toolbar says how many files in `generated/` are out of date with the model.
+  Click it for the **Changes** panel: every file that would change, each with its diff, and a
+  **Generate** button that writes them, as `murakumo generate` does.
+- **Write migrations.** When a change affects a table that keeps data (a landing table, an
+  incremental model or a snapshot), the Changes panel shows the migration it needs, with its
+  SQL, and writes it to `migrations/`, as `murakumo migrate` does. See
+  [migrations](generating.md#migrations).
+- **Fix problems.** The toolbar shows the problems `murakumo validate` and `murakumo generate`
+  report, such as a column with no mapping (MK503). Click it for the list; click an item to go to
+  its entity. Entities with problems carry a badge, and the inspector shows their messages.
 
 Renames follow references, as with `murakumo rename`: renaming `lineitem` updates the
 relationships, mappings and metrics that use it, and renames `lineitem.yaml` too; renaming a
@@ -39,7 +52,8 @@ expressions such as `l_extendedprice * (1 - l_discount)`. Ids never change.
 ## Working alongside an editor
 
 Every request reads the project from disk, and the canvas checks for changes every two seconds,
-so edits made in your editor, with the CLI, or by `git pull` appear on the canvas straight away.
+so edits made in your editor, with the CLI, or by `git pull` appear on the canvas straight away;
+so does running `murakumo generate` or `murakumo migrate` in a terminal.
 If a file changed after the canvas last loaded it, the canvas refuses to save over it, shows the
 latest version and asks you to make the change again. If a file stops loading (a YAML syntax
 error, say), the canvas turns read-only until it is fixed, so nothing is ever saved over a file
@@ -63,7 +77,15 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | POST | `/api/relationships` | Add one: `{from, to, keys: [{from, to}], cardinality, name, optional, role}` |
 | PATCH | `/api/relationships/{id}` | Change it: `name`, `cardinality`, `optional`, `role`, `description`, `keys` |
 | DELETE | `/api/relationships/{id}` | Remove it |
+| PUT | `/api/entities/{id}/mappings/{column_id}` | Set a column's mapping: `{sources: ["entity.column"], expression}`; both empty removes it |
 | PUT | `/api/layout` | Save positions: `{positions: {entity_id: {x, y}}}` |
+| GET | `/api/generated` | What generating would change: each file's status and entities, generate diagnostics, the next migration |
+| GET | `/api/generated/file?path=` | One generated file and its diff against `generated/` |
+| GET | `/api/entities/{id}/code` | The dbt SQL and DDL generated for one entity |
+| POST | `/api/generate` | Write `generated/` |
+| POST | `/api/migrations` | Write the next migration: `{name}` (optional) |
+
+The generated endpoints take `?warehouse=` to generate for another warehouse than the manifest's.
 
 Send the revision you last saw in an `X-Murakumo-Revision` header to have a change refused
 (409, with the current state) if the files changed since. A change the model rejects, such as a

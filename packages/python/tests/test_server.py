@@ -158,3 +158,89 @@ def test_changes_need_json(client):
     # A cross-site form post cannot send JSON without a CORS preflight, which the server never allows.
     response = client.post("/api/entities", content="name=dim_vendor", headers={"Content-Type": "text/plain"})
     assert response.status_code == 422
+
+
+# generated code ---------------------------------------------------------------------------------
+
+
+def test_generated_before_and_after_generate(client, project):
+    summary = client.get("/api/generated").json()
+    assert summary["warehouse"] == "duckdb" and summary["blocked"] is None
+    assert {f["status"] for f in summary["files"]} == {"added"}  # nothing generated yet
+    trip = next(f for f in summary["files"] if f["path"].endswith("/fct_trip.sql"))
+    assert trip["entities"] == [entity_id(client.get("/api/state").json(), "fct_trip")]
+    assert summary["migration"]["baseline"] is True
+
+    revision = client.get("/api/revision").json()["generated"]
+    summary = client.post("/api/generate").json()
+    assert {f["status"] for f in summary["files"]} == {"unchanged"}
+    assert (project.root / "generated" / "dbt" / "dbt_project.yml").is_file()
+    assert client.get("/api/revision").json()["generated"] != revision
+
+
+def test_change_shows_as_a_diff(client, project):
+    client.post("/api/generate")
+    state = client.get("/api/state").json()
+    trip = entity_id(state, "fct_trip")
+    column = column_id(state, "fct_trip", "trip_distance_miles")
+    client.patch(f"/api/entities/{trip}/columns/{column}", json={"name": "distance_miles"})
+
+    changed = [f["path"] for f in client.get("/api/generated").json()["files"] if f["status"] == "changed"]
+    sql = next(p for p in changed if p.endswith("/fct_trip.sql"))
+    diff = client.get("/api/generated/file", params={"path": sql}).json()["diff"]
+    assert "-" in diff and "+" in diff and "distance_miles" in diff
+    assert client.get("/api/generated/file", params={"path": "../murakumo.yaml"}).status_code == 400
+
+
+def test_entity_code(client):
+    state = client.get("/api/state").json()
+    code = client.get(f"/api/entities/{entity_id(state, 'yellow_tripdata')}/code").json()
+    assert [f["path"] for f in code["files"]] == ["dbt/models/staging/nyc_tlc/stg_nyc_tlc__yellow_tripdata.sql"]
+    assert code["ddl"].startswith("CREATE TABLE IF NOT EXISTS raw_nyc_tlc.yellow_tripdata")
+
+
+def test_migrations(client, project):
+    summary = client.post("/api/migrations", json={}).json()
+    assert summary["migration"] is None
+    assert (project.root / "migrations" / "duckdb" / "0001_initial.sql").is_file()
+    assert client.post("/api/migrations", json={}).status_code == 409  # nothing new
+
+    state = client.get("/api/state").json()
+    trip = entity_id(state, "yellow_tripdata")
+    client.patch(
+        f"/api/entities/{trip}/columns/{column_id(state, 'yellow_tripdata', 'trip_distance')}", json={"name": "miles"}
+    )
+    migration = client.get("/api/generated").json()["migration"]
+    assert migration["file"] == "migrations/duckdb/0002_rename_yellow_tripdata_trip_distance.sql"
+    assert "RENAME COLUMN trip_distance TO miles" in migration["sql"]
+    client.post("/api/migrations", json={"name": "shorter names"})
+    assert (project.root / "migrations" / "duckdb" / "0002_shorter_names.sql").is_file()
+
+
+def test_mappings(client, project):
+    state = client.get("/api/state").json()
+    trip = entity_id(state, "fct_trip")
+    column = column_id(state, "fct_trip", "total_amount")
+    url = f"/api/entities/{trip}/mappings/{column}"
+    state = client.put(
+        url, json={"sources": ["yellow_tripdata.total_amount"], "expression": "total_amount * 100"}
+    ).json()
+    mapping = next(
+        m
+        for e in state["model"]["entities"]
+        if e["name"] == "fct_trip"
+        for m in e["mappings"]
+        if m["target"] == "total_amount"
+    )
+    assert mapping["expression"] == "total_amount * 100"
+    response = client.put(url, json={"sources": ["yellow_tripdata.nope"]})
+    assert response.status_code == 400 and "no column 'nope'" in response.json()["message"]
+
+
+def test_generate_is_blocked_by_model_errors(client, project):
+    state = client.get("/api/state").json()
+    trip = entity_id(state, "fct_trip")
+    client.patch(f"/api/entities/{trip}", json={"domain": "nowhere"})  # not a declared domain: MK202
+    summary = client.get("/api/generated").json()
+    assert summary["blocked"] and summary["files"] == []
+    assert client.post("/api/generate").status_code == 409

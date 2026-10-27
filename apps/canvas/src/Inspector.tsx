@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { api, type Diagnostic, type Entity, type Relationship, type State } from './api'
+import { EntityCodeView } from './Code'
 import { Row, SelectField, TextField } from './Field'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
@@ -19,14 +20,44 @@ function Issues({ diagnostics }: { diagnostics: Diagnostic[] }) {
   )
 }
 
-export function EntityPanel({ state, entity, run }: { state: State; entity: Entity; run: Run }) {
+type EntityProps = { state: State; entity: Entity; run: Run; diagnostics: Diagnostic[]; generatedRevision: string }
+
+export function EntityPanel({ state, entity, run, diagnostics, generatedRevision }: EntityProps) {
+  const [tab, setTab] = useState<'model' | 'code'>('model')
+  const issues = diagnostics.filter((d) => d.entity_id === entity.id)
+  return (
+    <div className={tab === 'code' ? 'panel__body panel__body--wide' : 'panel__body'}>
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'model'} className="tab" onClick={() => setTab('model')}>
+          Model
+        </button>
+        <button role="tab" aria-selected={tab === 'code'} className="tab" onClick={() => setTab('code')}>
+          Code
+        </button>
+      </div>
+      {tab === 'model' ? (
+        <EntityForm state={state} entity={entity} run={run} issues={issues} />
+      ) : (
+        <>
+          <div className="panel__heading">
+            <span className={`dot dot--${entity.layer}`} />
+            <code className="panel__title">{entity.name}</code>
+          </div>
+          <Issues diagnostics={issues} />
+          <EntityCodeView entityId={entity.id} revision={`${generatedRevision}:${state.revision}`} />
+        </>
+      )}
+    </div>
+  )
+}
+
+function EntityForm({ state, entity, run, issues }: { state: State; entity: Entity; run: Run; issues: Diagnostic[] }) {
   const { choices, editable } = state
   const disabled = !editable
   const save = (changes: Record<string, unknown>) => run(() => api.updateEntity(entity.id, changes))
   const saveColumn = (columnId: string, changes: Record<string, unknown>) =>
     run(() => api.updateColumn(entity.id, columnId, changes))
   const [column, setColumn] = useState({ name: '', type: 'string' })
-  const issues = state.diagnostics.filter((d) => d.entity_id === entity.id)
 
   const addColumn = async () => {
     if (!column.name.trim()) return
@@ -36,7 +67,7 @@ export function EntityPanel({ state, entity, run }: { state: State; entity: Enti
   }
 
   return (
-    <div className="panel__body">
+    <>
       <div className="panel__heading">
         <span className={`dot dot--${entity.layer}`} />
         <TextField
@@ -163,6 +194,8 @@ export function EntityPanel({ state, entity, run }: { state: State; entity: Enti
         </datalist>
       </section>
 
+      {entity.layer !== 'raw' && <Mappings state={state} entity={entity} run={run} />}
+
       {editable && (
         <section className="section section--danger">
           <button
@@ -177,7 +210,62 @@ export function EntityPanel({ state, entity, run }: { state: State; entity: Enti
           </button>
         </section>
       )}
-    </div>
+    </>
+  )
+}
+
+/** How each column is derived: `entity.column` sources and an optional SQL expression (DuckDB SQL). */
+function Mappings({ state, entity, run }: { state: State; entity: Entity; run: Run }) {
+  const disabled = !state.editable
+  const upstream = (state.model?.entities ?? [])
+    .filter((e) => e.id !== entity.id)
+    .flatMap((e) => e.attributes.map((a) => `${e.name}.${a.name}`))
+  const mappingFor = (name: string) => entity.mappings.find((m) => m.target.toLowerCase() === name.toLowerCase())
+  const save = (columnId: string, sources: string[], expression: string | null) =>
+    run(() => api.setMapping(entity.id, columnId, { sources, expression }))
+
+  return (
+    <section className="section">
+      <h3 className="section__title">
+        Mappings <span className="muted">{entity.mappings.length} of {entity.attributes.length}</span>
+      </h3>
+      <p className="muted small">
+        Where each column comes from: <code>entity.column</code>, separated by commas, and an optional expression in
+        DuckDB SQL, translated for your warehouse.
+      </p>
+      <div className="mappings">
+        {entity.attributes.map((a) => {
+          const mapping = mappingFor(a.name)
+          const sources = mapping?.sources ?? []
+          const expression = mapping?.expression ?? null
+          return (
+            <div key={a.id} className={mapping ? 'mapping' : 'mapping mapping--missing'}>
+              <code className="mapping__target">{a.name}</code>
+              <TextField
+                label={`${a.name} sources`}
+                value={sources.join(', ') || null}
+                list="upstream-columns"
+                placeholder="entity.column"
+                disabled={disabled}
+                onSave={(text) => save(a.id, (text ?? '').split(',').map((t) => t.trim()).filter(Boolean), expression)}
+              />
+              <TextField
+                label={`${a.name} expression`}
+                value={expression}
+                placeholder="expression (optional)"
+                disabled={disabled}
+                onSave={(text) => save(a.id, sources, text)}
+              />
+            </div>
+          )
+        })}
+      </div>
+      <datalist id="upstream-columns">
+        {upstream.map((ref) => (
+          <option key={ref} value={ref} />
+        ))}
+      </datalist>
+    </section>
   )
 }
 
