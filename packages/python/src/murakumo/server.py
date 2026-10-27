@@ -16,6 +16,7 @@ not send across sites without the server's consent.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import threading
 from collections.abc import Callable
@@ -31,9 +32,11 @@ from pydantic import BaseModel, Field
 
 from murakumo import __version__, edit
 from murakumo.diagnostics import Diagnostic, Level
+from murakumo.generate import GENERATED_DIR, INDEX_FILE, compare, generate, write
 from murakumo.ir.model import Cardinality, Classification, EntityKind, Layer
 from murakumo.ir.types import TypeName
-from murakumo.manifest import MANIFEST_FILE
+from murakumo.manifest import MANIFEST_FILE, Warehouse
+from murakumo.migrate import MIGRATIONS_DIR, Pending, plan_migration, write_migration
 from murakumo.project import MODEL_DIR, Project, load_layout, load_project, save_layout, save_model
 from murakumo.validate import validate_project
 
@@ -91,18 +94,36 @@ class Layout(BaseModel):
     positions: dict[UUID, Position]
 
 
+class MappingBody(BaseModel):
+    sources: list[str] = Field(default_factory=list)
+    expression: str | None = None
+
+
+class MigrationBody(BaseModel):
+    name: str | None = None
+
+
 # State ------------------------------------------------------------------------------------------
 
 
-def revision(root: Path) -> str:
-    """A fingerprint of the manifest and every model file: path, size and modification time."""
+def _fingerprint(files: list[Path], root: Path) -> str:
     digest = hashlib.sha1()
-    files = [root / MANIFEST_FILE, *sorted((root / MODEL_DIR).rglob("*"))]
     for path in files:
         if path.is_file():
             stat = path.stat()
             digest.update(f"{path.relative_to(root)}:{stat.st_size}:{stat.st_mtime_ns};".encode())
     return digest.hexdigest()[:16]
+
+
+def revision(root: Path) -> str:
+    """A fingerprint of the manifest and every model file: path, size and modification time."""
+    return _fingerprint([root / MANIFEST_FILE, *sorted((root / MODEL_DIR).rglob("*"))], root)
+
+
+def generated_revision(root: Path) -> str:
+    """A fingerprint of what was last generated and migrated, to notice `murakumo generate` runs."""
+    files = [root / GENERATED_DIR / INDEX_FILE, *sorted((root / MIGRATIONS_DIR).rglob("*"))]
+    return _fingerprint(files, root)
 
 
 def _diagnostic(d: Diagnostic, project: Project | None, root: Path) -> dict[str, Any]:
@@ -150,6 +171,72 @@ def state(root: Path) -> dict[str, Any]:
             "types": [v.value for v in TypeName],
         },
     }
+
+
+# Generated code -------------------------------------------------------------------------------
+
+
+def _blocked(root: Path) -> tuple[Project | None, str | None]:
+    """The project, if it can be generated; otherwise why not."""
+    result = load_project(root)
+    project = result.project
+    if project is None or any(d.level is Level.ERROR for d in result.diagnostics):
+        return None, "Some model files did not load; fix them first."
+    if any(d.level is Level.ERROR for d in validate_project(project)):
+        return project, "The model has errors; fix them to see the generated code."
+    return project, None
+
+
+def _migration(pending: Pending) -> dict[str, Any] | None:
+    if not pending.changes and not pending.baseline:
+        return None
+    return {
+        "number": pending.number,
+        "file": f"{MIGRATIONS_DIR}/{pending.warehouse.value}/{pending.file_name}",
+        "baseline": pending.baseline,
+        "changes": [{"summary": c.summary, "destructive": c.destructive} for c in pending.changes],
+        "sql": pending.sql,
+    }
+
+
+def generated(root: Path, warehouse: Warehouse | None = None) -> dict[str, Any]:
+    """What `murakumo generate` would write, compared with generated/, and the next migration."""
+    project, blocked = _blocked(root)
+    chosen = Warehouse(warehouse or (project.manifest.targets.warehouse.type if project else Warehouse.DUCKDB))
+    summary: dict[str, Any] = {
+        "warehouse": chosen.value,
+        "revision": generated_revision(root),
+        "blocked": blocked,
+        "diagnostics": [],
+        "files": [],
+        "migration": None,
+    }
+    if project is None or blocked:
+        return summary
+    output = generate(project, chosen)
+    changes = compare(output, root)
+    status = {p: "added" for p in changes.added} | {p: "changed" for p in changes.changed}
+    files = [
+        {
+            "path": path,
+            "status": status.get(path, "unchanged"),
+            "entities": [str(i) for i in output.owners.get(path, [])],
+            "edited_by_hand": path in changes.edited_by_hand,
+        }
+        for path in output.files
+    ]
+    files += [{"path": p, "status": "removed", "entities": [], "edited_by_hand": False} for p in changes.removed]
+    summary["files"] = sorted(files, key=lambda f: f["path"])
+    summary["diagnostics"] = [_diagnostic(d, project, root) for d in output.diagnostics]
+    summary["migration"] = _migration(plan_migration(project, chosen))
+    return summary
+
+
+def _diff(before: str, after: str, path: str) -> str:
+    lines = difflib.unified_diff(
+        before.splitlines(keepends=True), after.splitlines(keepends=True), f"a/{path}", f"b/{path}", n=3
+    )
+    return "".join(lines)
 
 
 # App --------------------------------------------------------------------------------------------
@@ -219,8 +306,75 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
     @app.get("/api/revision")
     def get_revision() -> dict[str, str]:
-        """Cheap to poll: the canvas reloads the state when this changes."""
-        return {"revision": revision(root)}
+        """Cheap to poll: the canvas reloads the state, or the generated code, when these change."""
+        return {"revision": revision(root), "generated": generated_revision(root)}
+
+    @app.get("/api/generated")
+    def get_generated(warehouse: Warehouse | None = None) -> dict[str, Any]:
+        return generated(root, warehouse)
+
+    @app.get("/api/generated/file")
+    def get_generated_file(path: str, warehouse: Warehouse | None = None) -> dict[str, Any]:
+        """One file as it would be generated, and its diff against what is in generated/."""
+        project, blocked = _blocked(root)
+        if project is None or blocked:
+            raise HTTPException(409, {"message": blocked})
+        output = generate(project, warehouse)
+        folder = (root / GENERATED_DIR).resolve()
+        on_disk = (folder / path).resolve()
+        if not on_disk.is_relative_to(folder):
+            raise HTTPException(400, {"message": "not a generated file"})
+        before = on_disk.read_text(encoding="utf-8") if on_disk.is_file() else ""
+        after = output.files.get(path)
+        if after is None and not before:
+            raise HTTPException(404, {"message": f"{path} is not generated"})
+        return {"path": path, "content": after, "diff": _diff(before, after or "", path)}
+
+    @app.get("/api/entities/{entity_id}/code")
+    def get_entity_code(entity_id: UUID, warehouse: Warehouse | None = None) -> dict[str, Any]:
+        """The dbt SQL generated for one entity, and its table's DDL."""
+        project, blocked = _blocked(root)
+        if project is None or blocked:
+            return {"blocked": blocked, "files": [], "ddl": None}
+        output = generate(project, warehouse)
+        changes = compare(output, root)
+        status = {p: "added" for p in changes.added} | {p: "changed" for p in changes.changed}
+        files = [
+            {"path": path, "status": status.get(path, "unchanged"), "content": output.files[path]}
+            for path, owners in output.owners.items()
+            if entity_id in owners and path.endswith(".sql") and path.startswith("dbt/")
+        ]
+        return {"blocked": None, "files": files, "ddl": output.ddl.get(entity_id)}
+
+    @app.post("/api/generate")
+    def post_generate(warehouse: Warehouse | None = None) -> dict[str, Any]:
+        """Write generated/, as `murakumo generate` does."""
+        with lock:
+            project, blocked = _blocked(root)
+            if project is None or blocked:
+                raise HTTPException(409, {"message": blocked})
+            write(generate(project, warehouse), root)
+            return generated(root, warehouse)
+
+    @app.post("/api/migrations")
+    def post_migration(body: MigrationBody, warehouse: Warehouse | None = None) -> dict[str, Any]:
+        """Write the next migration, as `murakumo migrate` does."""
+        with lock:
+            project, blocked = _blocked(root)
+            if project is None or blocked:
+                raise HTTPException(409, {"message": blocked})
+            pending = plan_migration(project, warehouse)
+            if write_migration(project, pending, body.name) is None:
+                raise HTTPException(409, {"message": "nothing has changed since the last migration"})
+            return generated(root, warehouse)
+
+    @app.put("/api/entities/{entity_id}/mappings/{column_id}")
+    def put_mapping(entity_id: UUID, column_id: UUID, body: MappingBody, rev: Revision = None) -> dict[str, Any]:
+        def action(project: Project) -> None:
+            entity, column = entity_name(project, entity_id), column_name(project, entity_id, column_id)
+            edit.set_mapping(project, entity, column, body.sources, body.expression)
+
+        return change(action, rev)
 
     @app.post("/api/entities")
     def add_entity(body: NewEntity, rev: Revision = None) -> dict[str, Any]:

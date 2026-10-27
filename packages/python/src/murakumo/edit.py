@@ -24,6 +24,7 @@ from murakumo.ir.model import (
     JoinKey,
     KeyRole,
     Layer,
+    Mapping,
     Relationship,
     SourceSystem,
     SourceType,
@@ -242,6 +243,54 @@ def remove_relationship(project: Project, id: UUID | str) -> Relationship:
     relationship = _relationship(project, id)
     project.model.relationships.remove(relationship)
     return relationship
+
+
+def set_mapping(
+    project: Project, entity_name: str, target: str, sources: list[str], expression: str | None = None
+) -> Mapping | None:
+    """Say how a column is derived: from ``entity.column`` sources, a SQL expression, or both.
+
+    No sources and no expression removes the mapping. Returns the mapping, or None if removed.
+    """
+    entity = _entity(project, entity_name)
+    column = entity.attribute(target)
+    if column is None:
+        raise EditError(f"{entity.name} has no column {target!r}")
+    sources = [s.strip() for s in sources if s.strip()]
+    expression = (expression or "").strip() or None
+    for ref in sources:
+        source_name, _, source_column = ref.partition(".")
+        source = project.model.entity(source_name) if source_column else None
+        if source is None:
+            raise EditError(f"source {ref!r} must be entity.column, with an entity that exists")
+        if source.attribute(source_column) is None:
+            raise EditError(f"{source.name} has no column {source_column!r}")
+    if expression:
+        try:
+            sqlglot.parse_one(expression, read=EXPRESSION_DIALECT)
+        except sqlglot.errors.ParseError as exc:
+            raise EditError(f"cannot read the expression: {str(exc).splitlines()[0]}") from None
+    mappings = list(entity.mappings)
+    index = next((i for i, m in enumerate(mappings) if m.target.lower() == target.lower()), None)
+    if not sources and not expression:
+        if index is not None:
+            del mappings[index]
+            entity.mappings = mappings
+        return None
+    try:
+        mapping = Mapping(target=column.name, sources=sources, expression=expression)
+    except ValidationError as exc:
+        raise _problem(exc) from None
+    if index is not None:
+        mappings[index] = mapping
+    else:
+        # A new mapping goes before the first one for a later column, so the YAML follows the table.
+        order = {a.name.lower(): i for i, a in enumerate(entity.attributes)}
+        here = order[column.name.lower()]
+        index = next((i for i, m in enumerate(mappings) if order.get(m.target.lower(), len(order)) > here), None)
+        mappings.insert(len(mappings) if index is None else index, mapping)
+    entity.mappings = mappings
+    return mapping
 
 
 def _check_name(name: str) -> None:

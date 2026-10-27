@@ -186,3 +186,34 @@ def test_cli_rename(project):
     assert loaded.model.entity("dim_zone").attribute("taxi_zone_id")
     assert all(k.to == "taxi_zone_id" for r in loaded.model.relationships if r.to == "dim_zone" for k in r.keys)
     assert not (project.root / ENTITIES_DIR / "marts" / "dim_taxi_zone.yaml").exists()
+
+
+# mappings ---------------------------------------------------------------------------------------
+
+
+def test_set_mapping(commerce):
+    fact = commerce.model.entity("fct_order_line")
+    order = [m.target for m in fact.mappings]
+    edit.set_mapping(commerce, "fct_order_line", "quantity", ["lineitem.l_quantity"], "l_quantity * 2")
+    assert [m.target for m in fact.mappings] == order  # replaced where it was
+    assert fact.mappings[order.index("quantity")].expression == "l_quantity * 2"
+
+    edit.set_mapping(commerce, "fct_order_line", "quantity", [], None)
+    assert "quantity" not in [m.target for m in fact.mappings]
+    edit.set_mapping(commerce, "fct_order_line", "quantity", ["lineitem.l_quantity"])
+    assert [m.target for m in fact.mappings] == order  # a new one goes in column order
+    assert errors(commerce) == []
+
+
+@pytest.mark.parametrize(
+    ("target", "sources", "expression", "message"),
+    [
+        ("nope", ["lineitem.l_quantity"], None, "has no column 'nope'"),
+        ("quantity", ["l_quantity"], None, "must be entity.column"),
+        ("quantity", ["lineitem.nope"], None, "lineitem has no column 'nope'"),
+        ("quantity", ["lineitem.l_quantity"], "l_quantity *", "cannot read the expression"),
+    ],
+)
+def test_set_mapping_errors(commerce, target, sources, expression, message):
+    with pytest.raises(edit.EditError, match=message):
+        edit.set_mapping(commerce, "fct_order_line", target, sources, expression)

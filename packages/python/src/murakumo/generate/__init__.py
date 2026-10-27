@@ -11,12 +11,14 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from uuid import UUID
 
 from murakumo import __version__
 from murakumo.diagnostics import Diagnostic
 from murakumo.generate import dbt, ddl
 from murakumo.generate.plan import Plan, build_plan
 from murakumo.generate.targets import Target, target_for
+from murakumo.ir.model import Entity, Layer
 from murakumo.manifest import Warehouse
 from murakumo.project import Project
 
@@ -28,6 +30,8 @@ INDEX_FILE = ".murakumo-files.json"
 class Output:
     plan: Plan
     files: dict[str, str] = field(default_factory=dict)  # path under generated/ -> content
+    owners: dict[str, list[UUID]] = field(default_factory=dict)  # path -> the entities it is generated from
+    ddl: dict[UUID, str] = field(default_factory=dict)  # entity -> its CREATE TABLE statement
 
     @property
     def diagnostics(self) -> list[Diagnostic]:
@@ -40,9 +44,33 @@ def generate(project: Project, warehouse: Warehouse | str | None = None) -> Outp
     output = Output(plan)
     for path, content in dbt.render(plan).items():
         output.files[f"dbt/{path}"] = content
-    for path, content in ddl.render(plan).items():
+    statements = ddl.DDL(plan)
+    for path, content in ddl.render(plan, statements).items():
         output.files[f"ddl/{target.warehouse.value}/{path}"] = content
+    output.ddl = statements.blocks
+    output.owners = _owners(plan)
     return output
+
+
+def _owners(plan: Plan) -> dict[str, list[UUID]]:
+    owners: dict[str, list[UUID]] = {}
+
+    def own(path: str, entity: Entity | None) -> None:
+        if entity is not None and entity.id not in owners.setdefault(path, []):
+            owners[path].append(entity.id)
+
+    for group in plan.sources:
+        for table in group.tables:
+            own(f"dbt/models/staging/{group.name}/_{group.name}__sources.yml", table.entity)
+            own(f"ddl/{plan.target.warehouse.value}/raw.sql", table.entity)
+    for model in plan.models:
+        own(f"dbt/models/{model.folder}/{model.name}.sql", model.entity)
+        own(f"dbt/models/{model.folder}/_{model.folder.rsplit('/', 1)[-1]}__models.yml", model.entity)
+        if model.layer not in ("staging", "intermediate") and model.entity.layer is not Layer.RAW:
+            own(f"ddl/{plan.target.warehouse.value}/marts.sql", model.entity)
+    for snapshot in plan.snapshots:
+        own("dbt/snapshots/_snapshots.yml", snapshot.entity)
+    return owners
 
 
 def _digest(content: str) -> str:

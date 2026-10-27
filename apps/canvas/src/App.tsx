@@ -15,7 +15,8 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { api, ApiError, type Entity, type Layer, type Position, type State } from './api'
+import { api, ApiError, type Entity, type Generated, type Layer, type Position, type State } from './api'
+import { ChangesPanel } from './Code'
 import { EntityNode, type EntityNodeType } from './EntityNode'
 import { EntityPanel, RelationshipPanel } from './Inspector'
 import { handleId, nodeHeight, placeEntities } from './layout'
@@ -42,24 +43,51 @@ function Canvas() {
   const [message, setMessage] = useState<{ text: string; tone: 'error' | 'info' } | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [hidden, setHidden] = useState<Set<Layer>>(new Set())
-  const [showIssues, setShowIssues] = useState(false)
+  const [side, setSide] = useState<'issues' | 'changes' | null>(null)
+  const [generated, setGenerated] = useState<Generated | null>(null)
+  const [generating, setGenerating] = useState(false)
   const [adding, setAdding] = useState<{ name: string; layer: Layer; source: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [nodes, setNodes, onNodesChange] = useNodesState<EntityNodeType>([])
   const busy = useRef(0)
+  const generatedRevision = useRef<string | undefined>(undefined)
   const positions = useRef<Record<string, Position>>({})
+  const refreshTimer = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    generatedRevision.current = generated?.revision
+  }, [generated])
+
+  // Validation and generation problems together, as one list.
+  const diagnostics = useMemo(
+    () => [...(state?.diagnostics ?? []), ...(generated?.diagnostics ?? [])],
+    [state, generated],
+  )
 
   const entities = useMemo(() => state?.model?.entities ?? [], [state])
   const relationships = useMemo(() => state?.model?.relationships ?? [], [state])
+
+  // What generating now would change. Cheap (tens of milliseconds), so it follows every edit.
+  const loadGenerated = useCallback(() => {
+    window.clearTimeout(refreshTimer.current)
+    refreshTimer.current = window.setTimeout(async () => {
+      try {
+        setGenerated(await api.generated())
+      } catch {
+        // Shown again on the next successful refresh.
+      }
+    }, 250)
+  }, [])
 
   const load = useCallback(async () => {
     try {
       setState(await api.state())
       setLoadError(null)
+      loadGenerated()
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e))
     }
-  }, [])
+  }, [loadGenerated])
 
   // Every change goes through here: the server saves, validates and returns the new state.
   const run = useCallback(async (action: () => Promise<State>) => {
@@ -68,6 +96,7 @@ function Canvas() {
     try {
       setState(await action())
       setMessage(null)
+      loadGenerated()
       return true
     } catch (e) {
       if (e instanceof ApiError) {
@@ -81,7 +110,7 @@ function Canvas() {
       busy.current -= 1
       setSaving(busy.current > 0)
     }
-  }, [])
+  }, [loadGenerated])
 
   useEffect(() => {
     load()
@@ -93,13 +122,14 @@ function Canvas() {
       if (busy.current > 0 || document.visibilityState !== 'visible') return
       try {
         const revision = await api.revision()
-        if (revision !== api.currentRevision() && busy.current === 0) await load()
+        if (revision.revision !== api.currentRevision() && busy.current === 0) await load()
+        else if (generatedRevision.current && revision.generated !== generatedRevision.current) loadGenerated()
       } catch {
         // The server stopped; the next successful poll reloads.
       }
     }, POLL_MS)
     return () => window.clearInterval(timer)
-  }, [load])
+  }, [load, loadGenerated])
 
   // Rebuild the nodes from the model, keeping positions the user has dragged to.
   useEffect(() => {
@@ -107,7 +137,7 @@ function Canvas() {
     const placed = placeEntities(entities, relationships, { ...state.layout, ...positions.current })
     positions.current = placed
     const issues = (id: string, level: 'error' | 'warning') =>
-      state.diagnostics.filter((d) => d.entity_id === id && d.level === level).length
+      diagnostics.filter((d) => d.entity_id === id && d.level === level).length
     setNodes((previous) => {
       // Keep measured sizes, so React Flow does not have to measure every node again.
       const measured = new Map(previous.map((n) => [n.id, n.measured]))
@@ -131,7 +161,7 @@ function Canvas() {
           },
         }))
     })
-  }, [state, entities, relationships, hidden, selection, setNodes])
+  }, [state, entities, relationships, diagnostics, hidden, selection, setNodes])
 
   const edges = useMemo<Edge[]>(() => {
     const shown = new Map(nodes.map((n) => [n.id, n]))
@@ -226,10 +256,35 @@ function Canvas() {
     }
     // Centre it in the part of the canvas the side panels do not cover (at zoom 1, a pixel is a unit).
     const width = window.innerWidth
-    const left = showIssues ? Math.min(392, width / 3) : 0
+    const left = side ? Math.min(432, width / 3) : 0
     const right = Math.min(412, width / 3)
     const offset = width / 2 - (left + (width - left - right) / 2)
     flow.setCenter(position.x + 140 + offset, position.y + nodeHeight(entity) / 2, { zoom: 1, duration: 400 })
+  }
+
+  const generateNow = async () => {
+    setGenerating(true)
+    try {
+      setGenerated(await api.generate())
+      setMessage({ text: 'Wrote generated/.', tone: 'info' })
+    } catch (e) {
+      setMessage({ text: e instanceof Error ? e.message : String(e), tone: 'error' })
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const migrateNow = async (name: string | null) => {
+    const file = generated?.migration?.file
+    setGenerating(true)
+    try {
+      setGenerated(await api.writeMigration(name))
+      setMessage({ text: `Wrote ${name ? 'the migration' : file}. Review it and commit it with the model.`, tone: 'info' })
+    } catch (e) {
+      setMessage({ text: e instanceof Error ? e.message : String(e), tone: 'error' })
+    } finally {
+      setGenerating(false)
+    }
   }
 
   if (!state) {
@@ -252,8 +307,20 @@ function Canvas() {
     )
   }
 
-  const errors = state.diagnostics.filter((d) => d.level === 'error')
-  const warnings = state.diagnostics.filter((d) => d.level === 'warning')
+  const errors = diagnostics.filter((d) => d.level === 'error')
+  const warnings = diagnostics.filter((d) => d.level === 'warning')
+  const count = (n: number, word: string) => (n ? `${n} ${word}${n === 1 ? '' : 's'}` : null)
+  const problemsLabel =
+    [count(errors.length, 'error'), count(warnings.length, 'warning')].filter(Boolean).join(' · ') || 'Valid'
+  const pendingFiles = generated?.files.filter((f) => f.status !== 'unchanged').length ?? 0
+  const migration = generated?.migration
+  const changesLabel = !generated
+    ? 'Generating…'
+    : generated.blocked
+      ? 'Cannot generate'
+      : pendingFiles
+        ? `${pendingFiles} file${pendingFiles === 1 ? '' : 's'} to generate`
+        : 'Generated'
   const selectedEntity = selection?.kind === 'entity' ? entities.find((e) => e.id === selection.id) : undefined
   const selectedRelationship =
     selection?.kind === 'relationship' ? relationships.find((r) => r.id === selection.id) : undefined
@@ -298,13 +365,19 @@ function Canvas() {
             {saving ? 'Saving…' : 'Saved to model/'}
           </span>
           <button
-            className={errors.length ? 'chip chip--error' : warnings.length ? 'chip chip--warning' : 'chip chip--ok'}
-            onClick={() => setShowIssues(!showIssues)}
-            aria-expanded={showIssues}
+            className={pendingFiles || (migration && !migration.baseline) ? 'chip chip--pending' : 'chip'}
+            onClick={() => setSide(side === 'changes' ? null : 'changes')}
+            aria-expanded={side === 'changes'}
           >
-            {errors.length === 0 && warnings.length === 0
-              ? 'Valid'
-              : `${errors.length} error${errors.length === 1 ? '' : 's'} · ${warnings.length} warning${warnings.length === 1 ? '' : 's'}`}
+            {changesLabel}
+            {migration && !migration.baseline && <span className="chip__extra"> · migration</span>}
+          </button>
+          <button
+            className={errors.length ? 'chip chip--error' : warnings.length ? 'chip chip--warning' : 'chip chip--ok'}
+            onClick={() => setSide(side === 'issues' ? null : 'issues')}
+            aria-expanded={side === 'issues'}
+          >
+            {problemsLabel}
           </button>
           {state.editable && (
             <button className="button button--primary" onClick={() => setAdding({ name: '', layer: 'raw', source: '' })}>
@@ -362,15 +435,33 @@ function Canvas() {
           )}
         </ReactFlow>
 
-        {showIssues && (
-          <aside className="issues-panel" aria-label="Validation">
+        {side === 'changes' && (
+          <aside className="issues-panel" aria-label="Changes">
             <div className="issues-panel__head">
-              <strong>Validation</strong>
-              <button className="icon-button" aria-label="Close" onClick={() => setShowIssues(false)}>
+              <strong>Changes</strong>
+              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
                 ×
               </button>
             </div>
-            {state.diagnostics.length === 0 && <p className="muted">The model is valid.</p>}
+            <ChangesPanel
+              generated={generated}
+              entityName={(id) => entities.find((e) => e.id === id)?.name}
+              onGenerate={generateNow}
+              onMigrate={migrateNow}
+              busy={generating}
+            />
+          </aside>
+        )}
+
+        {side === 'issues' && (
+          <aside className="issues-panel" aria-label="Validation">
+            <div className="issues-panel__head">
+              <strong>Problems</strong>
+              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
+                ×
+              </button>
+            </div>
+            {diagnostics.length === 0 && <p className="muted">The model is valid and generates cleanly.</p>}
             <ul>
               {[...errors, ...warnings].map((d, i) => {
                 const entity = entities.find((e) => e.id === d.entity_id)
@@ -400,7 +491,16 @@ function Canvas() {
             <button className="icon-button panel__close" aria-label="Close" onClick={() => setSelection(null)}>
               ×
             </button>
-            {selectedEntity && <EntityPanel key={selectedEntity.id} state={state} entity={selectedEntity} run={run} />}
+            {selectedEntity && (
+              <EntityPanel
+                key={selectedEntity.id}
+                state={state}
+                entity={selectedEntity}
+                run={run}
+                diagnostics={diagnostics}
+                generatedRevision={generated?.revision ?? ''}
+              />
+            )}
             {selectedRelationship && (
               <RelationshipPanel key={selectedRelationship.id} state={state} relationship={selectedRelationship} run={run} />
             )}

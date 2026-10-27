@@ -12,6 +12,8 @@ weather.
   - `dim_part` is a part dimension.
   - `fct_order_line` is an incremental fact with a two-column grain and a calculated net amount.
 - `generated/` is the output of `murakumo generate`. Do not edit it.
+- `migrations/duckdb/` was started with `murakumo migrate`: the baseline landing tables, and the
+  state the next migration is compared with.
 
 ```bash
 cd ../../packages/python

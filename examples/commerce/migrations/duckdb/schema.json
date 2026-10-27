@@ -1,0 +1,858 @@
+{
+  "warehouse": "duckdb",
+  "migration": 1,
+  "tables": [
+    {
+      "id": "3f721466-3ca6-4fa1-a3f8-2aa6b1831e48",
+      "kind": "incremental",
+      "schema": "marts",
+      "name": "fct_order_line",
+      "columns": [
+        {
+          "id": "07258d64-c6d6-4ea8-b4f3-2a1219d9fa07",
+          "name": "order_id",
+          "type": "BIGINT"
+        },
+        {
+          "id": "74c791bf-7564-435c-bbe7-092ba3bcaca3",
+          "name": "line_number",
+          "type": "INTEGER"
+        },
+        {
+          "id": "67a3a98d-f916-4316-8850-7170b0e927ac",
+          "name": "customer_id",
+          "type": "BIGINT"
+        },
+        {
+          "id": "b19f4ae5-ab59-456d-9562-47134f813587",
+          "name": "part_id",
+          "type": "BIGINT"
+        },
+        {
+          "id": "18271a70-bea4-437c-b6ba-5c6f87b40326",
+          "name": "ordered_on",
+          "type": "DATE"
+        },
+        {
+          "id": "218cc278-b7bc-471a-bbb5-570591bfcb4d",
+          "name": "order_status",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "6b35e5a6-ce89-4e2c-95b5-a9f109fa8dac",
+          "name": "quantity",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "8d37c30f-f504-446a-8976-0d219b8b5636",
+          "name": "net_amount",
+          "type": "DECIMAL(18,4)"
+        },
+        {
+          "id": "3f721466-3ca6-4fa1-a3f8-2aa6b1831e48:_updated_at",
+          "name": "_updated_at",
+          "type": "TIMESTAMPTZ"
+        }
+      ]
+    },
+    {
+      "id": "9dc8f24d-b8d2-4c7a-8ec7-f2306976bb7a",
+      "kind": "raw",
+      "schema": "raw_nyc_tlc",
+      "name": "taxi_zone_lookup",
+      "columns": [
+        {
+          "id": "e9751148-f1fd-450d-9729-2b433dde08dc",
+          "name": "LocationID",
+          "type": "INTEGER"
+        },
+        {
+          "id": "3b7a6b1a-9086-4441-b9d6-27fac43bbe44",
+          "name": "Borough",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "953f0148-359e-458d-961b-fddc95ff345d",
+          "name": "Zone",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "05156c40-5c76-4fad-8ef6-91adb2f06510",
+          "name": "service_zone",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "9dc8f24d-b8d2-4c7a-8ec7-f2306976bb7a:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "9dc8f24d-b8d2-4c7a-8ec7-f2306976bb7a:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "1ec8f7ad-70a5-4e3a-88ed-aeac0a0d36e9",
+      "kind": "raw",
+      "schema": "raw_nyc_tlc",
+      "name": "yellow_tripdata",
+      "columns": [
+        {
+          "id": "1865f9bd-21a8-49e4-8124-623bc6da714d",
+          "name": "VendorID",
+          "type": "INTEGER"
+        },
+        {
+          "id": "9592a70c-92a2-4f50-a577-da851e6dd12a",
+          "name": "tpep_pickup_datetime",
+          "type": "TIMESTAMP"
+        },
+        {
+          "id": "da215f3a-a523-42ac-8eed-f65b7f9320d0",
+          "name": "tpep_dropoff_datetime",
+          "type": "TIMESTAMP"
+        },
+        {
+          "id": "00599232-4b29-4001-8f68-2a704a60b938",
+          "name": "passenger_count",
+          "type": "INTEGER"
+        },
+        {
+          "id": "1889d2bb-d301-4ee1-ae84-23a6fa579ac4",
+          "name": "trip_distance",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "089972e2-d6be-46e7-97fd-dd07a33a146a",
+          "name": "RatecodeID",
+          "type": "INTEGER"
+        },
+        {
+          "id": "6e193909-b0f4-477f-a403-943b2c9b6593",
+          "name": "store_and_fwd_flag",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "32208d24-bf4d-4329-a2ed-c1a60dace7ef",
+          "name": "PULocationID",
+          "type": "INTEGER"
+        },
+        {
+          "id": "e7ed8292-aa00-4bd9-ad9c-72de454bae49",
+          "name": "DOLocationID",
+          "type": "INTEGER"
+        },
+        {
+          "id": "80057ff3-e3b3-4670-b11c-26cd217df9b1",
+          "name": "payment_type",
+          "type": "INTEGER"
+        },
+        {
+          "id": "b870a07d-7f1f-4b78-86f3-3b3bdf7aa77c",
+          "name": "fare_amount",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "f47ce61c-9f42-46a5-9490-dc5c34425db8",
+          "name": "extra",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "0bd0113a-b360-4fec-86d5-c7a42db40eb6",
+          "name": "mta_tax",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "878a8257-5228-4a09-87bd-ddb2d3366b88",
+          "name": "tip_amount",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "fff5a18c-f1d9-4be3-9785-205ab6be80e4",
+          "name": "tolls_amount",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "7813d1ee-dd0f-433e-ab32-fee515ad08e2",
+          "name": "improvement_surcharge",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "d157a731-7ac7-44a6-871c-cf6bd179147f",
+          "name": "total_amount",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "f29fad88-16da-415c-bd22-196d13cf1107",
+          "name": "congestion_surcharge",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "c14aa8dd-d274-4227-8ec2-23078ca4e7e5",
+          "name": "Airport_fee",
+          "type": "DECIMAL(10,2)"
+        },
+        {
+          "id": "1ec8f7ad-70a5-4e3a-88ed-aeac0a0d36e9:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "1ec8f7ad-70a5-4e3a-88ed-aeac0a0d36e9:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "28e37849-6c1e-4550-a434-4e73f558c8c5",
+      "kind": "raw",
+      "schema": "raw_open_meteo",
+      "name": "weather_daily",
+      "columns": [
+        {
+          "id": "58d42268-7296-4370-8e60-5ac6c1ec0082",
+          "name": "location_key",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "034a560b-cb0a-4a04-97bd-d1a84ea00a87",
+          "name": "latitude",
+          "type": "DECIMAL(9,6)"
+        },
+        {
+          "id": "8f457f71-953d-4853-8393-83994470c78c",
+          "name": "longitude",
+          "type": "DECIMAL(9,6)"
+        },
+        {
+          "id": "7b467362-dd22-47bd-8c99-1d04d3c04d91",
+          "name": "timezone",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "7b8b8795-6a51-4939-ba17-d06a55f3880c",
+          "name": "observed_date",
+          "type": "DATE"
+        },
+        {
+          "id": "288de185-6145-4f44-b820-630a77dcf49b",
+          "name": "temperature_2m_max",
+          "type": "DECIMAL(5,1)"
+        },
+        {
+          "id": "55a1388c-0405-46c9-b4c9-6a734309c512",
+          "name": "temperature_2m_min",
+          "type": "DECIMAL(5,1)"
+        },
+        {
+          "id": "aa66c1ad-33a0-4631-92d9-8195b07e2acd",
+          "name": "precipitation_sum",
+          "type": "DECIMAL(6,1)"
+        },
+        {
+          "id": "7d5df222-e428-43de-8f03-9e29ac42b34f",
+          "name": "snowfall_sum",
+          "type": "DECIMAL(6,2)"
+        },
+        {
+          "id": "45eaa0bd-9076-4918-b296-44c104be9d29",
+          "name": "weather_code",
+          "type": "INTEGER"
+        },
+        {
+          "id": "28e37849-6c1e-4550-a434-4e73f558c8c5:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "28e37849-6c1e-4550-a434-4e73f558c8c5:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "ff4a3f54-e1a2-45ae-9422-8268d7835f68",
+      "kind": "raw",
+      "schema": "raw_open_meteo",
+      "name": "weather_hourly",
+      "columns": [
+        {
+          "id": "abb41009-bf65-4e9f-9c91-4a8cf6bf55f6",
+          "name": "location_key",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "0d2c6439-d07f-41c1-a76a-b27b96d67f78",
+          "name": "latitude",
+          "type": "DECIMAL(9,6)"
+        },
+        {
+          "id": "8c06c384-f47d-47a5-802c-aa985ce363b0",
+          "name": "longitude",
+          "type": "DECIMAL(9,6)"
+        },
+        {
+          "id": "f0f00eae-6aa3-401f-81a4-6468f5683e37",
+          "name": "timezone",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "03875ba7-3840-46e0-aeb9-0975b6fa64ce",
+          "name": "observed_at",
+          "type": "TIMESTAMP"
+        },
+        {
+          "id": "eacf7afa-a057-4f8a-916a-458a2c9c5da7",
+          "name": "temperature_2m",
+          "type": "DECIMAL(5,1)"
+        },
+        {
+          "id": "81f2b6ac-a65a-4f50-b82e-ab2056e78cd7",
+          "name": "relative_humidity_2m",
+          "type": "INTEGER"
+        },
+        {
+          "id": "d11bde11-e8e7-4253-ae65-6dde9ad13170",
+          "name": "precipitation",
+          "type": "DECIMAL(6,1)"
+        },
+        {
+          "id": "38931773-29d0-4b00-8513-195afc36dfa4",
+          "name": "rain",
+          "type": "DECIMAL(6,1)"
+        },
+        {
+          "id": "89082ff2-9781-4bda-97fd-b8db7d5e9aca",
+          "name": "snowfall",
+          "type": "DECIMAL(6,2)"
+        },
+        {
+          "id": "c22aad79-4b18-47dd-bfac-cc5727d801aa",
+          "name": "snow_depth",
+          "type": "DECIMAL(6,2)"
+        },
+        {
+          "id": "abfc895d-7fc7-4b51-ab92-ccae02b63751",
+          "name": "weather_code",
+          "type": "INTEGER"
+        },
+        {
+          "id": "d75c5e9c-6858-4f2f-a62d-1eb6a712e83c",
+          "name": "cloud_cover",
+          "type": "INTEGER"
+        },
+        {
+          "id": "4cdabbd0-5a52-42dd-b3cf-a80737de419a",
+          "name": "wind_speed_10m",
+          "type": "DECIMAL(5,1)"
+        },
+        {
+          "id": "14d750f1-67f0-41de-9f8a-4e49fa36c13b",
+          "name": "wind_gusts_10m",
+          "type": "DECIMAL(5,1)"
+        },
+        {
+          "id": "ff4a3f54-e1a2-45ae-9422-8268d7835f68:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "ff4a3f54-e1a2-45ae-9422-8268d7835f68:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "ad4976d5-9257-4d1d-bbee-3fcdc449ad4f",
+      "kind": "raw",
+      "schema": "raw_tpch_erp",
+      "name": "customer",
+      "columns": [
+        {
+          "id": "2d480a03-ada0-418e-8f13-7a1e47567394",
+          "name": "c_custkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "b96ab41f-6e7c-4fc8-be5f-fe18c7a831a0",
+          "name": "c_name",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "cbcb92b4-a104-44ad-b536-70d136805b31",
+          "name": "c_address",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "afd6f1c9-d235-42c1-8937-8e573d13feeb",
+          "name": "c_nationkey",
+          "type": "INTEGER"
+        },
+        {
+          "id": "4b1f1f0d-cb09-425d-a69c-5bc46fa7fe40",
+          "name": "c_phone",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "dde84431-8c7c-48d5-9142-7219d7d74a6e",
+          "name": "c_acctbal",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "b4c88310-f957-4cfb-9ae4-7b3705610c1c",
+          "name": "c_mktsegment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "56d51acf-2b55-4f66-90a3-a4bef9382d52",
+          "name": "c_comment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "ad4976d5-9257-4d1d-bbee-3fcdc449ad4f:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "ad4976d5-9257-4d1d-bbee-3fcdc449ad4f:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "eb21bd3e-0c90-4f5e-9d4a-a036211ae32d",
+      "kind": "raw",
+      "schema": "raw_tpch_erp",
+      "name": "lineitem",
+      "columns": [
+        {
+          "id": "6667be2b-a0eb-480b-b296-886da0114c20",
+          "name": "l_orderkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "180dc507-e8e6-4fd6-b9a9-83f403f58efd",
+          "name": "l_partkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "53702c43-3c30-451e-ae02-b38d1810f36a",
+          "name": "l_suppkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "1d371f21-3879-4bdb-81f5-5ded4d66b937",
+          "name": "l_linenumber",
+          "type": "INTEGER"
+        },
+        {
+          "id": "52d8049e-1b69-4165-937f-782bfe097f95",
+          "name": "l_quantity",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "0b760888-dea8-4612-a91c-91f6f115f4bd",
+          "name": "l_extendedprice",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "8172b1d2-d3df-4986-b441-b01919737acf",
+          "name": "l_discount",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "7bc7e200-6739-4a4f-b544-ad3699d5ce1f",
+          "name": "l_tax",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "c57f9910-5048-4e2e-85bc-ba66ece75c45",
+          "name": "l_returnflag",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "a345ad72-d242-4529-be64-1605340afdd7",
+          "name": "l_linestatus",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "e7ec7383-1dae-4d15-a197-d5c6b01a0108",
+          "name": "l_shipdate",
+          "type": "DATE"
+        },
+        {
+          "id": "99571642-d3d5-4a3b-af5d-8d95ca3df1ee",
+          "name": "l_commitdate",
+          "type": "DATE"
+        },
+        {
+          "id": "660ab6dc-d8dd-4351-80ba-9ecf184be761",
+          "name": "l_receiptdate",
+          "type": "DATE"
+        },
+        {
+          "id": "3c06d979-8428-4db2-a73d-a0178837343b",
+          "name": "l_shipinstruct",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "f724c8a6-7896-4571-b18e-3fb7139924c9",
+          "name": "l_shipmode",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "fe051d97-0945-4a2e-90da-06cd9fef168c",
+          "name": "l_comment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "eb21bd3e-0c90-4f5e-9d4a-a036211ae32d:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "eb21bd3e-0c90-4f5e-9d4a-a036211ae32d:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "24f31441-3a6f-45dc-8ab9-7ecd29e27d66",
+      "kind": "raw",
+      "schema": "raw_tpch_erp",
+      "name": "nation",
+      "columns": [
+        {
+          "id": "5f579125-7cd7-4d84-a015-7b0f23a1a5c8",
+          "name": "n_nationkey",
+          "type": "INTEGER"
+        },
+        {
+          "id": "56e9b3a7-cf37-4f38-8d75-a63bdec97c4b",
+          "name": "n_name",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "94d597d4-8110-495f-98be-9b00e215b4dd",
+          "name": "n_regionkey",
+          "type": "INTEGER"
+        },
+        {
+          "id": "28bbc6e9-b9df-4e3d-bcae-1c0a3a33fdc7",
+          "name": "n_comment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "24f31441-3a6f-45dc-8ab9-7ecd29e27d66:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "24f31441-3a6f-45dc-8ab9-7ecd29e27d66:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "983210c5-a089-45c5-84db-6170b893bcd7",
+      "kind": "raw",
+      "schema": "raw_tpch_erp",
+      "name": "orders",
+      "columns": [
+        {
+          "id": "79e1d1ad-8cf5-4d4b-82a0-01adad309b20",
+          "name": "o_orderkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "b54d1363-1c6b-4e6d-aadf-7964cc67c3d0",
+          "name": "o_custkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "77b7f25f-21cc-4f09-a6b7-0e413eec2d86",
+          "name": "o_orderstatus",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "27b12311-bbea-45ff-a120-4e0d6457a181",
+          "name": "o_totalprice",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "d478b0db-8197-4442-b5b2-233b48cabb72",
+          "name": "o_orderdate",
+          "type": "DATE"
+        },
+        {
+          "id": "b11c9b6e-47b1-45bb-9503-58bf5d38461e",
+          "name": "o_orderpriority",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "893a2bde-48e8-4e24-a187-25655b07b8ab",
+          "name": "o_clerk",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "d49bd351-3d77-4d9b-a34f-5ac7fc228dca",
+          "name": "o_shippriority",
+          "type": "INTEGER"
+        },
+        {
+          "id": "237ca90e-34f5-4437-b8a7-9d01ba4c59c6",
+          "name": "o_comment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "983210c5-a089-45c5-84db-6170b893bcd7:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "983210c5-a089-45c5-84db-6170b893bcd7:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "acc4fb45-9161-4d13-941e-206d8bb17d37",
+      "kind": "raw",
+      "schema": "raw_tpch_erp",
+      "name": "part",
+      "columns": [
+        {
+          "id": "ef99a852-b090-4f4d-b591-9f8fb57013ba",
+          "name": "p_partkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "77f7b655-73e6-4c28-8301-33c6d573472f",
+          "name": "p_name",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "99b7c86f-be62-4197-9632-d41dc31d5368",
+          "name": "p_mfgr",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "fdee8608-ea1e-46fd-8c89-cbcd2609a525",
+          "name": "p_brand",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "f82e9933-d8c8-459d-9b10-4e984b1ad464",
+          "name": "p_type",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "8c0525be-05fe-4edc-8e7c-a1894bc35137",
+          "name": "p_size",
+          "type": "INTEGER"
+        },
+        {
+          "id": "4493e8da-d391-474f-b4ce-ae2586e70c3a",
+          "name": "p_container",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "8f20616a-1edc-4236-82d5-28440c7e5f3e",
+          "name": "p_retailprice",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "5225edfb-152e-4150-8875-7bf62684b20d",
+          "name": "p_comment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "acc4fb45-9161-4d13-941e-206d8bb17d37:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "acc4fb45-9161-4d13-941e-206d8bb17d37:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "93ee40fd-93a5-4ca4-86fa-ed50542bb2ea",
+      "kind": "raw",
+      "schema": "raw_tpch_erp",
+      "name": "partsupp",
+      "columns": [
+        {
+          "id": "3414f270-f979-4e51-b107-81ac659142fc",
+          "name": "ps_partkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "98767b29-874a-4e76-9e79-d479cf55afa9",
+          "name": "ps_suppkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "6dcd2cc3-ec08-401c-97bf-bc9026232ab0",
+          "name": "ps_availqty",
+          "type": "INTEGER"
+        },
+        {
+          "id": "590512e4-6f24-4b8d-b165-8d241bcb0fdc",
+          "name": "ps_supplycost",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "95307f64-3516-4972-9eee-2d5e86557790",
+          "name": "ps_comment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "93ee40fd-93a5-4ca4-86fa-ed50542bb2ea:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "93ee40fd-93a5-4ca4-86fa-ed50542bb2ea:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "9d9ff7f2-a053-48a1-ab0c-4f87e83e0b5e",
+      "kind": "raw",
+      "schema": "raw_tpch_erp",
+      "name": "region",
+      "columns": [
+        {
+          "id": "d82058fc-8706-45a2-bfde-e137afa6b028",
+          "name": "r_regionkey",
+          "type": "INTEGER"
+        },
+        {
+          "id": "e6372c5f-addc-48e4-a4d0-618705fd334e",
+          "name": "r_name",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "caf73882-a416-4d35-a028-4b9add135c8a",
+          "name": "r_comment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "9d9ff7f2-a053-48a1-ab0c-4f87e83e0b5e:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "9d9ff7f2-a053-48a1-ab0c-4f87e83e0b5e:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "8503930f-d0e4-40cb-8462-fe14723c776a",
+      "kind": "raw",
+      "schema": "raw_tpch_erp",
+      "name": "supplier",
+      "columns": [
+        {
+          "id": "400ea484-acb2-4413-a5b0-ffd3205f51a5",
+          "name": "s_suppkey",
+          "type": "BIGINT"
+        },
+        {
+          "id": "1796eb44-79ea-494f-a252-9d59999b760e",
+          "name": "s_name",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "e3778432-4d72-4bad-9101-32acd8e0f443",
+          "name": "s_address",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "23dfc283-cc1b-403d-b69d-2acdfd8ce2ee",
+          "name": "s_nationkey",
+          "type": "INTEGER"
+        },
+        {
+          "id": "b03b8e26-53c7-4d4d-845b-f81af6ff79f6",
+          "name": "s_phone",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "5edc007c-d035-48ef-b772-4daa2b5ef4d3",
+          "name": "s_acctbal",
+          "type": "DECIMAL(15,2)"
+        },
+        {
+          "id": "de9721ed-bf08-4865-a57c-c8bf79b67d55",
+          "name": "s_comment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "8503930f-d0e4-40cb-8462-fe14723c776a:_ingested_at",
+          "name": "_ingested_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "8503930f-d0e4-40cb-8462-fe14723c776a:_batch_id",
+          "name": "_batch_id",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "18a17f77-9fc2-4845-af46-08712f478c4c:snapshot",
+      "kind": "snapshot",
+      "schema": "snapshots",
+      "name": "snp_dim_customer",
+      "columns": [
+        {
+          "id": "35db6dbb-53e8-460c-a9bb-ce27e6917e94",
+          "name": "customer_id",
+          "type": "BIGINT"
+        },
+        {
+          "id": "c1d993e5-8711-49d5-b4d4-6dba0920f0a1",
+          "name": "customer_name",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "1ffd7ad3-fcc8-4568-90fd-35ce38028b0f",
+          "name": "phone",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "8ee94507-92a2-4992-9fea-9feac243f325",
+          "name": "nation_name",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "cde10d7b-8cb5-4d0d-b983-471a76d79d0e",
+          "name": "market_segment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "2a955198-4d7a-4867-9126-055948783a65",
+          "name": "account_balance",
+          "type": "DECIMAL(18,4)"
+        }
+      ]
+    }
+  ]
+}

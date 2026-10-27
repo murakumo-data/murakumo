@@ -4,6 +4,8 @@
 murakumo generate                        # write generated/: a dbt project and DDL
 murakumo generate --warehouse snowflake  # for another warehouse than the manifest's
 murakumo generate --check                # CI: fail if generated/ is out of date
+murakumo migrate                         # write the next migration for tables that keep data
+murakumo migrate --check                 # CI: fail if the model changed without a migration
 murakumo verify                          # build it on DuckDB and run every test, twice
 ```
 
@@ -100,6 +102,51 @@ instead, matching columns by name, or on Snowflake from a table (`snowflake:DB.S
 `--limit` caps the rows. Real data is where tests start to find real problems.
 
 Verify needs dbt and DuckDB: `pip install "murakumo[verify]"`, plus `dbt-snowflake` for Snowflake.
+
+## Migrations
+
+dbt rebuilds views and tables on every run, so a model change reaches them by itself. Three kinds
+of table keep data between runs, so their schema has to change in place:
+
+- **raw landing tables**, which ingestion writes into;
+- **incremental models**, which dbt only adds rows to;
+- the **snapshots** behind SCD2 dimensions, which hold every version.
+
+`murakumo migrate` compares those tables in the model with the state recorded by the last
+migration, and writes the difference as the next numbered SQL file:
+
+```text
+migrations/duckdb/
+  schema.json                                  the tables as of the last migration, by id
+  0001_initial.sql                             the first run: schemas and landing tables
+  0002_rename_lineitem_l_discount_and_3_more.sql
+```
+
+```sql
+-- lineitem: rename l_discount to discount
+ALTER TABLE raw_tpch_erp.lineitem RENAME COLUMN l_discount TO discount;
+
+-- lineitem: drop l_comment
+-- l_comment was removed from the model. Uncomment to drop it and its data:
+-- ALTER TABLE raw_tpch_erp.lineitem DROP COLUMN l_comment;
+```
+
+- Tables and columns are matched **by id**, so a rename is `RENAME`, which keeps the data, not a
+  dropped column and an empty new one. This is why renames should go through `murakumo rename`
+  or the canvas, which keep ids, rather than editing a name and its id by hand.
+- New tables, new columns, renames and type changes are written as statements. Anything that
+  loses data (a dropped column or table) is **written commented out** for a person to decide.
+- For incremental models and snapshots, dbt adds new columns itself
+  (`on_schema_change: append_new_columns`), so those additions are left as comments too.
+- Statements are written for the manifest's warehouse (`--warehouse` for another): `RENAME
+  COLUMN`, `SET DATA TYPE` or `TYPE`, `sp_rename` on Fabric and Synapse, and so on.
+- `--name` names the file; `--dry-run` prints it instead of writing.
+
+Apply migrations in order before running dbt, with your usual tool for the warehouse, and
+commit each one with the model change that caused it. Files are never rewritten; to undo a
+change, change the model back and write another migration. `murakumo migrate --check` in CI
+catches a model change that needs a migration and has none. A project with no `migrations/`
+folder has nothing to check, so migrations are opt-in: the first `murakumo migrate` starts them.
 
 ## Rule codes
 

@@ -24,6 +24,7 @@ murakumo canvas                                        # the visual editor, on h
 
 murakumo generate                                      # generated/: dbt project and DDL for your warehouse
 murakumo generate --check                              # fail CI if generated/ is out of date
+murakumo migrate                                       # ALTER statements for tables that keep data
 murakumo verify                                        # build and test it all on DuckDB, twice
 murakumo verify --warehouse snowflake                  # or on Snowflake, in throwaway schemas
 ```

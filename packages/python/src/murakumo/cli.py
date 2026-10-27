@@ -169,6 +169,7 @@ app.add_typer(cli_model.remove_app, name="remove")
 from murakumo import cli_generate  # noqa: E402
 
 app.command("generate")(cli_generate.generate_command)
+app.command("migrate")(cli_generate.migrate_command)
 app.command("verify")(cli_generate.verify_command)
 
 

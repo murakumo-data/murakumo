@@ -1,4 +1,4 @@
-"""``murakumo generate`` and ``murakumo verify``."""
+"""``murakumo generate``, ``murakumo migrate`` and ``murakumo verify``."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from murakumo.console import console, fail, print_diagnostics
 from murakumo.diagnostics import Level
 from murakumo.generate import GENERATED_DIR, compare, generate, write
 from murakumo.manifest import Warehouse
+from murakumo.migrate import MIGRATIONS_DIR, plan_migration, render, write_migration
 from murakumo.validate import validate_project
 
 WarehouseOption = typer.Option(None, "--warehouse", help="Generate for this warehouse instead of the manifest's.")
@@ -59,6 +60,51 @@ def generate_command(
         console.print("  No changes.")
     for path in changes.edited_by_hand:
         console.print(f"  [yellow]overwrote hand edits in {GENERATED_DIR}/{path}[/yellow]; put custom code in custom/")
+
+
+def migrate_command(
+    project_path: Path = ProjectOption,
+    name: str | None = typer.Option(None, "--name", help="Name the migration file, e.g. split_customer_name."),
+    check: bool = typer.Option(False, "--check", help="Write nothing; fail if the model needs a migration (for CI)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the migration instead of writing it."),
+    warehouse: Warehouse | None = WarehouseOption,
+) -> None:
+    """Write the next migration: ALTER statements for tables that keep data, from what changed in the model."""
+    project = open_project(project_path)
+    problems = validate_project(project)
+    if any(d.level is Level.ERROR for d in problems):
+        print_diagnostics([d for d in problems if d.level is Level.ERROR], project.root)
+        fail("the model has errors; fix them (see `murakumo validate`) before writing a migration")
+        raise typer.Exit(1)
+
+    pending = plan_migration(project, warehouse)
+    if name:
+        pending.title = name
+    where = f"{MIGRATIONS_DIR}/{pending.warehouse.value}"
+    if check:
+        if pending.baseline:
+            console.print(f"No migrations in {where}; nothing to check.")
+        elif pending.changes:
+            for change in pending.changes:
+                console.print(f"  needs a migration: {escape(change.summary)}")
+            fail("the model changed since the last migration; run `murakumo migrate` and commit the result")
+            raise typer.Exit(1)
+        else:
+            console.print(f"{where} is up to date.")
+        return
+    if not pending.changes and not pending.baseline:
+        console.print("No changes to tables that keep data; no migration needed.")
+        return
+    if dry_run:
+        typer.echo(render(pending), nl=False)
+        return
+    path = write_migration(project, pending)
+    console.print(f"Wrote {path.relative_to(project.root)} ({len(pending.changes)} change(s)).")
+    for change in pending.changes:
+        marker = "[yellow]![/yellow]" if change.destructive else "-"
+        console.print(f"  {marker} {escape(change.summary)}")
+    if any(c.destructive for c in pending.changes):
+        console.print("[yellow]Statements that would lose data are commented out; review them.[/yellow]")
 
 
 def verify_command(
