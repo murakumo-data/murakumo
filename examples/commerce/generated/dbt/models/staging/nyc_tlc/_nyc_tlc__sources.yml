@@ -2,7 +2,7 @@
 version: 2
 sources:
   - name: nyc_tlc
-    schema: raw_nyc_tlc
+    schema: '{{ env_var(''MURAKUMO_SCHEMA_PREFIX'', '''') }}raw_nyc_tlc'
     loaded_at_field: _ingested_at
     tables:
       - name: taxi_zone_lookup

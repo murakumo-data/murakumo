@@ -22,7 +22,7 @@ select
     cast(orders.o_orderstatus as VARCHAR) as order_status,
     cast(lineitem.l_quantity as DECIMAL(15,2)) as quantity,
     cast(lineitem.l_extendedprice * (1 - lineitem.l_discount) as DECIMAL(18,4)) as net_amount,
-    current_timestamp as _updated_at
+    cast(current_timestamp as TIMESTAMPTZ) as _updated_at
 from lineitem
 left join orders
     on lineitem.l_orderkey = orders.o_orderkey

@@ -151,7 +151,10 @@ def _model_yaml(model: DbtModel, plan: Plan) -> dict:
 
 
 def _sources(group) -> dict:
-    source: dict[str, Any] = {"name": group.name, "schema": group.schema}
+    source: dict[str, Any] = {
+        "name": group.name,
+        "schema": f"{{{{ env_var('MURAKUMO_SCHEMA_PREFIX', '') }}}}{group.schema}",
+    }
     if group.description:
         source["description"] = group.description
     source["loaded_at_field"] = "_ingested_at"
@@ -207,13 +210,15 @@ def _profiles(plan: Plan) -> dict:
     manifest = plan.project.manifest
     name = manifest.project.name
     warehouse = plan.target.warehouse
-    database = manifest.targets.warehouse.database
+    configured = manifest.targets.warehouse.database
+    is_file = _is_file(configured)
+    database = warehouse_database(manifest)
     outputs = {}
     for environment in manifest.targets.environments:
         upper = environment.upper()
         schema = f"{{{{ env_var('MURAKUMO_SCHEMA', '{environment}') }}}}"
         if warehouse is Warehouse.DUCKDB:
-            path = database or f"{name}.duckdb"
+            path = configured if is_file else f"{name}.duckdb"
             outputs[environment] = {
                 "type": "duckdb",
                 "path": f"{{{{ env_var('MURAKUMO_DUCKDB_PATH', '{path}') }}}}",
@@ -229,7 +234,7 @@ def _profiles(plan: Plan) -> dict:
                 "private_key_path": "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH', '') }}",
                 "role": f"{{{{ env_var('SNOWFLAKE_ROLE_{upper}', 'TRANSFORMER') }}}}",
                 "warehouse": "{{ env_var('SNOWFLAKE_WAREHOUSE', 'TRANSFORMING') }}",
-                "database": database or name.upper(),
+                "database": f"{{{{ env_var('SNOWFLAKE_DATABASE', '{database}') }}}}",
                 "schema": schema,
                 "threads": 8,
             }
@@ -239,7 +244,7 @@ def _profiles(plan: Plan) -> dict:
                 "host": "{{ env_var('DATABRICKS_HOST') }}",
                 "http_path": "{{ env_var('DATABRICKS_HTTP_PATH') }}",
                 "token": "{{ env_var('DATABRICKS_TOKEN') }}",
-                "catalog": database or name,
+                "catalog": database.lower(),
                 "schema": schema,
                 "threads": 8,
             }
@@ -258,12 +263,24 @@ def _profiles(plan: Plan) -> dict:
                 "user": "{{ env_var('DB_USER') }}",
                 "password": "{{ env_var('DB_PASSWORD') }}",
                 "port": 5439 if warehouse is Warehouse.REDSHIFT else 5432,
-                "dbname": database or name,
+                "dbname": database.lower(),
                 "schema": schema,
                 "threads": 4,
             }
     default = manifest.targets.environments[0] if manifest.targets.environments else "dev"
     return {name: {"target": default, "outputs": outputs}}
+
+
+def _is_file(database: str | None) -> bool:
+    return bool(database) and ("/" in database or database.endswith((".duckdb", ".db")))
+
+
+def warehouse_database(manifest) -> str:
+    """The warehouse database to build in: the manifest's, unless that is a DuckDB file name."""
+    configured = manifest.targets.warehouse.database
+    if configured and not _is_file(configured):
+        return configured
+    return manifest.project.name.upper()
 
 
 def _readme(plan: Plan) -> str:

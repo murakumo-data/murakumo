@@ -34,6 +34,8 @@ duckdb = ["duckdb>=1.1"]
 postgres = ["psycopg[binary]>=3.2"]
 # Run `murakumo verify`: build and test the generated dbt project on DuckDB.
 verify = ["dbt-duckdb>=1.9"]
+# Introspect Snowflake, and load raw tables for `murakumo verify --warehouse snowflake`.
+snowflake = ["snowflake-connector-python>=3.12"]
 
 [project.urls]
 Homepage = "https://github.com/murakumo-data/murakumo"
@@ -45,6 +47,7 @@ murakumo = "murakumo.cli:app"
 [dependency-groups]
 dev = [
     "dbt-duckdb>=1.9",
+    "dbt-snowflake>=1.10",
     "duckdb>=1.1",
     "psycopg[binary]>=3.2",
     "pytest>=8.3",

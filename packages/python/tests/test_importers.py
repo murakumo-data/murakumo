@@ -425,3 +425,50 @@ def test_cli_import_database(project, shop_db):
     )
     assert result.exit_code == 0, result.output
     assert (project.root / ENTITIES_DIR / "shop" / "orders.yaml").is_file()
+
+
+# Snowflake connection settings --------------------------------------------------------------------
+
+
+def test_snowflake_settings_from_url_and_environment(monkeypatch, tmp_path):
+    from murakumo.importers import snowflake
+
+    key = tmp_path / "key.p8"
+    monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "ORG-ACCT")
+    monkeypatch.setenv("SNOWFLAKE_USER", "LOADER")
+    monkeypatch.setenv("SNOWFLAKE_PRIVATE_KEY_PATH", str(key))
+    monkeypatch.delenv("SNOWFLAKE_DATABASE", raising=False)
+    from_env = snowflake.settings("snowflake:///SALES?warehouse=BIG&role=READER")
+    assert from_env == {
+        "account": "ORG-ACCT",
+        "user": "LOADER",
+        "database": "SALES",
+        "warehouse": "BIG",
+        "role": "READER",
+        "authenticator": "SNOWFLAKE_JWT",
+        "private_key_file": str(key),
+    }
+    explicit = snowflake.settings("snowflake://bob@OTHER-ACCT/HR")
+    assert (explicit["account"], explicit["user"], explicit["database"]) == ("OTHER-ACCT", "bob", "HR")
+
+
+def test_snowflake_settings_need_a_login(monkeypatch):
+    from murakumo.importers import snowflake
+
+    monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "ORG-ACCT")
+    monkeypatch.setenv("SNOWFLAKE_USER", "LOADER")
+    monkeypatch.delenv("SNOWFLAKE_PRIVATE_KEY_PATH", raising=False)
+    monkeypatch.delenv("SNOWFLAKE_PASSWORD", raising=False)
+    with pytest.raises(snowflake.SnowflakeUnavailable, match="SNOWFLAKE_PRIVATE_KEY_PATH"):
+        snowflake.settings("snowflake:///SALES")
+    monkeypatch.delenv("SNOWFLAKE_ACCOUNT")
+    with pytest.raises(snowflake.SnowflakeUnavailable, match="SNOWFLAKE_ACCOUNT"):
+        snowflake.settings("snowflake:///SALES")
+
+
+def test_snowflake_names_fold_to_lower_case():
+    from murakumo.importers.snowflake import fold
+
+    assert fold("C_CUSTKEY") == "c_custkey"
+    assert fold("MixedCase") == "MixedCase"
+    assert sql_to_logical("ARRAY") == ("array<json>", True)

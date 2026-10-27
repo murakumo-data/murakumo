@@ -1,12 +1,13 @@
 """Introspect a live database: tables, columns, types, primary keys, foreign keys and comments.
 
-Uses the standard ``information_schema``, so the same code reads DuckDB and PostgreSQL today and
-is the template for Snowflake, Databricks and the other warehouses. Only metadata is read, never
-rows, and connections are opened read-only where the driver allows it.
+Uses ``information_schema`` for DuckDB and PostgreSQL, and Snowflake's catalogue plus ``SHOW
+... KEYS`` for Snowflake (see ``snowflake.py``). Only metadata is read, never rows, and
+connections are opened read-only where the driver allows it.
 
 Connection strings:
     duckdb:///path/to/file.duckdb   or just  path/to/file.duckdb
     postgresql://user@host:5432/db  (put the password in PGPASSWORD or ~/.pgpass, not in the URL)
+    snowflake://ACCOUNT/DATABASE    the rest, including the key file, from SNOWFLAKE_* variables
     env:NAME                        read the connection string from an environment variable
 """
 
@@ -68,10 +69,12 @@ def redact(url: str) -> str:
 def dialect_of(url: str) -> str:
     if url.startswith(("postgresql://", "postgres://")):
         return "postgres"
+    if url.startswith("snowflake://"):
+        return "snowflake"
     if url.startswith("duckdb:") or url.endswith((".duckdb", ".db")) or url == ":memory:":
         return "duckdb"
     raise SourceUnavailable(
-        f"unsupported connection string {redact(url)!r}; use duckdb:///file.duckdb or postgresql://"
+        f"unsupported connection string {redact(url)!r}; use duckdb:///file.duckdb, postgresql:// or snowflake://"
     )
 
 
@@ -212,17 +215,44 @@ def _comments(connection: Any, dialect: str) -> tuple[dict, dict]:
     return tables, columns
 
 
+def _snowflake(url: str) -> tuple[list[Column], dict, list, dict, dict]:
+    from murakumo.importers import snowflake
+
+    try:
+        database = snowflake.settings(url).get("database")
+        if not database:
+            raise SourceUnavailable(
+                "name the database: snowflake://ACCOUNT/DATABASE, snowflake:///DATABASE with "
+                "SNOWFLAKE_ACCOUNT set, or set SNOWFLAKE_DATABASE"
+            )
+        connection = snowflake.connect(url)
+        try:
+            rows, primary, foreign, table_comments, column_comments = snowflake.read_catalogue(connection, database)
+        finally:
+            connection.close()
+    except snowflake.SnowflakeUnavailable as exc:
+        raise SourceUnavailable(str(exc)) from None
+    columns = [
+        Column(schema, table, name, position, data_type, nullable)
+        for schema, table, name, position, data_type, nullable in rows
+    ]
+    return columns, primary, foreign, table_comments, column_comments
+
+
 def introspect(url: str, source: str, schemas: list[str] | None = None) -> SourceImport:
     """Read a database's structure into a SourceImport. Raises SourceUnavailable."""
     real = resolve(url)
     dialect = dialect_of(real)
-    connection = connect(url)
-    try:
-        columns = _columns(connection, dialect)
-        primary, foreign = _constraints(connection)
-        table_comments, column_comments = _comments(connection, dialect)
-    finally:
-        connection.close()
+    if dialect == "snowflake":
+        columns, primary, foreign, table_comments, column_comments = _snowflake(real)
+    else:
+        connection = connect(url)
+        try:
+            columns = _columns(connection, dialect)
+            primary, foreign = _constraints(connection)
+            table_comments, column_comments = _comments(connection, dialect)
+        finally:
+            connection.close()
 
     wanted = {s.lower() for s in schemas} if schemas else None
     if wanted is not None:

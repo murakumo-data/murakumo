@@ -8,7 +8,7 @@ files it reads only what it needs to learn the schema.
 | --- | --- | --- |
 | `murakumo import csv FILE` | A data dictionary CSV, one row per column | - |
 | `murakumo import excel FILE` | A dictionary workbook, every sheet or `--sheet NAME` | - |
-| `murakumo import database URL --source NAME` | A live database's tables, columns, keys and comments | `murakumo[duckdb]` or `murakumo[postgres]` |
+| `murakumo import database URL --source NAME` | A live database's tables, columns, keys and comments | `murakumo[duckdb]`, `[postgres]` or `[snowflake]` |
 | `murakumo import file LOCATION --source NAME` | A Parquet, CSV or JSON file's schema, local, glob or `https://` | `murakumo[duckdb]` |
 | `murakumo import openapi LOCATION --source NAME` | One table per object schema in an OpenAPI or Swagger 2 spec | - |
 | `murakumo import json LOCATION --source NAME --name TABLE` | A sample JSON response; types are inferred | - |
@@ -42,6 +42,7 @@ Bad rows are reported with their row number and skipped; the rest still import.
 murakumo import database duckdb:///warehouse.duckdb --source erp
 murakumo import database postgresql://reader@db.internal:5432/erp --source erp --schema sales
 murakumo import database env:ERP_DATABASE_URL --source erp
+murakumo import database snowflake:///SALES_DB --source sales   # account and key from SNOWFLAKE_*
 ```
 
 Primary keys, foreign keys (composite ones too), `NOT NULL`, and table and column comments all
@@ -52,8 +53,8 @@ schemas have a table with the same name.
 whole connection string in an environment variable and pass `env:NAME`. If a URL does contain a
 password, it is removed before the connection is saved in `model/sources/`.
 
-Snowflake, Databricks, BigQuery and the other warehouses follow the same pattern in later
-milestones.
+Snowflake works the same way with `snowflake:///DATABASE`; see [snowflake.md](snowflake.md) for the
+key-pair setup. Databricks, BigQuery and the other warehouses follow in later milestones.
 
 ## Files
 

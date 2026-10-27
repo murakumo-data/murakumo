@@ -46,6 +46,8 @@ def sql_to_logical(source_type: str) -> tuple[str, bool]:
     """
     text = " ".join(source_type.strip().upper().split())
 
+    if text == "ARRAY":  # Snowflake's untyped array
+        return "array<json>", True
     if text.endswith("[]"):
         element, exact = sql_to_logical(text[:-2])
         return f"array<{element}>", exact
