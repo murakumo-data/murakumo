@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "murakumo"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Model-first data engineering: design the logical model, generate the platform."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 keywords = ["data-engineering", "data-modelling", "dbt", "lakehouse", "iceberg", "code-generation"]
 classifiers = [
-    "Development Status :: 1 - Planning",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Topic :: Database",
@@ -61,6 +61,15 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/murakumo"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/murakumo", "tests", "hatch_build.py", "README.md"]
+
+[tool.hatch.build.targets.sdist.hooks.custom]
+path = "hatch_build.py"
 
 [tool.ruff]
 line-length = 120

@@ -36,7 +36,7 @@ def render(plan: Plan) -> dict[str, str]:
     files: dict[str, str] = {}
     project = plan.project
     files["dbt_project.yml"] = _yaml(_dbt_project(plan))
-    files["profiles.yml"] = _yaml(_profiles(plan))
+    files["profiles.yml"] = _yaml(profiles(plan))
     files["README.md"] = _readme(plan)
 
     for group in plan.sources:
@@ -206,7 +206,8 @@ def _dbt_project(plan: Plan) -> dict:
     }
 
 
-def _profiles(plan: Plan) -> dict:
+def profiles(plan: Plan) -> dict:
+    """profiles.yml: one output per environment, credentials read from environment variables."""
     manifest = plan.project.manifest
     name = manifest.project.name
     warehouse = plan.target.warehouse

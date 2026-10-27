@@ -27,7 +27,7 @@ from murakumo.ir.model import (
     SourceSystem,
     SourceType,
 )
-from murakumo.manifest import MANIFEST_FILE, Manifest
+from murakumo.manifest import MANIFEST_FILE, Manifest, ModellingPattern, Orchestrator, Warehouse
 from murakumo.project import Project, save_model
 
 MANIFEST_TEMPLATE = """\
@@ -41,8 +41,8 @@ project:
 
 targets:
   warehouse:
-    type: duckdb               # snowflake | databricks | bigquery | redshift | fabric | synapse | postgres | duckdb
-    database: {name}.duckdb
+    type: {warehouse:<21}# snowflake | databricks | bigquery | redshift | fabric | synapse | postgres | duckdb
+    database: {database}
   environments: [dev, prod]
   # lakehouse:
   #   table_format: iceberg    # iceberg | delta | hudi | native
@@ -50,13 +50,13 @@ targets:
   #   storage: s3://my-lake/
 
 modelling:
-  pattern: kimball             # kimball | datavault | obt | 3nf | mixed
+  pattern: {pattern:<20}# kimball | datavault | obt | 3nf | mixed
   default_scd: 2
   surrogate_keys: hash
 
 generation:
   transform: dbt
-  orchestrator: airflow
+  orchestrator: {orchestrator:<15}# airflow | dagster | prefect | databricks_workflows | snowflake_tasks | ...
 """
 
 GITIGNORE = """\
@@ -86,13 +86,28 @@ def project_name(path: Path) -> str:
     return f"p_{name}" if name[0].isdigit() else name
 
 
-def init_project(path: Path, name: str | None = None, example: bool = True) -> Project:
+def init_project(
+    path: Path,
+    name: str | None = None,
+    example: bool = True,
+    warehouse: Warehouse = Warehouse.DUCKDB,
+    orchestrator: Orchestrator = Orchestrator.AIRFLOW,
+    pattern: ModellingPattern = ModellingPattern.KIMBALL,
+) -> Project:
     """Create a project at ``path``. The folder may exist but must not already hold a manifest."""
     path = path.resolve()
     if (path / MANIFEST_FILE).exists():
         raise ProjectExistsError(f"{path / MANIFEST_FILE} already exists")
     name = name or project_name(path)
-    text = MANIFEST_TEMPLATE.format(name=name)
+    # A DuckDB warehouse is a local file; elsewhere the database is named after the project.
+    database = f"{name}.duckdb" if warehouse is Warehouse.DUCKDB else name.upper()
+    text = MANIFEST_TEMPLATE.format(
+        name=name,
+        warehouse=Warehouse(warehouse).value,
+        database=database,
+        pattern=ModellingPattern(pattern).value,
+        orchestrator=Orchestrator(orchestrator).value,
+    )
     manifest = Manifest.model_validate(yaml.safe_load(text))
 
     path.mkdir(parents=True, exist_ok=True)
@@ -130,7 +145,12 @@ def example_model() -> Model:
                 name="VendorID",
                 type="integer",
                 description="TPEP provider that supplied the record.",
-                accepted_values={"1": "Creative Mobile Technologies", "2": "Curb Mobility"},
+                accepted_values={
+                    "1": "Creative Mobile Technologies",
+                    "2": "Curb Mobility",
+                    "6": "Myle Technologies",
+                    "7": "Helix",
+                },
             ),
             Attribute(name="tpep_pickup_datetime", type="timestamp", nullable=False, description="Meter engaged."),
             Attribute(name="tpep_dropoff_datetime", type="timestamp", nullable=False, description="Meter disengaged."),
@@ -176,7 +196,17 @@ def example_model() -> Model:
             Mapping(target="service_zone", sources=["taxi_zone_lookup.service_zone"]),
         ],
     )
-    trip_columns = ["VendorID", "tpep_pickup_datetime", "tpep_dropoff_datetime", "PULocationID", "DOLocationID"]
+    # Corrections arrive as extra rows with the same times and zones and a negative amount, so the
+    # distance and amount are part of what makes a trip unique (checked on the January 2024 file).
+    trip_columns = [
+        "VendorID",
+        "tpep_pickup_datetime",
+        "tpep_dropoff_datetime",
+        "PULocationID",
+        "DOLocationID",
+        "trip_distance",
+        "total_amount",
+    ]
     fct_trip = Entity(
         name="fct_trip",
         layer=Layer.MARTS,

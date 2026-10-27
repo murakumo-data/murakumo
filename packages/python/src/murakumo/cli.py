@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import json
+import sys
 from enum import StrEnum
 from pathlib import Path
 
+import click
 import typer
 
 from murakumo import __version__
-from murakumo.console import console, err_console, print_diagnostics
+from murakumo.console import console, err_console, print_checks, print_diagnostics
 from murakumo.diagnostics import Level
+from murakumo.guide import Status, run_checks
 from murakumo.ir.model import Entity, Model, Relationship, SourceSystem
-from murakumo.manifest import Manifest
+from murakumo.manifest import MANIFEST_FILE, Manifest, ModellingPattern, Orchestrator, Warehouse
 from murakumo.project import find_root, load_project, save_model
-from murakumo.scaffold import ProjectExistsError, init_project
+from murakumo.scaffold import ProjectExistsError, init_project, project_name
 from murakumo.validate import validate_project
 
 app = typer.Typer(
@@ -43,30 +46,112 @@ def main(
 def info() -> None:
     """Show what this installation of Murakumo can do."""
     console.print(f"[bold]murakumo[/bold] {__version__}")
-    console.print("Model-first data engineering. Commands arrive milestone by milestone.")
+    console.print("Model-first data engineering: design the model, generate the platform.")
+    console.print("Start with [bold]murakumo init[/bold]; check a project's setup with [bold]murakumo setup[/bold].")
+
+
+def _can_ask() -> bool:
+    """Whether someone is at a terminal to answer questions."""
+    return sys.stdin.isatty()
+
+
+def _choose(question: str, enum: type[StrEnum], default: StrEnum) -> StrEnum:
+    choices = [v.value for v in enum]
+    answer = typer.prompt(question, default=default.value, type=click.Choice(choices), show_choices=True)
+    return enum(answer)
 
 
 @app.command()
 def init(
     path: Path = typer.Argument(Path("."), help="Folder to create the project in."),
     name: str | None = typer.Option(None, help="Project name. Defaults to the folder name."),
+    target: Warehouse | None = typer.Option(None, "--target", "-t", help="The warehouse to build on."),
+    orchestrator: Orchestrator | None = typer.Option(None, help="What will schedule the pipelines."),
+    pattern: ModellingPattern | None = typer.Option(None, help="The modelling pattern for marts."),
     empty: bool = typer.Option(False, "--empty", help="Start with an empty model instead of the NYC taxi example."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Ask nothing; use the defaults for anything not given."),
 ) -> None:
-    """Create a new project: manifest, model folder and an example model."""
+    """Create a new project, then show what it needs set up on this machine."""
+    if (path / MANIFEST_FILE).exists():
+        err_console.print(f"[red]error[/red] {(path / MANIFEST_FILE).resolve()} already exists")
+        raise typer.Exit(1)
+    interactive = not yes and _can_ask() and target is None
+    if interactive:
+        console.print("A few questions about the project. Press Enter to accept the [bold]default[/bold].\n")
+        name = name or typer.prompt("Project name", default=project_name(path))
+        target = _choose("Warehouse (duckdb runs on this computer, no account needed)", Warehouse, Warehouse.DUCKDB)
+        orchestrator = orchestrator or _choose("Orchestrator", Orchestrator, Orchestrator.AIRFLOW)
+        pattern = pattern or _choose("Modelling pattern", ModellingPattern, ModellingPattern.KIMBALL)
+        empty = empty or not typer.confirm("Start with the NYC taxi example model?", default=True)
     try:
-        project = init_project(path, name=name, example=not empty)
+        project = init_project(
+            path,
+            name=name,
+            example=not empty,
+            warehouse=target or Warehouse.DUCKDB,
+            orchestrator=orchestrator or Orchestrator.AIRFLOW,
+            pattern=pattern or ModellingPattern.KIMBALL,
+        )
     except ProjectExistsError as exc:
         err_console.print(f"[red]error[/red] {exc}")
         raise typer.Exit(1) from None
 
     model = project.model
-    console.print(f"Created project [bold]{project.manifest.project.name}[/bold] in {project.root}")
+    console.print(f"\nCreated project [bold]{project.manifest.project.name}[/bold] in {project.root}")
     if model.entities:
         console.print(
             f"Example model: {len(model.entities)} entities, {len(model.relationships)} relationships, "
             f"{len(model.metrics)} metric."
         )
-    console.print("Next: [bold]murakumo validate[/bold]")
+    console.print("\n[bold]What this project needs on this machine[/bold] (run `murakumo setup` to check again):")
+    checks = run_checks(project)
+    print_checks(checks, compact=True)
+    todo = sum(c.status is Status.TODO for c in checks)
+    console.print(
+        f"\n{todo} thing(s) to do first."
+        if todo
+        else "\nReady. Next: [bold]murakumo canvas[/bold] or [bold]murakumo generate[/bold]."
+    )
+
+
+@app.command()
+def setup(
+    path: Path = typer.Argument(Path("."), help="Project folder, or any folder inside it."),
+    connect: bool = typer.Option(False, "--connect", help="Also open the warehouse and source connections."),
+    check: bool = typer.Option(False, "--check", help="Exit 1 if anything required is missing (for scripts)."),
+    output: str = typer.Option("text", "--format", help="Output format: text or json."),
+) -> None:
+    """Check what this project needs on this machine (drivers, variables, keys, connections) and how to set it up."""
+    root = find_root(path)
+    if root is None:
+        err_console.print(f"[red]error[/red] no murakumo.yaml in {path.resolve()} or above; run `murakumo init` first")
+        raise typer.Exit(1)
+    result = load_project(root)
+    if result.project is None:
+        print_diagnostics(result.diagnostics, root)
+        raise typer.Exit(1)
+    checks = run_checks(result.project, connect=connect)
+    todo = sum(c.status is Status.TODO for c in checks)
+    if output == "json":
+        typer.echo(json.dumps({"ready": todo == 0, "checks": [c.as_dict() for c in checks]}, indent=2))
+    else:
+        manifest = result.project.manifest
+        console.print(
+            f"[bold]{manifest.project.name}[/bold]: builds on {manifest.targets.warehouse.type.value}, "
+            f"scheduled by {manifest.generation.orchestrator.value}"
+        )
+        print_checks(checks)
+        warnings = sum(c.status is Status.WARN for c in checks)
+        if todo:
+            console.print(
+                f"\n[red]{todo} thing(s) to do[/red] before the project can build, and {warnings} to consider."
+            )
+        else:
+            console.print(f"\n[green]Ready to build.[/green] {warnings} thing(s) worth considering.")
+        if not connect and manifest.targets.warehouse.type is not Warehouse.DUCKDB:
+            console.print("Run [bold]murakumo setup --connect[/bold] to test the connections too.")
+    if check and todo:
+        raise typer.Exit(1)
 
 
 @app.command()

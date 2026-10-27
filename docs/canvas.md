@@ -105,5 +105,6 @@ cd packages/python && uv run murakumo canvas ../../examples/commerce --no-open
 cd apps/canvas && npm run dev        # http://localhost:5173
 ```
 
-`npm run build` writes `apps/canvas/dist`, which `murakumo canvas` serves when it runs from
-the repository. Bundling it into the Python package comes with the first release.
+`npm run build` writes `apps/canvas/dist`. `murakumo canvas` serves the copy built into the
+Python package, or `apps/canvas/dist` when it runs from the repository; building the package
+(`uv build`) puts the built canvas inside it.

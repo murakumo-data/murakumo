@@ -196,31 +196,47 @@ class Dialect:
     def table(self, t: TableState) -> str:
         return f"{self.q(t.schema)}.{self.q(t.name)}"
 
+    # Warehouses where a statement can skip a table that does not exist yet.
+    IF_EXISTS = (Warehouse.DUCKDB, Warehouse.SNOWFLAKE, Warehouse.POSTGRES, Warehouse.BIGQUERY)
+
+    def alter(self, t: TableState) -> str:
+        """``ALTER TABLE``, or ``ALTER TABLE IF EXISTS`` for a table dbt builds: on a new environment
+        dbt has not created it yet, and its first run will create it with the new shape."""
+        if t.kind != "raw" and self.target.warehouse in self.IF_EXISTS:
+            return f"ALTER TABLE IF EXISTS {self.table(t)}"
+        return f"ALTER TABLE {self.table(t)}"
+
+    def guard(self, t: TableState, statement: str) -> list[str]:
+        """The statement, with a note where the warehouse cannot skip a table dbt has not built yet."""
+        if t.kind != "raw" and self.target.warehouse not in self.IF_EXISTS:
+            return [f"-- Only where dbt has already built {t.name}; on a new environment, skip this.", statement]
+        return [statement]
+
     def rename_table(self, old: TableState, new_name: str) -> str:
         if self.tsql:
             return f"EXEC sp_rename '{old.schema}.{old.name}', '{new_name}';"
         if self.target.warehouse in (Warehouse.SNOWFLAKE, Warehouse.DATABRICKS):
-            return f"ALTER TABLE {self.table(old)} RENAME TO {self.q(old.schema)}.{self.q(new_name)};"
-        return f"ALTER TABLE {self.table(old)} RENAME TO {self.q(new_name)};"
+            return f"{self.alter(old)} RENAME TO {self.q(old.schema)}.{self.q(new_name)};"
+        return f"{self.alter(old)} RENAME TO {self.q(new_name)};"
 
     def add_column(self, t: TableState, c: ColumnState) -> str:
         keyword = "ADD" if self.tsql else "ADD COLUMN"
-        return f"ALTER TABLE {self.table(t)} {keyword} {self.q(c.name)} {c.type};"
+        return f"{self.alter(t)} {keyword} {self.q(c.name)} {c.type};"
 
     def drop_column(self, t: TableState, c: ColumnState) -> str:
-        return f"ALTER TABLE {self.table(t)} DROP COLUMN {self.q(c.name)};"
+        return f"{self.alter(t)} DROP COLUMN {self.q(c.name)};"
 
     def rename_column(self, t: TableState, old: str, new: str) -> str:
         if self.tsql:
             return f"EXEC sp_rename '{t.schema}.{t.name}.{old}', '{new}', 'COLUMN';"
-        return f"ALTER TABLE {self.table(t)} RENAME COLUMN {self.q(old)} TO {self.q(new)};"
+        return f"{self.alter(t)} RENAME COLUMN {self.q(old)} TO {self.q(new)};"
 
     def change_type(self, t: TableState, c: ColumnState) -> str:
         if self.tsql:
-            return f"ALTER TABLE {self.table(t)} ALTER COLUMN {self.q(c.name)} {c.type};"
+            return f"{self.alter(t)} ALTER COLUMN {self.q(c.name)} {c.type};"
         if self.target.warehouse in (Warehouse.SNOWFLAKE, Warehouse.BIGQUERY):
-            return f"ALTER TABLE {self.table(t)} ALTER COLUMN {self.q(c.name)} SET DATA TYPE {c.type};"
-        return f"ALTER TABLE {self.table(t)} ALTER COLUMN {self.q(c.name)} TYPE {c.type};"
+            return f"{self.alter(t)} ALTER COLUMN {self.q(c.name)} SET DATA TYPE {c.type};"
+        return f"{self.alter(t)} ALTER COLUMN {self.q(c.name)} TYPE {c.type};"
 
 
 def _slug(*parts: str) -> str:
@@ -306,7 +322,7 @@ def diff(
                 Change(
                     f"rename {before.schema}.{before.name} to {after.name}",
                     _slug("rename", before.name),
-                    [sql.rename_table(before, after.name)],
+                    sql.guard(before, sql.rename_table(before, after.name)),
                 )
             )
             current = TableState(before.id, before.kind, before.schema, after.name, before.columns)
@@ -326,7 +342,7 @@ def diff(
                     Change(
                         f"{after.name}: rename {previous.name} to {column.name}",
                         _slug("rename", after.name, previous.name),
-                        [sql.rename_column(current, previous.name, column.name)],
+                        sql.guard(current, sql.rename_column(current, previous.name, column.name)),
                     )
                 )
             if previous.type.lower() != column.type.lower():
@@ -334,7 +350,10 @@ def diff(
                     Change(
                         f"{after.name}: {column.name} becomes {column.type} (was {previous.type})",
                         _slug("retype", after.name, column.name),
-                        [f"-- Check that existing values fit {column.type} first.", sql.change_type(current, column)],
+                        [
+                            f"-- Check that existing values fit {column.type} first.",
+                            *sql.guard(current, sql.change_type(current, column)),
+                        ],
                     )
                 )
         for column in current.columns:

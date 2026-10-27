@@ -136,6 +136,10 @@ ALTER TABLE raw_tpch_erp.lineitem RENAME COLUMN l_discount TO discount;
   or the canvas, which keep ids, rather than editing a name and its id by hand.
 - New tables, new columns, renames and type changes are written as statements. Anything that
   loses data (a dropped column or table) is **written commented out** for a person to decide.
+- Incremental models and snapshots are built by dbt, so a new environment does not have them
+  until dbt's first run, which creates them in their new shape. Their statements use
+  `ALTER TABLE IF EXISTS` (DuckDB, Snowflake, Postgres, BigQuery), so migrations can always run
+  before dbt; on other warehouses a comment says to skip them where dbt has not built the table.
 - For incremental models and snapshots, dbt adds new columns itself
   (`on_schema_change: append_new_columns`), so those additions are left as comments too.
 - Statements are written for the manifest's warehouse (`--warehouse` for another): `RENAME

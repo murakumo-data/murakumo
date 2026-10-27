@@ -122,6 +122,7 @@ class DuckDBBackend:
     def load_location(self, schema: str, entity: Entity, location: str, limit: int | None) -> int:
         if location.startswith("snowflake:"):
             raise LoadError(f"{entity.name}: Snowflake tables can only be loaded with --warehouse snowflake")
+        check_columns(entity, location)
         reader = READERS[file_format(location)]
         columns = ", ".join(quote_identifier(a.name, "duckdb") for a in entity.attributes)
         limit_sql = f" limit {int(limit)}" if limit else ""
@@ -249,6 +250,7 @@ class SnowflakeBackend:
             urllib.request.urlretrieve(location, downloaded)  # noqa: S310 - the user named this URL
             location = str(downloaded)
         path = Path(location).resolve()
+        check_columns(entity, str(path))
         if limit:
             path = self._cut(path, fmt, limit)
             fmt = "parquet"
@@ -291,6 +293,27 @@ class SnowflakeBackend:
         finally:
             cursor.close()
             self.connection.close()
+
+
+def check_columns(entity: Entity, location: str) -> None:
+    """Fail clearly when a data file lacks a column the model expects, before loading anything."""
+    import duckdb
+
+    reader = READERS[file_format(location)]
+    try:
+        found = [
+            row[0] for row in duckdb.connect().execute(f"describe select * from {reader}(?)", [location]).fetchall()
+        ]
+    except duckdb.Error as exc:
+        raise LoadError(f"{entity.name}: cannot read {location}: {str(exc).splitlines()[0]}") from None
+    present = {name.lower() for name in found}
+    missing = [a.name for a in entity.attributes if a.name.lower() not in present]
+    if missing:
+        raise LoadError(
+            f"{entity.name}: {Path(location).name} has no column {', '.join(missing)}, which the model expects. "
+            f"The file has: {', '.join(found)}. Raw columns must match the source: rename them in the model "
+            "to match (`murakumo rename column`), or load a file that has them."
+        )
 
 
 def _csv_value(value: Any) -> str:
