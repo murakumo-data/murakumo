@@ -2,9 +2,10 @@
 
 **Model-first data engineering.** Design the logical model (entities, relationships, mappings) on a canvas, and Murakumo generates and maintains everything downstream: DDL, dbt projects, Spark and Python jobs, streaming configs, tests, audit tables, data contracts and orchestration, on an open lakehouse.
 
-> Status: alpha. Version 0.1.0 is being prepared ([changelog](CHANGELOG.md)); until it is on PyPI,
-> the published packages are placeholders. To try it now, follow the
-> [end-to-end test](docs/end-to-end-test.md).
+> Status: alpha. Version 0.1.0 is out ([changelog](CHANGELOG.md)):
+> `uv tool install "murakumo[canvas,verify,duckdb]"`, `pip install "murakumo[canvas,verify,duckdb]"`
+> or `npm install -g murakumo`, then `murakumo init my_platform`. The
+> [end-to-end test](docs/end-to-end-test.md) walks through everything.
 
 ## Repository layout
 

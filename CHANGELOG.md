@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-10-27)
 
 The first release: design a data model, generate a tested dbt project and DDL from it, and keep
 both in step as the model changes.
