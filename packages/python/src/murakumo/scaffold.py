@@ -47,7 +47,8 @@ targets:
   # lakehouse:
   #   table_format: iceberg    # iceberg | delta | hudi | native
   #   catalog: polaris         # unity | polaris | glue | nessie
-  #   storage: s3://my-lake/
+  #   storage: s3://my-lake/   # AWS S3. Google Cloud: gs://my-lake/  Azure: abfss://lake@account.dfs.core.windows.net/
+  #                            # On this computer: ./lake/ (a folder laid out like a cloud bucket)
 
 modelling:
   pattern: {pattern:<20}# kimball | datavault | obt | 3nf | mixed
@@ -121,6 +122,60 @@ def init_project(
     project = Project(root=path, manifest=manifest, model=example_model() if example else Model())
     save_model(project)
     return project
+
+
+_SETTINGS = {
+    "warehouse": re.compile(r"^(    type: )(\S+)(\s*#.*)?$", re.M),
+    "database": re.compile(r"^(    database: )(\S+)(\s*#.*)?$", re.M),
+    "pattern": re.compile(r"^(  pattern: )(\S+)(\s*#.*)?$", re.M),
+    "orchestrator": re.compile(r"^(  orchestrator: )(\S+)(\s*#.*)?$", re.M),
+}
+
+
+def _set(text: str, key: str, value: str) -> str:
+    def replace(match: re.Match) -> str:
+        comment = (match.group(3) or "").strip()
+        width = len(match.group(2)) + len(match.group(3) or "") - len(comment)
+        return f"{match.group(1)}{value:<{width}}{comment}" if comment else f"{match.group(1)}{value}"
+
+    text, count = _SETTINGS[key].subn(replace, text, count=1)
+    if not count:
+        raise ValueError(f"cannot find the {key} setting in {MANIFEST_FILE}; change it by hand")
+    return text
+
+
+def configure_project(
+    root: Path,
+    warehouse: Warehouse | None = None,
+    orchestrator: Orchestrator | None = None,
+    pattern: ModellingPattern | None = None,
+) -> list[str]:
+    """Change the answers given to ``murakumo init`` in murakumo.yaml, keeping its comments.
+
+    Returns what changed. A warehouse change also renames the database when it still has the
+    name ``init`` gave it (a .duckdb file for DuckDB, the project name elsewhere).
+    """
+    path = root / MANIFEST_FILE
+    text = path.read_text(encoding="utf-8")
+    current = Manifest.model_validate(yaml.safe_load(text))
+    changed: list[str] = []
+    if warehouse is not None and warehouse is not current.targets.warehouse.type:
+        text = _set(text, "warehouse", warehouse.value)
+        name = current.project.name
+        defaults = {f"{name}.duckdb", name.upper()}
+        if current.targets.warehouse.database in defaults:
+            text = _set(text, "database", f"{name}.duckdb" if warehouse is Warehouse.DUCKDB else name.upper())
+        changed.append(f"warehouse: {current.targets.warehouse.type.value} → {warehouse.value}")
+    if orchestrator is not None and orchestrator is not current.generation.orchestrator:
+        text = _set(text, "orchestrator", orchestrator.value)
+        changed.append(f"orchestrator: {current.generation.orchestrator.value} → {orchestrator.value}")
+    if pattern is not None and pattern is not current.modelling.pattern:
+        text = _set(text, "pattern", pattern.value)
+        changed.append(f"modelling pattern: {current.modelling.pattern.value} → {pattern.value}")
+    if changed:
+        Manifest.model_validate(yaml.safe_load(text))  # never write a manifest that does not load
+        path.write_text(text, encoding="utf-8")
+    return changed
 
 
 def example_model() -> Model:

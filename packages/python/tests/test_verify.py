@@ -81,3 +81,29 @@ def test_a_file_missing_a_model_column_is_reported_clearly(tmp_path):
     assert not result.ok
     assert "zones.csv has no column service_zone, which the model expects" in result.error
     assert "The file has: LocationID, Borough, Zone" in result.error
+
+
+def test_build_keeps_the_tables_and_never_doubles_the_sample(tmp_path):
+    project = init_project(tmp_path / "taxi")
+    first = runner.invoke(app, ["build", "-p", str(project.root), "--sample", "50"])
+    assert first.exit_code == 0, first.output
+    assert "built: 4 models and snapshots" in first.output
+    database = project.root / "taxi.duckdb"
+    with duckdb.connect(str(database), read_only=True) as connection:
+        tables = {
+            f"{s}.{t}"
+            for s, t in connection.execute("select table_schema, table_name from information_schema.tables").fetchall()
+        }
+        assert {"raw_nyc_tlc.yellow_tripdata", "marts.fct_trip", "marts.dim_taxi_zone"} <= tables
+        assert connection.execute("select count(*) from raw_nyc_tlc.yellow_tripdata").fetchone()[0] == 50
+    second = runner.invoke(app, ["build", "-p", str(project.root), "--sample", "50"])
+    assert second.exit_code == 0, second.output
+    assert "kept the rows already in" in second.output
+    with duckdb.connect(str(database), read_only=True) as connection:
+        assert connection.execute("select count(*) from raw_nyc_tlc.yellow_tripdata").fetchone()[0] == 50
+
+
+def test_build_refuses_an_unknown_environment(tmp_path):
+    project = init_project(tmp_path / "taxi")
+    result = runner.invoke(app, ["build", "-p", str(project.root), "--env", "staging"])
+    assert result.exit_code == 1 and "no environment 'staging'" in result.output

@@ -155,7 +155,8 @@ def test_orchestrator_is_guidance_only(tmp_path, monkeypatch):
     check = next(c for c in run_checks(project) if c.area == "Orchestrator: airflow")
     assert check.status is Status.INFO  # not needed to build yet
     assert any("astro dev start" in step for step in check.steps)
-    assert "does not generate pipelines for it yet" in check.detail
+    assert "does not generate its pipelines yet" in check.detail
+    assert check.numbered and any("astronomer.io" in link for link in check.docs)
 
 
 def test_install_command(monkeypatch):
@@ -176,3 +177,33 @@ def test_install_command_through_the_npm_launcher(monkeypatch):
     monkeypatch.delenv("MURAKUMO_WITH", raising=False)
     command = install_command(["snowflake", "verify"], ["dbt-snowflake"])
     assert command.startswith('export MURAKUMO_EXTRAS="postgres,snowflake,verify" MURAKUMO_WITH="dbt-snowflake"')
+
+
+def test_init_takes_numbers(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "_can_ask", lambda: True)
+    answers = "\n".join(["shop", "2", "", "9", "4", "y"]) + "\n"
+    result = runner.invoke(app, ["init", str(tmp_path / "x")], input=answers)
+    assert result.exit_code == 0, result.output
+    manifest = load_project(tmp_path / "x").project.manifest
+    assert manifest.targets.warehouse.type is Warehouse.SNOWFLAKE
+    assert manifest.generation.orchestrator.value == "airflow"  # Enter keeps the suggestion
+    assert manifest.modelling.pattern.value == "3nf"  # 9 is out of range, so it asked again
+    assert "Type a number from 1 to 5" in result.output
+    assert "murakumo --help" in result.output and "murakumo config" in result.output
+
+
+def test_config_changes_answers_and_keeps_comments(tmp_path):
+    project = init_project(tmp_path / "p")
+    result = runner.invoke(app, ["config", str(project.root), "--target", "snowflake", "--pattern", "datavault"])
+    assert result.exit_code == 0, result.output
+    text = (project.root / "murakumo.yaml").read_text()
+    assert "type: snowflake" in text and "database: P\n" in text
+    assert "# snowflake | databricks" in text and "# kimball | datavault" in text
+    manifest = load_project(project.root).project.manifest
+    assert manifest.modelling.pattern.value == "datavault"
+    assert "Nothing changed" in runner.invoke(app, ["config", str(project.root), "-t", "snowflake"]).output
+
+
+def test_missing_database_gives_sql(tmp_path):
+    check = guide.Check("Warehouse", "Database X does not exist", Status.TODO, sql="create database X;")
+    assert check.as_dict()["sql"] == "create database X;"

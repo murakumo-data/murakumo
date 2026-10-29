@@ -7,6 +7,7 @@ murakumo generate --check                # CI: fail if generated/ is out of date
 murakumo migrate                         # write the next migration for tables that keep data
 murakumo migrate --check                 # CI: fail if the model changed without a migration
 murakumo verify                          # build it on DuckDB and run every test, twice
+murakumo build                           # build it in the project's warehouse, and keep the tables
 ```
 
 `generate` refuses to run while `murakumo validate` reports errors. Everything it writes goes under
@@ -102,6 +103,31 @@ instead, matching columns by name, or on Snowflake from a table (`snowflake:DB.S
 `--limit` caps the rows. Real data is where tests start to find real problems.
 
 Verify needs dbt and DuckDB: `pip install "murakumo[verify]"`, plus `dbt-snowflake` for Snowflake.
+
+## Build
+
+`verify` leaves nothing behind. `murakumo build` builds the project where it belongs, in the
+warehouse from `murakumo.yaml` (a DuckDB file in the project folder, or a Snowflake database), and
+keeps every table:
+
+1. creates any raw landing table that is missing, from the generated DDL (existing tables and their
+   rows are left as they are);
+2. loads raw tables only when asked: `--data TABLE=PATH` from a file or table, or `--sample N`
+   made-up rows into tables that are still empty;
+3. runs `dbt build` for the environment (`--env`, by default the first in `murakumo.yaml`), into
+   its schemas: `staging`, `marts` and so on.
+
+```bash
+murakumo build --sample 200        # try it out with made-up rows
+murakumo build --data yellow_tripdata=data/yellow_tripdata_2024-01.parquet
+murakumo build --env prod          # the prod profile and schemas
+murakumo build                     # rebuild the models on whatever has landed
+```
+
+It builds the model as it is now, and says so if `generated/` is out of date or a change to a
+table that keeps data has no migration yet: apply migrations to the warehouse first, since `build`
+never alters an existing table. It runs on DuckDB and Snowflake; for other warehouses, run
+`dbt build` in `generated/dbt`. In production an orchestrator does the same on a schedule.
 
 ## Migrations
 

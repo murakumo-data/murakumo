@@ -7,17 +7,16 @@ import sys
 from enum import StrEnum
 from pathlib import Path
 
-import click
 import typer
 
 from murakumo import __version__
-from murakumo.console import console, err_console, print_checks, print_diagnostics
+from murakumo.console import LEGEND, console, err_console, print_checks, print_diagnostics
 from murakumo.diagnostics import Level
 from murakumo.guide import Status, run_checks
 from murakumo.ir.model import Entity, Model, Relationship, SourceSystem
 from murakumo.manifest import MANIFEST_FILE, Manifest, ModellingPattern, Orchestrator, Warehouse
 from murakumo.project import find_root, load_project, save_model
-from murakumo.scaffold import ProjectExistsError, init_project, project_name
+from murakumo.scaffold import ProjectExistsError, configure_project, init_project, project_name
 from murakumo.validate import validate_project
 
 app = typer.Typer(
@@ -55,10 +54,52 @@ def _can_ask() -> bool:
     return sys.stdin.isatty()
 
 
-def _choose(question: str, enum: type[StrEnum], default: StrEnum) -> StrEnum:
-    choices = [v.value for v in enum]
-    answer = typer.prompt(question, default=default.value, type=click.Choice(choices), show_choices=True)
-    return enum(answer)
+_WAREHOUSES = {
+    Warehouse.DUCKDB: "on this computer, no account needed (best to start with)",
+    Warehouse.SNOWFLAKE: "Snowflake",
+    Warehouse.DATABRICKS: "Databricks",
+    Warehouse.BIGQUERY: "Google BigQuery",
+    Warehouse.REDSHIFT: "Amazon Redshift",
+    Warehouse.FABRIC: "Microsoft Fabric",
+    Warehouse.SYNAPSE: "Azure Synapse",
+    Warehouse.POSTGRES: "PostgreSQL",
+}
+_ORCHESTRATORS = {
+    Orchestrator.AIRFLOW: "Apache Airflow, the most common (Astro CLI locally, or managed)",
+    Orchestrator.DAGSTER: "Dagster",
+    Orchestrator.PREFECT: "Prefect",
+    Orchestrator.DATABRICKS_WORKFLOWS: "Databricks Workflows",
+    Orchestrator.SNOWFLAKE_TASKS: "Snowflake tasks",
+    Orchestrator.AWS_GLUE: "AWS Glue",
+    Orchestrator.AWS_STEP_FUNCTIONS: "AWS Step Functions",
+    Orchestrator.GCP_COMPOSER: "Google Cloud Composer (managed Airflow)",
+    Orchestrator.GCP_WORKFLOWS: "Google Cloud Workflows",
+    Orchestrator.AZURE_DATA_FACTORY: "Azure Data Factory",
+}
+_PATTERNS = {
+    ModellingPattern.KIMBALL: "star schema: facts and dimensions, the most common",
+    ModellingPattern.DATAVAULT: "Data Vault: hubs, links and satellites, for many changing sources",
+    ModellingPattern.OBT: "one big table per subject, simple for dashboards",
+    ModellingPattern.THIRD_NORMAL_FORM: "normalised (3NF), shaped like the source systems",
+    ModellingPattern.MIXED: "a mix, chosen table by table",
+}
+
+
+def _choose(question: str, options: dict, default: StrEnum) -> StrEnum:
+    """A numbered menu; the answer can be the number or the name."""
+    items = list(options)
+    width = max(len(item.value) for item in items)
+    console.print(f"\n[bold]{question}[/bold]")
+    for number, item in enumerate(items, 1):
+        console.print(f"  [cyan]{number:>2}[/cyan]  {item.value:<{width}}  [dim]{options[item]}[/dim]")
+    while True:
+        answer = typer.prompt(f"Choose 1-{len(items)}", default=str(items.index(default) + 1)).strip().lower()
+        if answer.isdigit() and 1 <= int(answer) <= len(items):
+            return items[int(answer) - 1]
+        for item in items:
+            if answer == item.value:
+                return item
+        console.print(f"[red]Type a number from 1 to {len(items)}.[/red]")
 
 
 @app.command()
@@ -77,12 +118,22 @@ def init(
         raise typer.Exit(1)
     interactive = not yes and _can_ask() and target is None
     if interactive:
-        console.print("A few questions about the project. Press Enter to accept the [bold]default[/bold].\n")
+        console.print(
+            "A few questions about the project. Press Enter to accept the suggestion shown in square brackets; "
+            "you can change any answer later with [bold]murakumo config[/bold].\n"
+        )
         name = name or typer.prompt("Project name", default=project_name(path))
-        target = _choose("Warehouse (duckdb runs on this computer, no account needed)", Warehouse, Warehouse.DUCKDB)
-        orchestrator = orchestrator or _choose("Orchestrator", Orchestrator, Orchestrator.AIRFLOW)
-        pattern = pattern or _choose("Modelling pattern", ModellingPattern, ModellingPattern.KIMBALL)
-        empty = empty or not typer.confirm("Start with the NYC taxi example model?", default=True)
+        target = _choose("Where will the data be stored and transformed? (warehouse)", _WAREHOUSES, Warehouse.DUCKDB)
+        orchestrator = orchestrator or _choose(
+            "What will run the pipelines on a schedule? (orchestrator)", _ORCHESTRATORS, Orchestrator.AIRFLOW
+        )
+        pattern = pattern or _choose(
+            "How should the reporting tables be shaped? (modelling pattern)", _PATTERNS, ModellingPattern.KIMBALL
+        )
+        console.print()
+        empty = empty or not typer.confirm(
+            "Add a small example model (NYC taxi trips) to explore? You can delete it later", default=True
+        )
     try:
         project = init_project(
             path,
@@ -103,15 +154,24 @@ def init(
             f"Example model: {len(model.entities)} entities, {len(model.relationships)} relationships, "
             f"{len(model.metrics)} metric."
         )
-    console.print("\n[bold]What this project needs on this machine[/bold] (run `murakumo setup` to check again):")
+    console.print("Change these answers later with [bold]murakumo config[/bold].")
+    console.print("\n[bold underline]What this project needs on this machine[/bold underline]")
+    console.print(f"[dim]{LEGEND}. Only what is not done yet is listed; `murakumo setup` shows everything.[/dim]")
     checks = run_checks(project)
     print_checks(checks, compact=True)
     todo = sum(c.status is Status.TODO for c in checks)
-    console.print(
-        f"\n{todo} thing(s) to do first."
-        if todo
-        else "\nReady. Next: [bold]murakumo canvas[/bold] or [bold]murakumo generate[/bold]."
-    )
+    here = Path.cwd().resolve()
+    cd = f"[bold]cd {path}[/bold], then " if project.root != here else ""
+    if todo:
+        console.print(f"\n[bold red]{todo} thing(s) to do first[/bold red] (the ✗ above).")
+        console.print(f"[bold cyan]Next:[/bold cyan] {cd}do them, then run [bold]murakumo setup[/bold] to check.")
+    else:
+        console.print("\n[bold green]Ready.[/bold green]")
+        console.print(
+            f"[bold cyan]Next:[/bold cyan] {cd}[bold]murakumo canvas[/bold] to see and edit the model, "
+            "or [bold]murakumo generate[/bold] to write the code."
+        )
+    console.print("[dim]Every command, with what it does: murakumo --help[/dim]")
 
 
 @app.command()
@@ -140,6 +200,7 @@ def setup(
             f"[bold]{manifest.project.name}[/bold]: builds on {manifest.targets.warehouse.type.value}, "
             f"scheduled by {manifest.generation.orchestrator.value}"
         )
+        console.print(f"[dim]{LEGEND}[/dim]")
         print_checks(checks)
         warnings = sum(c.status is Status.WARN for c in checks)
         if todo:
@@ -147,11 +208,52 @@ def setup(
                 f"\n[red]{todo} thing(s) to do[/red] before the project can build, and {warnings} to consider."
             )
         else:
-            console.print(f"\n[green]Ready to build.[/green] {warnings} thing(s) worth considering.")
+            console.print(f"\n[bold green]Ready to build.[/bold green] {warnings} thing(s) worth considering.")
         if not connect and manifest.targets.warehouse.type is not Warehouse.DUCKDB:
             console.print("Run [bold]murakumo setup --connect[/bold] to test the connections too.")
     if check and todo:
         raise typer.Exit(1)
+
+
+@app.command()
+def config(
+    path: Path = typer.Argument(Path("."), help="Project folder, or any folder inside it."),
+    target: Warehouse | None = typer.Option(None, "--target", "-t", help="The warehouse to build on."),
+    orchestrator: Orchestrator | None = typer.Option(None, help="What will schedule the pipelines."),
+    pattern: ModellingPattern | None = typer.Option(None, help="The modelling pattern for marts."),
+) -> None:
+    """Change the answers you gave `murakumo init`: warehouse, orchestrator, modelling pattern."""
+    root = find_root(path)
+    if root is None:
+        err_console.print(f"[red]error[/red] no murakumo.yaml in {path.resolve()} or above")
+        raise typer.Exit(1)
+    result = load_project(root)
+    if result.project is None:
+        print_diagnostics(result.diagnostics, root)
+        raise typer.Exit(1)
+    manifest = result.project.manifest
+    if target is None and orchestrator is None and pattern is None:
+        if not _can_ask():
+            err_console.print("[red]error[/red] say what to change: --target, --orchestrator or --pattern")
+            raise typer.Exit(1)
+        console.print("Press Enter to keep the current answer.")
+        target = _choose("Warehouse", _WAREHOUSES, manifest.targets.warehouse.type)
+        orchestrator = _choose("Orchestrator", _ORCHESTRATORS, manifest.generation.orchestrator)
+        pattern = _choose("Modelling pattern", _PATTERNS, manifest.modelling.pattern)
+    try:
+        changed = configure_project(root, target, orchestrator, pattern)
+    except ValueError as exc:
+        err_console.print(f"[red]error[/red] {exc}")
+        raise typer.Exit(1) from None
+    if not changed:
+        console.print("Nothing changed.")
+        return
+    for line in changed:
+        console.print(f"  [green]✓[/green] {line}")
+    console.print(
+        "Saved in murakumo.yaml. Next: [bold]murakumo setup[/bold] to see what the new choices need, "
+        "then [bold]murakumo generate[/bold]."
+    )
 
 
 @app.command()
@@ -256,6 +358,7 @@ from murakumo import cli_generate  # noqa: E402
 app.command("generate")(cli_generate.generate_command)
 app.command("migrate")(cli_generate.migrate_command)
 app.command("verify")(cli_generate.verify_command)
+app.command("build")(cli_generate.build_command)
 
 
 @app.command()

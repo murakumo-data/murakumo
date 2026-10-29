@@ -40,6 +40,9 @@ murakumo generate --check                              # fail CI if generated/ i
 murakumo migrate                                       # ALTER statements for tables that keep data
 murakumo verify                                        # build and test it all on DuckDB, twice
 murakumo verify --warehouse snowflake                  # or on Snowflake, in throwaway schemas
+murakumo build --sample 200                            # build into the project's warehouse and keep the tables
+murakumo config --target snowflake                     # change the answers you gave init
+murakumo --help                                        # every command, with what it does
 ```
 
 Extras: `canvas` (the editor), `verify` (builds on DuckDB), `duckdb` (files and DuckDB), `postgres`,
