@@ -232,6 +232,7 @@ export const api = {
   removeRelationship: (id: string) => request<State>('DELETE', `/relationships/${id}`),
 
   addSource: (body: { name: string; kind: string; location: string }) => request<State>('POST', '/sources', body),
+  removeSource: (name: string) => request<State>('DELETE', `/sources/${encodeURIComponent(name)}`),
   browseSource: (name: string) =>
     request<{ schemas: BrowseSchema[] }>('GET', `/sources/${encodeURIComponent(name)}/browse`, undefined, false),
   previewImport: (name: string, tables: string[] | null) =>

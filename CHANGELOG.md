@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+Working on the model in the canvas: sources, calculated columns, column order, domains and lineage.
+
+- **Sources panel**: lists each source with where it is read from and its tables; **+ Add source**
+  declares one in `murakumo.yaml` (keeping its comments): a database by the name of an environment
+  variable holding its connection string, Snowflake by its database name, or a dictionary, data
+  file or OpenAPI spec by path or URL. **Browse tables** lists a database's schemas, tables and
+  columns from its catalogue (never its rows) to tick the ones to import, after a preview of what
+  would change; other sources get **Re-import** with the same preview. Errors never show
+  passwords. `murakumo import database --table` imports only some tables; `murakumo remove
+  source` removes a source with no tables.
+- **Calculated columns**: an expression editor with syntax highlighting, suggestions for tables,
+  columns and functions as you type, live checks (the columns it reads, whether they exist, the
+  type it returns, its SQL in your warehouse's dialect) and a preview on made-up rows in DuckDB.
+  **+ Calculated** adds a column and its expression in one step; saving an expression sets the
+  mapping's sources to the columns it reads.
+- **Column order**: drag columns in the inspector (or Alt+↑/↓), or `murakumo move column`.
+  Generated tables and models follow; existing tables keep their order, which the Changes panel
+  and `murakumo migrate` say.
+- **Domains**: a Domains panel to add, rename (entities follow), give owners to and remove
+  domains; **Show domains** colours tables and shades each domain's area; a domain filter; the
+  inspector picks an entity's domain from a list. `murakumo add/rename/remove domain`. Each domain
+  with models becomes a dbt group owned by its owner, and models get `group` and `meta.domain`.
+- **Lineage**: `murakumo lineage entity.column` shows where a column comes from (or, with
+  `--down`, what uses it), as a tree or JSON. On the canvas, **⇄** beside a column (or
+  **Lineage** for a table) highlights its lineage across tables with animated links that show
+  their expressions, fades the rest, and lists the columns it comes from and feeds, to follow
+  further. dbt columns carry `meta.lineage`.
+- The API gains endpoints for column order, expressions, lineage, domains and sources; see
+  [the canvas](docs/canvas.md#the-api).
+
 ## 0.1.1 (2026-10-29)
 
 Fixes and polish from the first end-to-end test.

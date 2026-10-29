@@ -81,6 +81,16 @@ export function SourcesPanel({ state, run, onMessage }: { state: State; run: Run
               <span className="muted small">
                 {s.tables} {s.tables === 1 ? 'table' : 'tables'}
               </span>
+              {state.editable && s.tables === 0 && (
+                <button
+                  className="icon-button sources__remove"
+                  aria-label={`Remove ${s.name}`}
+                  title={`Remove ${s.name} from murakumo.yaml`}
+                  onClick={() => run(() => api.removeSource(s.name))}
+                >
+                  ×
+                </button>
+              )}
             </div>
             {s.from ? (
               <code className="sources__from">{s.from}</code>

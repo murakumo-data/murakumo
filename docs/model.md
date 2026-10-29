@@ -73,6 +73,37 @@ tests:                          # table-level rules
 properties: {}                  # your own metadata, available to custom templates
 ```
 
+Columns are generated in the order they are listed. `murakumo move column fct_trip total_amount
+--after trip_id` reorders them (or drag them on the canvas); tables that already exist keep their
+order, since no warehouse can reorder columns in place.
+
+A **calculated column** is a column whose mapping has an expression. The expression is DuckDB SQL
+over the tables the entity is built from, written `entity.column` (or just `column`, when a
+mapping source names its table), and is translated for each warehouse. The canvas checks and
+previews expressions as you write them; see [the canvas](canvas.md#what-you-can-do).
+
+**Domains** group entities by business area. List them in `murakumo.yaml`, with an owner if you
+like, and set `domain:` on each entity; an entity's domain must be listed (MK202):
+
+```yaml
+project:
+  name: shop
+  domains:
+    - name: sales
+      owner: Sales analytics
+    - finance                   # just a name is fine too
+```
+
+`murakumo add domain`, `rename domain` (its entities follow) and `remove domain` change the list
+without touching the file's comments, as does the canvas's Domains panel. Each domain with models
+becomes a dbt group.
+
+**Lineage** comes from the mappings: a column is made from the columns its mapping's sources and
+expression name. `murakumo lineage fct_trip.trip_id` shows where a column comes from, as a tree,
+down to the raw columns; `--down` shows what uses it instead; `--format json` gives the same as
+data. Give a table instead of a column for all of its columns. Generated dbt columns carry it as
+`meta.lineage`.
+
 Only `name` is required. Attributes also accept `default`, `physical_types` (an override per
 target, such as `{snowflake: VARCHAR(16)}`), `source_type`, `accepted_values` (a list of codes, or
 a mapping of code to label), `example`, `business_term` and `description`.

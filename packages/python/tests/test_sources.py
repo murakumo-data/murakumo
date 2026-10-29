@@ -134,3 +134,18 @@ def test_api(project):
     bad = client.post("/api/sources", json={"name": "x", "kind": "database", "location": "postgresql://a:b@c/d"})
     assert bad.status_code == 400 and "b@c" not in bad.json()["message"]
     assert client.get("/api/sources/crm/browse").status_code == 400  # CRM_DB_URL is not set
+
+
+def test_remove_source(project):
+    sources.import_source(project, "shop", ["customers"])
+    with pytest.raises(sources.SourceError, match="still has tables"):
+        sources.remove_source(project, "shop")
+    project.model.entities.clear()
+    assert sources.remove_source(project, "shop") == "shop"
+    assert "shop" not in (project.root / "murakumo.yaml").read_text()
+
+
+def test_cli_remove_source(project):
+    result = runner.invoke(app, ["remove", "source", "shop", "-p", str(project.root)])
+    assert result.exit_code == 0, result.output
+    assert load_project(project.root).project.manifest.sources == []

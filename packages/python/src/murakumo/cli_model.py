@@ -24,7 +24,7 @@ import_app = typer.Typer(
     invoke_without_command=True,
 )
 add_app = typer.Typer(help="Add a source, domain, entity, column or relationship to the model.", no_args_is_help=True)
-remove_app = typer.Typer(help="Remove a domain, entity or column from the model.", no_args_is_help=True)
+remove_app = typer.Typer(help="Remove a source, domain, entity or column from the model.", no_args_is_help=True)
 rename_app = typer.Typer(
     help="Rename a domain, entity or column, and every reference to it in the model.", no_args_is_help=True
 )
@@ -363,6 +363,20 @@ def remove_entity(name: str, project_path: Path = ProjectOption) -> None:
 def remove_column(entity: str, name: str, project_path: Path = ProjectOption) -> None:
     """Remove a column from an entity."""
     _edit(project_path, lambda p: f"Removed {entity}.{edit.remove_column(p, entity, name).name}.")
+
+
+@remove_app.command("source")
+def remove_source(name: str, project_path: Path = ProjectOption) -> None:
+    """Remove a source that has no tables: its entry in murakumo.yaml and its file in model/sources/."""
+    from murakumo import sources
+
+    def change(project: Project) -> str:
+        try:
+            return f"Removed source {sources.remove_source(project, name)}."
+        except sources.SourceError as exc:
+            raise edit.EditError(str(exc)) from None
+
+    _edit(project_path, change, prune=True)
 
 
 @remove_app.command("domain")

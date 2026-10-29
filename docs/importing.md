@@ -43,7 +43,13 @@ murakumo import database duckdb:///warehouse.duckdb --source erp
 murakumo import database postgresql://reader@db.internal:5432/erp --source erp --schema sales
 murakumo import database env:ERP_DATABASE_URL --source erp
 murakumo import database snowflake:///SALES_DB --source sales   # account and key from SNOWFLAKE_*
+murakumo import database env:ERP_DATABASE_URL --source erp --table sales.orders --table customers
 ```
+
+`--table` imports only those tables (`table` or `schema.table`, repeated for several); tables
+already in the model from that source are left as they are, so you can add a database's tables a
+few at a time. The canvas does the same with a list of tick boxes: see
+[the canvas](canvas.md#what-you-can-do).
 
 Primary keys, foreign keys (composite ones too), `NOT NULL`, and table and column comments all
 carry across. Table names stay as they are; the schema is added (`sales__orders`) only when two
@@ -97,6 +103,12 @@ sources:
 
 `murakumo import` then refreshes all of them. `ingestion.tool` and `ingestion.schedule` are
 copied to the source system.
+
+The canvas's **Sources** panel adds entries to this list (keeping the file's comments), browses a
+database source's tables, and imports or re-imports a source after showing what would change. A
+database is always named by an environment variable there (`introspect:env:CRM_DATABASE_URL`) or,
+for Snowflake, by its database name (`introspect:snowflake:///SALES_DB`), so no connection string
+is ever written to the file.
 
 ## Importing again
 

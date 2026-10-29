@@ -134,6 +134,29 @@ def add_source(project: Project, name: str, kind: str, location: str) -> SourceD
     return declaration
 
 
+def remove_source(project: Project, name: str) -> str:
+    """Remove a source no table uses: its entry in murakumo.yaml and its model file."""
+    declaration = _declaration(project, name)
+    system = project.model.source(name)
+    if declaration is None and system is None:
+        raise SourceError(f"source {name!r} does not exist")
+    used = [e.name for e in project.model.entities if (e.source or "").lower() == name.lower()]
+    if used:
+        names = ", ".join(used[:5]) + (" and more" if len(used) > 5 else "")
+        raise SourceError(f"source {name} still has tables ({names}); remove them first")
+    if declaration is not None:
+        entries = [
+            s.model_dump(by_alias=True, exclude_defaults=True) for s in project.manifest.sources if s is not declaration
+        ]
+        try:
+            project.manifest = write_section(project.root, ("sources",), entries)
+        except ManifestEditError as exc:
+            raise SourceError(str(exc)) from None
+    if system is not None:
+        project.model.sources.remove(system)  # saving with prune removes its file
+    return declaration.name if declaration else system.name
+
+
 def _introspect_url(project: Project, name: str) -> str:
     declaration = _declaration(project, name)
     if declaration is None or not declaration.from_:
@@ -201,4 +224,13 @@ def import_source(
     return [report_dict(merge(project, imported, prune=prune)) for imported in _imports(project, name, tables)]
 
 
-__all__ = ["KINDS", "SourceError", "add_source", "browse_source", "from_line", "import_source", "list_sources"]
+__all__ = [
+    "KINDS",
+    "SourceError",
+    "add_source",
+    "browse_source",
+    "from_line",
+    "import_source",
+    "list_sources",
+    "remove_source",
+]

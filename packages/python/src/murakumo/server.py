@@ -557,6 +557,18 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
         return change(action, rev)
 
+    @app.delete("/api/sources/{name}")
+    def remove_source(name: str, rev: Revision = None) -> dict[str, Any]:
+        """Remove a source no table uses."""
+
+        def action(project: Project) -> None:
+            try:
+                sources_module.remove_source(project, name)
+            except sources_module.SourceError as exc:
+                raise edit.EditError(str(exc)) from None
+
+        return change(action, rev, prune=True)
+
     @app.get("/api/sources/{name}/browse")
     def browse_source(name: str) -> dict[str, Any]:
         """A database source's schemas, tables and columns. Reads the catalogue only, never rows."""

@@ -1712,6 +1712,10 @@ textarea.input {
   align-items: center;
 }
 
+.sources__remove {
+  margin-left: auto;
+}
+
 .sources__from {
   overflow-wrap: anywhere;
   font-size: 11.5px;
