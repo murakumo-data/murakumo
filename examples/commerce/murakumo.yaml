@@ -32,3 +32,14 @@ sources:
     from: csv:../sample-dictionaries/nyc_tlc.csv
   - name: open_meteo
     from: csv:../sample-dictionaries/open_meteo.csv
+
+orchestration:
+  timezone: UTC
+  schedules:
+    - name: hourly_sales
+      cron: 0 * * * *
+      select:
+        - +domain:sales
+      description: Order lines and customers, every hour
+    - name: nightly
+      cron: 0 6 * * *

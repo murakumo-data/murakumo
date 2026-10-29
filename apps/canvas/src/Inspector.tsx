@@ -164,6 +164,14 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormPr
             onSave={(domain) => save({ domain })}
           />
         </Row>
+        <Row label="Refreshed">
+          <span className="small">
+            {(state.orchestration?.schedules ?? [])
+              .filter((s) => s.entities.includes(entity.name))
+              .map((s) => `${s.name}: ${s.when}`)
+              .join('; ') || <span className="muted">by no schedule</span>}
+          </span>
+        </Row>
         <Row label="Description">
           <TextField
             label="Description"

@@ -88,6 +88,19 @@ export type ImportReport = {
   has_changes: boolean
 }
 
+export type ScheduleInfo = {
+  name: string
+  cron: string
+  select: string[]
+  description: string | null
+  when: string // the cron time in words
+  next_runs: string[] // ISO times, in the schedule's time zone
+  entities: string[] // the entities it refreshes
+  rest: boolean // it refreshes whatever no other schedule selects
+}
+
+export type Orchestration = { timezone: string; implicit: boolean; schedules: ScheduleInfo[] }
+
 export type Domain = { name: string; owner: string | null; description: string | null; entities: number }
 
 export type State = {
@@ -99,6 +112,7 @@ export type State = {
   layout: Record<string, Position>
   domains: Domain[]
   sources: SourceInfo[]
+  orchestration: Orchestration | null
   diagnostics: Diagnostic[]
   choices: {
     sources: string[]
@@ -239,6 +253,13 @@ export const api = {
     request<{ reports: ImportReport[] }>('POST', `/sources/${encodeURIComponent(name)}/import/preview`, { tables }, false),
   importSource: (name: string, tables: string[] | null) =>
     request<State>('POST', `/sources/${encodeURIComponent(name)}/import`, { tables }),
+
+  addSchedule: (body: { name: string; cron: string; select: string[]; description?: string | null }) =>
+    request<State>('POST', '/schedules', body),
+  updateSchedule: (name: string, changes: Record<string, unknown>) =>
+    request<State>('PATCH', `/schedules/${encodeURIComponent(name)}`, changes),
+  removeSchedule: (name: string) => request<State>('DELETE', `/schedules/${encodeURIComponent(name)}`),
+  setTimezone: (timezone: string) => request<State>('PUT', '/orchestration/timezone', { timezone }),
 
   addDomain: (body: { name: string; owner?: string | null; description?: string | null }) =>
     request<State>('POST', '/domains', body),

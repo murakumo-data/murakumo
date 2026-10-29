@@ -365,7 +365,14 @@ def _release_dbt() -> None:
         pass
 
 
-def _run_dbt(project_dir: Path, environment: str, variables: dict[str, str], rerun: bool, result: VerifyResult):
+def _run_dbt(
+    project_dir: Path,
+    environment: str,
+    variables: dict[str, str],
+    rerun: bool,
+    result: VerifyResult,
+    selector: str | None = None,
+):
     from dbt.cli.main import dbtRunner
 
     variables = {**variables, "DBT_SEND_ANONYMOUS_USAGE_STATS": "false"}
@@ -381,6 +388,7 @@ def _run_dbt(project_dir: Path, environment: str, variables: dict[str, str], rer
         environment,
         "--quiet",
         "--no-use-colors",
+        *(["--selector", selector] if selector else []),
     ]
     try:
         run = dbtRunner().invoke(arguments)
@@ -525,6 +533,7 @@ def build(
     limit: int | None = None,
     sample: int = 0,
     schema_prefix: str = "",
+    schedule: str | None = None,
 ) -> BuildResult:
     """Build the project into its real warehouse and keep everything: the raw landing tables
     (created if missing), and every dbt model, snapshot and test in the environment's schemas.
@@ -532,6 +541,7 @@ def build(
     Raw tables are loaded only when asked: ``data`` from files or tables, or ``sample`` synthetic
     rows into tables that are still empty. Otherwise dbt builds on whatever ingestion has landed.
     ``schema_prefix`` puts every schema beside the usual ones (for tests), as verify does.
+    ``schedule`` builds only what that schedule refreshes, through its dbt selector.
     """
     warehouse = Warehouse(warehouse or project.manifest.targets.warehouse.type)
     if warehouse not in SUPPORTED:
@@ -554,6 +564,15 @@ def build(
     environment = environment or environments[0]
     if environment not in environments:
         raise SourceUnavailable(f"no environment {environment!r} in murakumo.yaml; it has {', '.join(environments)}")
+
+    if schedule is not None:
+        from murakumo.schedules import effective
+
+        names = [s.name for s in effective(project)[0]]
+        match = next((n for n in names if n.lower() == schedule.lower()), None)
+        if match is None:
+            raise SourceUnavailable(f"no schedule {schedule!r}; the project has {', '.join(names)}")
+        schedule = match
 
     output = generate(project, warehouse)
     result = BuildResult(warehouse=warehouse.value)
@@ -594,7 +613,7 @@ def build(
             if warehouse is Warehouse.DUCKDB:
                 variables.pop("MURAKUMO_SCHEMA")  # the environment's own schema, as in profiles.yml
                 variables["MURAKUMO_SCHEMA_PREFIX"] = schema_prefix
-            run = _run_dbt(folder / "dbt", environment, variables, False, result)
+            run = _run_dbt(folder / "dbt", environment, variables, False, result, selector=schedule)
         finally:
             result.location = backend.describe()
             if warehouse is Warehouse.SNOWFLAKE:

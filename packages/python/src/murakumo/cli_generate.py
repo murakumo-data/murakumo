@@ -218,6 +218,9 @@ def build_command(
     warehouse: Warehouse | None = typer.Option(
         None, "--warehouse", help="duckdb or snowflake. Defaults to the project's warehouse."
     ),
+    schedule: str | None = typer.Option(
+        None, "--schedule", help="Build only what this schedule refreshes, as its orchestrator would."
+    ),
 ) -> None:
     """Build the project into the warehouse and keep it: raw tables, then every dbt model and test.
 
@@ -249,7 +252,7 @@ def build_command(
     target = (warehouse or project.manifest.targets.warehouse.type).value
     with console.status(f"Building on {target}: raw tables, then dbt build..."):
         try:
-            result = build(project, warehouse, environment, data=files, limit=limit, sample=sample)
+            result = build(project, warehouse, environment, data=files, limit=limit, sample=sample, schedule=schedule)
         except SourceUnavailable as exc:
             fail(str(exc))
             raise typer.Exit(1) from None

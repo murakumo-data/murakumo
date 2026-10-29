@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from murakumo import __version__, edit
+from murakumo import schedules as schedules_module
 from murakumo import sources as sources_module
 from murakumo.diagnostics import Diagnostic, Level
 from murakumo.expressions import check_expression, preview_expression
@@ -133,6 +134,17 @@ class SourceImportBody(BaseModel):
     prune: bool = False
 
 
+class NewSchedule(BaseModel):
+    name: str
+    cron: str
+    select: list[str] = Field(default_factory=list)
+    description: str | None = None
+
+
+class TimezoneBody(BaseModel):
+    timezone: str
+
+
 class NewDomain(BaseModel):
     name: str
     owner: str | None = None
@@ -198,6 +210,7 @@ def state(root: Path) -> dict[str, Any]:
         "model": project.model.model_dump(mode="json", by_alias=True) if project else None,
         "layout": {str(k): {"x": x, "y": y} for k, (x, y) in layout.items()},
         "sources": sources_module.list_sources(project) if project else [],
+        "orchestration": schedules_module.summary(project) if project else None,
         "domains": [
             {**d.model_dump(), "entities": len(edit.domain_usage(project, d.name))}
             for d in (project.manifest.project.domains if project else [])
@@ -606,6 +619,36 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
         new_state = change(action, rev, prune=body.prune)
         return {**new_state, "reports": reports}
+
+    def schedule_change(action: Callable[[Project], Any]) -> Callable[[Project], Any]:
+        def guarded(project: Project) -> Any:
+            try:
+                return action(project)
+            except schedules_module.ScheduleError as exc:
+                raise edit.EditError(str(exc)) from None
+
+        return guarded
+
+    @app.post("/api/schedules")
+    def add_schedule(body: NewSchedule, rev: Revision = None) -> dict[str, Any]:
+        return change(
+            schedule_change(
+                lambda p: schedules_module.add_schedule(p, body.name, body.cron, body.select, body.description)
+            ),
+            rev,
+        )
+
+    @app.patch("/api/schedules/{name}")
+    def update_schedule(name: str, body: Changes, rev: Revision = None) -> dict[str, Any]:
+        return change(schedule_change(lambda p: schedules_module.update_schedule(p, name, body)), rev)
+
+    @app.delete("/api/schedules/{name}")
+    def remove_schedule(name: str, rev: Revision = None) -> dict[str, Any]:
+        return change(schedule_change(lambda p: schedules_module.remove_schedule(p, name)), rev)
+
+    @app.put("/api/orchestration/timezone")
+    def put_timezone(body: TimezoneBody, rev: Revision = None) -> dict[str, Any]:
+        return change(schedule_change(lambda p: schedules_module.set_timezone(p, body.timezone)), rev)
 
     @app.post("/api/domains")
     def add_domain(body: NewDomain, rev: Revision = None) -> dict[str, Any]:

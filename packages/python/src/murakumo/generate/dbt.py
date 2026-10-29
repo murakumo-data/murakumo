@@ -128,6 +128,16 @@ def _number(value: str) -> int | float:
     return int(number) if number.is_integer() else number
 
 
+def selectors(project, plan: Plan) -> str:
+    """One dbt selector per schedule, so orchestrators run ``dbt build --selector <schedule>``."""
+    from murakumo.schedules import ScheduleError, dbt_selectors
+
+    try:
+        return _yaml(dbt_selectors(project, plan))
+    except ScheduleError:  # reported by validate (MK601); generate what can be generated
+        return _yaml({"selectors": []})
+
+
 def _groups(plan: Plan) -> list[dict]:
     """One dbt group per domain that has models, owned by the domain's owner."""
     used = {(m.entity.domain or "").lower() for m in plan.models}

@@ -1,5 +1,5 @@
 {
-  "generated_by": "murakumo 0.1.1",
+  "generated_by": "murakumo 0.2.0",
   "files": {
     "dbt/README.md": "2c2c1a1fc3a489edab38a69be953d7702fa971056de4055a0113852ef9cf554a",
     "dbt/dbt_project.yml": "37fffc611271dcedabc8f3aad7051bd2775bcf79ae4c05ec169ec79bc68ebb54",
@@ -33,6 +33,7 @@
     "dbt/models/staging/tpch_erp/stg_tpch_erp__region.sql": "6229db5f2045b9e2916e82d6398c3320e73974fd7f31dc6029b5b4dfccf650c4",
     "dbt/models/staging/tpch_erp/stg_tpch_erp__supplier.sql": "f88ed906c4066750a0855b7d5d0ca7e506a08482a6505ef0dd20e0fc817131ee",
     "dbt/profiles.yml": "e091b5de762503583cc12d623e32f9e36da8bedfbabcf1c9cd924856cd6095d2",
+    "dbt/selectors.yml": "227c56397532361d71d6d0fae25cbde1a11fdebae8d24b5a8e710b93570f483a",
     "dbt/snapshots/_snapshots.yml": "83530ee4b688b7e3c8a1defa83a8061eb56580d3b221cbaa27e5c96bf61fa0d2",
     "ddl/duckdb/marts.sql": "57c85f12f3fe887d50497559fda3be0307c4441cb90671cb9036014f7e3cbf78",
     "ddl/duckdb/raw.sql": "e96d6fb1ceea593f549b6b6ad4bf1439eff1c242051cf30dafac866eed755c62"

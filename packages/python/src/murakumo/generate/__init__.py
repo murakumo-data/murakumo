@@ -44,6 +44,7 @@ def generate(project: Project, warehouse: Warehouse | str | None = None) -> Outp
     output = Output(plan)
     for path, content in dbt.render(plan).items():
         output.files[f"dbt/{path}"] = content
+    output.files["dbt/selectors.yml"] = dbt.selectors(project, plan)
     statements = ddl.DDL(plan)
     for path, content in ddl.render(plan, statements).items():
         output.files[f"ddl/{target.warehouse.value}/{path}"] = content

@@ -169,6 +169,50 @@ class Streaming(Section):
     registry_compatibility: str = "backward"
 
 
+class Schedule(Section):
+    """When a part of the project is refreshed. With no ``select``, it runs everything no other
+    schedule picks."""
+
+    name: Name
+    cron: str
+    select: list[str] = Field(default_factory=list)
+    description: str | None = None
+
+    @field_validator("cron")
+    @classmethod
+    def _valid_cron(cls, value: str) -> str:
+        from murakumo.cron import CronError, check
+
+        try:
+            return check(value)
+        except CronError as exc:
+            raise ValueError(str(exc)) from None
+
+    @field_validator("select", mode="before")
+    @classmethod
+    def _one_or_many(cls, value: Any) -> Any:
+        return [value] if isinstance(value, str) else value
+
+
+class Orchestration(Section):
+    timezone: str = "UTC"
+    schedules: list[Schedule] = Field(default_factory=list)
+
+    @field_validator("timezone")
+    @classmethod
+    def _valid_zone(cls, value: str) -> str:
+        from murakumo.cron import CronError, zone
+
+        try:
+            zone(value)
+        except CronError as exc:
+            raise ValueError(str(exc)) from None
+        return value
+
+    def schedule(self, name: str) -> Schedule | None:
+        return next((s for s in self.schedules if s.name.lower() == name.lower()), None)
+
+
 class Generation(Section):
     transform: str = Field(default="dbt", pattern="^(dbt|sqlmesh|spark)$")
     python_engine: str = Field(default="none", pattern="^(pyspark|polars|none)$")
@@ -215,6 +259,7 @@ class Manifest(Section):
     modelling: Modelling = Field(default_factory=Modelling)
     conventions: Conventions = Field(default_factory=Conventions)
     generation: Generation = Field(default_factory=Generation)
+    orchestration: Orchestration = Field(default_factory=Orchestration)
     quality: Quality = Field(default_factory=Quality)
     contracts: Contracts = Field(default_factory=Contracts)
     governance: Governance = Field(default_factory=Governance)

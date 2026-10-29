@@ -1818,3 +1818,57 @@ textarea.input {
 .import-preview__line--change {
   color: var(--warning);
 }
+
+/* Schedules ----------------------------------------------------------------------------------- */
+
+.schedules {
+  display: grid;
+  gap: 8px;
+}
+
+.schedules__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schedules__item {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.schedules__item--active {
+  border-color: var(--accent);
+}
+
+.schedules__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 24px;
+  gap: 8px;
+  align-items: center;
+}
+
+.schedules__when {
+  font-size: 12.5px;
+}
+
+.schedules__fields {
+  display: grid;
+  gap: 4px;
+}
+
+.schedules__new {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.issue--info {
+  background: var(--info-bg);
+}
