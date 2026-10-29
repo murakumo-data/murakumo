@@ -309,3 +309,30 @@ def export_command(
     tests = sum(1 for p in files if p.startswith("tests/"))
     shown = folder.relative_to(project.root) if folder.is_relative_to(project.root) else folder
     console.print(f"Wrote {scripts} scripts and {tests} test files to {shown}/. README.md there says how to run them.")
+
+
+def docs_command(
+    project_path: Path = ProjectOption,
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the page in the browser."),
+) -> None:
+    """Show the pipeline docs: tables, columns, lineage, schedules and sources, on one page.
+
+    `murakumo generate` keeps the same page in generated/docs/index.html, for committing; this
+    shows it as the model is now, without writing anything to the project.
+    """
+    import tempfile
+    import webbrowser
+
+    from murakumo.generate import docs
+    from murakumo.generate.plan import build_plan
+    from murakumo.generate.targets import target_for
+
+    project = open_project(project_path)
+    plan = build_plan(project, target_for(project.manifest.targets.warehouse.type))
+    folder = Path(tempfile.gettempdir()) / "murakumo-docs" / project.manifest.project.name
+    folder.mkdir(parents=True, exist_ok=True)
+    page = folder / "index.html"
+    page.write_text(docs.html(project, plan), encoding="utf-8")
+    console.print(f"Docs: {page}")
+    if open_browser:
+        webbrowser.open(page.as_uri())

@@ -26,7 +26,7 @@ from uuid import UUID
 
 from fastapi import Body, FastAPI, Header, HTTPException
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -522,6 +522,19 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.delete("/api/relationships/{relationship_id}")
     def remove_relationship(relationship_id: UUID, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_relationship(p, relationship_id), rev)
+
+    @app.get("/api/pipeline-docs", response_class=HTMLResponse)
+    def get_docs() -> HTMLResponse:
+        """The pipeline docs page, as `murakumo generate` writes it to generated/docs/index.html."""
+        from murakumo.generate import docs
+        from murakumo.generate.plan import build_plan
+        from murakumo.generate.targets import target_for
+
+        project, blocked = _blocked(root)
+        if project is None or blocked:
+            raise HTTPException(409, {"message": blocked or "the project did not load"})
+        plan = build_plan(project, target_for(project.manifest.targets.warehouse.type))
+        return HTMLResponse(docs.html(project, plan))
 
     @app.get("/api/lineage")
     def get_lineage(entity: str, column: str | None = None) -> dict[str, Any]:

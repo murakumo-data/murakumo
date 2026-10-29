@@ -628,6 +628,9 @@ function Canvas() {
           )}
         </div>
         <div className="toolbar__actions">
+          <a className="chip" href="/api/pipeline-docs" target="_blank" rel="noreferrer" title="Pipeline docs: tables, columns, lineage and schedules">
+            Docs
+          </a>
           <span className="status" aria-live="polite">
             {saving ? 'Saving…' : 'Saved to model/'}
           </span>
