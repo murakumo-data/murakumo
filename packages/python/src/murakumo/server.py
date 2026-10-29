@@ -107,6 +107,12 @@ class ColumnOrder(BaseModel):
     columns: list[UUID]
 
 
+class NewDomain(BaseModel):
+    name: str
+    owner: str | None = None
+    description: str | None = None
+
+
 # State ------------------------------------------------------------------------------------------
 
 
@@ -165,6 +171,10 @@ def state(root: Path) -> dict[str, Any]:
         "editable": editable,
         "model": project.model.model_dump(mode="json", by_alias=True) if project else None,
         "layout": {str(k): {"x": x, "y": y} for k, (x, y) in layout.items()},
+        "domains": [
+            {**d.model_dump(), "entities": len(edit.domain_usage(project, d.name))}
+            for d in (project.manifest.project.domains if project else [])
+        ],
         "diagnostics": [_diagnostic(d, project, root) for d in diagnostics],
         "choices": {
             "sources": sources,
@@ -472,6 +482,18 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.delete("/api/relationships/{relationship_id}")
     def remove_relationship(relationship_id: UUID, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_relationship(p, relationship_id), rev)
+
+    @app.post("/api/domains")
+    def add_domain(body: NewDomain, rev: Revision = None) -> dict[str, Any]:
+        return change(lambda p: edit.add_domain(p, body.name, body.owner, body.description), rev)
+
+    @app.patch("/api/domains/{name}")
+    def update_domain(name: str, body: Changes, rev: Revision = None) -> dict[str, Any]:
+        return change(lambda p: edit.update_domain(p, name, body), rev)
+
+    @app.delete("/api/domains/{name}")
+    def remove_domain(name: str, rev: Revision = None) -> dict[str, Any]:
+        return change(lambda p: edit.remove_domain(p, name), rev)
 
     @app.put("/api/layout")
     def put_layout(body: Layout) -> dict[str, str]:

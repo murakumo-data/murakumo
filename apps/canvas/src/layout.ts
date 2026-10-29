@@ -92,3 +92,14 @@ export function ends(cardinality: string, optional: boolean): { fromEnd: End; to
   const toEnd = (optional ? `zero-${to}` : to) as End
   return { fromEnd: from as End, toEnd }
 }
+
+// Domains get a colour each, in the order murakumo.yaml lists them. Semi-transparent, so the same
+// colours read on light and dark backgrounds.
+const DOMAIN_HUES = [212, 152, 32, 280, 350, 190, 80, 250]
+
+export function domainColour(domains: string[], name: string | null, alpha = 1): string | undefined {
+  if (!name) return undefined
+  const index = domains.findIndex((d) => d.toLowerCase() === name.toLowerCase())
+  if (index < 0) return undefined
+  return `hsl(${DOMAIN_HUES[index % DOMAIN_HUES.length]} 65% 50% / ${alpha})`
+}

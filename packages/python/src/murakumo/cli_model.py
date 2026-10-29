@@ -23,10 +23,10 @@ import_app = typer.Typer(
     "With no subcommand, imports every source in murakumo.yaml that has a from: line.",
     invoke_without_command=True,
 )
-add_app = typer.Typer(help="Add a source, entity, column or relationship to the model.", no_args_is_help=True)
-remove_app = typer.Typer(help="Remove an entity or column from the model.", no_args_is_help=True)
+add_app = typer.Typer(help="Add a source, domain, entity, column or relationship to the model.", no_args_is_help=True)
+remove_app = typer.Typer(help="Remove a domain, entity or column from the model.", no_args_is_help=True)
 rename_app = typer.Typer(
-    help="Rename an entity or column, and every reference to it in the model.", no_args_is_help=True
+    help="Rename a domain, entity or column, and every reference to it in the model.", no_args_is_help=True
 )
 move_app = typer.Typer(help="Change the order of an entity's columns.", no_args_is_help=True)
 
@@ -267,6 +267,17 @@ def add_source(
     _edit(project_path, lambda p: f"Added source {edit.add_source(p, name, type, connection, description).name}.")
 
 
+@add_app.command("domain")
+def add_domain(
+    name: str,
+    owner: str | None = typer.Option(None, help="The team or person responsible for it."),
+    description: str | None = typer.Option(None),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Add a domain to project.domains in murakumo.yaml. Put entities in it with --domain."""
+    _edit(project_path, lambda p: f"Added domain {edit.add_domain(p, name, owner, description).name}.")
+
+
 @add_app.command("entity")
 def add_entity(
     name: str,
@@ -343,6 +354,24 @@ def remove_entity(name: str, project_path: Path = ProjectOption) -> None:
 def remove_column(entity: str, name: str, project_path: Path = ProjectOption) -> None:
     """Remove a column from an entity."""
     _edit(project_path, lambda p: f"Removed {entity}.{edit.remove_column(p, entity, name).name}.")
+
+
+@remove_app.command("domain")
+def remove_domain(name: str, project_path: Path = ProjectOption) -> None:
+    """Remove a domain that no entity uses."""
+    _edit(project_path, lambda p: f"Removed domain {edit.remove_domain(p, name).name}.")
+
+
+@rename_app.command("domain")
+def rename_domain(name: str, new_name: str, project_path: Path = ProjectOption) -> None:
+    """Rename a domain, and move every entity in it to the new name."""
+
+    def change(project: Project) -> str:
+        count = len(edit.domain_usage(project, name))
+        renamed = edit.update_domain(project, name, {"name": new_name})
+        return f"Renamed domain {name} to {renamed.name} ({count} entities)."
+
+    _edit(project_path, change)
 
 
 @rename_app.command("entity")

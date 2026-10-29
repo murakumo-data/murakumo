@@ -53,6 +53,8 @@ export type Diagnostic = {
 
 export type Position = { x: number; y: number }
 
+export type Domain = { name: string; owner: string | null; description: string | null; entities: number }
+
 export type State = {
   version: string
   revision: string
@@ -60,6 +62,7 @@ export type State = {
   editable: boolean
   model: { entities: Entity[]; relationships: Relationship[] } | null
   layout: Record<string, Position>
+  domains: Domain[]
   diagnostics: Diagnostic[]
   choices: {
     sources: string[]
@@ -162,6 +165,12 @@ export const api = {
   updateRelationship: (id: string, changes: Record<string, unknown>) =>
     request<State>('PATCH', `/relationships/${id}`, changes),
   removeRelationship: (id: string) => request<State>('DELETE', `/relationships/${id}`),
+
+  addDomain: (body: { name: string; owner?: string | null; description?: string | null }) =>
+    request<State>('POST', '/domains', body),
+  updateDomain: (name: string, changes: Record<string, unknown>) =>
+    request<State>('PATCH', `/domains/${encodeURIComponent(name)}`, changes),
+  removeDomain: (name: string) => request<State>('DELETE', `/domains/${encodeURIComponent(name)}`),
 
   saveLayout: (positions: Record<string, Position>) =>
     request<{ revision: string }>('PUT', '/layout', { positions }),

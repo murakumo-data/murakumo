@@ -29,6 +29,8 @@ from murakumo.ir.model import (
     SourceSystem,
     SourceType,
 )
+from murakumo.manifest import Domain
+from murakumo.manifest_edit import ManifestEditError, write_section
 from murakumo.project import Project
 
 
@@ -457,6 +459,72 @@ def move_column(
         index = names.index(anchor.name) + (1 if after else 0)
     names.insert(index, column.name)
     return order_columns(project, entity.name, names)
+
+
+# Domains ----------------------------------------------------------------------------------------
+# Domains are listed in murakumo.yaml under project.domains, so these write the manifest straight
+# away (keeping its comments); entities that change are saved by the caller as usual.
+
+
+def _domain_yaml(domain: Domain) -> str | dict[str, Any]:
+    data = domain.model_dump(exclude_none=True)
+    return data["name"] if set(data) == {"name"} else data
+
+
+def _save_domains(project: Project, domains: list[Domain]) -> None:
+    try:
+        project.manifest = write_section(project.root, ("project", "domains"), [_domain_yaml(d) for d in domains])
+    except ManifestEditError as exc:
+        raise EditError(str(exc)) from None
+
+
+def _domain(project: Project, name: str) -> Domain:
+    domain = project.manifest.domain(name)
+    if domain is None:
+        raise EditError(f"domain {name!r} is not listed under project.domains")
+    return domain
+
+
+def domain_usage(project: Project, name: str) -> list[Entity]:
+    return [e for e in project.model.entities if (e.domain or "").lower() == name.lower()]
+
+
+def add_domain(project: Project, name: str, owner: str | None = None, description: str | None = None) -> Domain:
+    _check_name(name)
+    if project.manifest.domain(name):
+        raise EditError(f"domain {name!r} already exists")
+    domain = Domain(name=name, owner=owner or None, description=description or None)
+    _save_domains(project, [*project.manifest.project.domains, domain])
+    return domain
+
+
+def update_domain(project: Project, name: str, changes: dict[str, Any]) -> Domain:
+    """Change a domain's owner or description; a new ``name`` renames it, and every entity in it."""
+    domain = _domain(project, name)
+    unknown = set(changes) - {"name", "owner", "description"}
+    if unknown:
+        raise EditError(f"cannot change {', '.join(sorted(unknown))} on a domain")
+    new_name = changes.get("name") or domain.name
+    if new_name != domain.name:
+        _check_name(new_name)
+        if new_name.lower() != domain.name.lower() and project.manifest.domain(new_name):
+            raise EditError(f"domain {new_name!r} already exists")
+    data = domain.model_dump() | {k: (v or None) for k, v in changes.items()} | {"name": new_name}
+    updated = Domain(**data)
+    for entity in domain_usage(project, domain.name):
+        entity.domain = updated.name
+    _save_domains(project, [updated if d is domain else d for d in project.manifest.project.domains])
+    return updated
+
+
+def remove_domain(project: Project, name: str) -> Domain:
+    domain = _domain(project, name)
+    used = domain_usage(project, domain.name)
+    if used:
+        names = ", ".join(e.name for e in used[:5]) + (" and more" if len(used) > 5 else "")
+        raise EditError(f"domain {domain.name} is used by {names}; move them to another domain first")
+    _save_domains(project, [d for d in project.manifest.project.domains if d is not domain])
+    return domain
 
 
 def parse_join(text: str) -> tuple[str, str]:

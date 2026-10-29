@@ -238,3 +238,27 @@ def test_cli_move_column(project):
     assert result.exit_code == 0, result.output
     entity = load_project(project.root).project.model.entity("taxi_zone_lookup")
     assert [a.name for a in entity.attributes][:2] == ["LocationID", "Zone"]
+
+
+def test_domains(project):
+    manifest = project.root / "murakumo.yaml"
+    edit.add_domain(project, "finance", owner="Finance team")
+    text = manifest.read_text()
+    assert "- name: finance\n      owner: Finance team" in text and "# kimball | datavault" in text
+    edit.update_domain(project, "mobility", {"name": "transport", "owner": "Ops"})
+    assert {e.domain for e in project.model.entities} == {"transport"}
+    save_model(project)
+    reloaded = load_project(project.root).project
+    assert [d.name for d in reloaded.manifest.project.domains] == ["transport", "finance"]
+    assert validate_project(reloaded) == [] or all(d.level is not Level.ERROR for d in validate_project(reloaded))
+    with pytest.raises(edit.EditError, match="used by"):
+        edit.remove_domain(reloaded, "transport")
+    edit.remove_domain(reloaded, "finance")
+    assert "finance" not in manifest.read_text()
+
+
+def test_cli_domains(project):
+    assert run(project, "add", "domain", "finance").exit_code == 0
+    result = run(project, "rename", "domain", "mobility", "transport")
+    assert result.exit_code == 0 and "4 entities" in result.output
+    assert "domains: [transport, finance]" in (project.root / "murakumo.yaml").read_text()

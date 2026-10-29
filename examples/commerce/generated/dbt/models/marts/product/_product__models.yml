@@ -4,6 +4,9 @@ models:
   - name: dim_part
     description: Parts we sell.
     config:
+      group: product
+      meta:
+        domain: product
       contract:
         enforced: true
     columns:

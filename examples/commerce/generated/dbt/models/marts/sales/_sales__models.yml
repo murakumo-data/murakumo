@@ -4,6 +4,9 @@ models:
   - name: dim_customer
     description: Customers, with every change to their segment, balance or country kept as a new version.
     config:
+      group: sales
+      meta:
+        domain: sales
       contract:
         enforced: true
     columns:
@@ -56,6 +59,9 @@ models:
   - name: fct_order_line
     description: One row per order line, with its net amount after discount.
     config:
+      group: sales
+      meta:
+        domain: sales
       contract:
         enforced: true
     columns:

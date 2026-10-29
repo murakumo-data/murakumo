@@ -9,14 +9,18 @@ export type EntityData = {
   errors: number
   warnings: number
   linked?: Set<string> // column ids joined by the selected or hovered relationship
+  domainColour?: string // when the canvas shows domains
 }
 
 export type EntityNodeType = Node<EntityData, 'entity'>
 
 export function EntityNode({ data, selected }: NodeProps<EntityNodeType>) {
-  const { entity, foreignKeys, errors, warnings, linked } = data
+  const { entity, foreignKeys, errors, warnings, linked, domainColour } = data
   return (
-    <div className={`entity entity--${entity.layer}${selected ? ' entity--selected' : ''}`}>
+    <div
+      className={`entity entity--${entity.layer}${selected ? ' entity--selected' : ''}`}
+      style={domainColour ? { boxShadow: `inset 0 4px 0 ${domainColour}` } : undefined}
+    >
       <div className="entity__header">
         <div className="entity__title">
           <span className="entity__name">{entity.name}</span>

@@ -16,12 +16,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 
 import { api, ApiError, type Entity, type Generated, type Layer, type Position, type State } from './api'
 import { ChangesPanel } from './Code'
+import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
 import { EntityNode, type EntityNodeType } from './EntityNode'
 import { EntityPanel, RelationshipPanel } from './Inspector'
-import { ends, handleId, nodeHeight, placeEntities } from './layout'
+import { domainColour, ends, handleId, nodeHeight, placeEntities } from './layout'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
-const nodeTypes = { entity: EntityNode }
+const nodeTypes = { entity: EntityNode, domain: DomainArea }
 const edgeTypes = { relationship: RelationshipEdge }
 const NODE_WIDTH = 280 // until React Flow has measured a node
 const PANEL_WIDTH = { min: 320, default: 400 }
@@ -33,6 +34,24 @@ function savedPanelWidth(): number {
     return PANEL_WIDTH.default
   }
 }
+
+function remember(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // Only a convenience.
+  }
+}
+
+function recall(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+const AREA_PADDING = 28
 const POLL_MS = 2000
 
 const CARDINALITY: Record<string, string> = {
@@ -54,7 +73,9 @@ function Canvas() {
   const [message, setMessage] = useState<{ text: string; tone: 'error' | 'info' } | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [hidden, setHidden] = useState<Set<Layer>>(new Set())
-  const [side, setSide] = useState<'issues' | 'changes' | null>(null)
+  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | null>(null)
+  const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
+  const [domainFilter, setDomainFilter] = useState<string | null>(null)
   const [generated, setGenerated] = useState<Generated | null>(null)
   const [generating, setGenerating] = useState(false)
   const [adding, setAdding] = useState<{ name: string; layer: Layer; source: string } | null>(null)
@@ -152,12 +173,14 @@ function Canvas() {
     positions.current = placed
     const issues = (id: string, level: 'error' | 'warning') =>
       diagnostics.filter((d) => d.entity_id === id && d.level === level).length
+    const domainNames = state.domains.map((d) => d.name)
     setNodes((previous) => {
       // Keep measured sizes, so React Flow does not have to measure every node again, and which
       // nodes are selected: several can be, to move them together.
       const before = new Map(previous.map((n) => [n.id, n]))
       return entities
         .filter((e) => !hidden.has(e.layer))
+        .filter((e) => !domainFilter || (e.domain ?? '').toLowerCase() === domainFilter.toLowerCase())
         .map((entity) => ({
           id: entity.id,
           type: 'entity' as const,
@@ -173,10 +196,11 @@ function Canvas() {
             ),
             errors: issues(entity.id, 'error'),
             warnings: issues(entity.id, 'warning'),
+            domainColour: showDomains ? domainColour(domainNames, entity.domain) : undefined,
           },
         }))
     })
-  }, [state, entities, relationships, diagnostics, hidden, setNodes])
+  }, [state, entities, relationships, diagnostics, hidden, domainFilter, showDomains, setNodes])
 
   const edges = useMemo<RelationshipEdgeType[]>(() => {
     const shown = new Map(nodes.map((n) => [n.id, n]))
@@ -235,6 +259,49 @@ function Canvas() {
     if (from.id === to.id) linked.set(from.id, new Set([...ids(from, r.keys.map((k) => k.from)), ...ids(to, r.keys.map((k) => k.to))]))
     return nodes.map((n) => (linked.has(n.id) ? { ...n, data: { ...n.data, linked: linked.get(n.id) } } : n))
   }, [nodes, relationships, entities, selection, hovered])
+
+  // A shaded area behind each domain's tables, drawn from where the tables are now.
+  const domainAreas = useMemo<DomainAreaType[]>(() => {
+    if (!showDomains || !state) return []
+    const names = state.domains.map((d) => d.name)
+    const boxes = new Map<string, { left: number; top: number; right: number; bottom: number }>()
+    for (const node of nodes) {
+      const domain = node.data.entity.domain
+      if (!domain || !domainColour(names, domain)) continue
+      const width = node.measured?.width ?? NODE_WIDTH
+      const height = node.measured?.height ?? nodeHeight(node.data.entity)
+      const box = boxes.get(domain)
+      const { x, y } = node.position
+      boxes.set(domain, {
+        left: Math.min(box?.left ?? x, x),
+        top: Math.min(box?.top ?? y, y),
+        right: Math.max(box?.right ?? x + width, x + width),
+        bottom: Math.max(box?.bottom ?? y + height, y + height),
+      })
+    }
+    return [...boxes].map(([name, b]) => {
+      // Sized here rather than measured: these nodes are not in the node state React Flow updates.
+      const width = b.right - b.left + 2 * AREA_PADDING
+      const height = b.bottom - b.top + 2 * AREA_PADDING + 18
+      return {
+        id: `domain:${name}`,
+        type: 'domain' as const,
+        position: { x: b.left - AREA_PADDING, y: b.top - AREA_PADDING - 18 },
+        width,
+        height,
+        measured: { width, height },
+        data: {
+          name,
+          colour: domainColour(names, name)!,
+          owner: state.domains.find((d) => d.name === name)?.owner ?? null,
+        },
+        draggable: false,
+        selectable: false,
+        focusable: false,
+        zIndex: -1,
+      }
+    })
+  }, [showDomains, state, nodes])
 
   const connect = useCallback(
     (connection: Connection) => {
@@ -439,6 +506,30 @@ function Canvas() {
               </button>
             )
           })}
+          <span className="toolbar__divider" aria-hidden />
+          <button
+            className={showDomains ? 'chip' : 'chip chip--off'}
+            aria-pressed={showDomains}
+            title="Colour tables by domain and shade each domain's area"
+            onClick={() => {
+              remember('murakumo.showDomains', showDomains ? '0' : '1')
+              setShowDomains(!showDomains)
+            }}
+          >
+            Show domains
+          </button>
+          <button
+            className="chip"
+            onClick={() => setSide(side === 'domains' ? null : 'domains')}
+            aria-expanded={side === 'domains'}
+          >
+            Domains <span className="muted">{state.domains.length}</span>
+          </button>
+          {domainFilter && (
+            <button className="chip chip--pending" onClick={() => setDomainFilter(null)} title="Show every domain">
+              only {domainFilter} ×
+            </button>
+          )}
         </div>
         <div className="toolbar__actions">
           <span className="status" aria-live="polite">
@@ -484,14 +575,14 @@ function Canvas() {
       <main className="stage">
         <Markers />
         <ReactFlow
-          nodes={linkedNodes}
+          nodes={[...domainAreas, ...linkedNodes] as EntityNodeType[]}
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onNodeDragStop={savePositions}
           onConnect={state.editable ? connect : undefined}
-          onNodeClick={(_, node) => setSelection({ kind: 'entity', id: node.id })}
+          onNodeClick={(_, node) => node.type === 'entity' && setSelection({ kind: 'entity', id: node.id })}
           onEdgeClick={(_, edge) => {
             setSelection({ kind: 'relationship', id: edge.id })
             setNodes((all) => all.map((n) => (n.selected ? { ...n, selected: false } : n)))
@@ -548,6 +639,18 @@ function Canvas() {
               onMigrate={migrateNow}
               busy={generating}
             />
+          </aside>
+        )}
+
+        {side === 'domains' && (
+          <aside className="issues-panel" aria-label="Domains">
+            <div className="issues-panel__head">
+              <strong>Domains</strong>
+              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
+                ×
+              </button>
+            </div>
+            <DomainsPanel state={state} run={run} filter={domainFilter} onFilter={setDomainFilter} />
           </aside>
         )}
 

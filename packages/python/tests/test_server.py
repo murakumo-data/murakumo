@@ -256,3 +256,13 @@ def test_column_order(client):
     assert [c["name"] for c in columns] == names
     response = client.put(f"/api/entities/{zone}/columns/order", json={"columns": ids[:2]})
     assert response.status_code == 400 and "every column" in response.json()["message"]
+
+
+def test_domains(client):
+    state = client.post("/api/domains", json={"name": "finance", "owner": "Finance"}).json()
+    assert {"name": "finance", "owner": "Finance", "description": None, "entities": 0} in state["domains"]
+    state = client.patch("/api/domains/mobility", json={"name": "transport"}).json()
+    assert {e["domain"] for e in state["model"]["entities"]} == {"transport"}
+    assert client.delete("/api/domains/transport").status_code == 400
+    state = client.delete("/api/domains/finance").json()
+    assert [d["name"] for d in state["domains"]] == ["transport"]

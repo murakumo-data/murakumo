@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { api, type Diagnostic, type Entity, type Relationship, type State } from './api'
 import { EntityCodeView } from './Code'
@@ -64,6 +64,7 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
   const shown = entity.attributes.filter((a) => matches(a.name))
   const [dragging, setDragging] = useState<string | null>(null)
   const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null)
+  const moving = useRef(false)
 
   // Columns move by dragging the ⋮⋮ handle, or with Alt+↑/↓ on it. The new order is sent whole.
   const move = (id: string, target: string, after: boolean) => {
@@ -71,7 +72,9 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
     const index = ids.indexOf(target)
     if (index < 0) return
     ids.splice(after ? index + 1 : index, 0, id)
-    if (ids.join() !== entity.attributes.map((a) => a.id).join()) run(() => api.orderColumns(entity.id, ids))
+    if (moving.current || ids.join() === entity.attributes.map((a) => a.id).join()) return
+    moving.current = true // a second move before this one is saved would start from the old order
+    run(() => api.orderColumns(entity.id, ids)).finally(() => (moving.current = false))
   }
   const step = (id: string, by: -1 | 1) => {
     const index = entity.attributes.findIndex((a) => a.id === id)
@@ -118,7 +121,17 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
           />
         </Row>
         <Row label="Domain">
-          <TextField label="Domain" value={entity.domain} disabled={disabled} placeholder="none" onSave={(domain) => save({ domain })} />
+          <SelectField
+            label="Domain"
+            value={entity.domain}
+            options={[
+              ...state.domains.map((d) => d.name),
+              ...(entity.domain && !state.domains.some((d) => d.name === entity.domain) ? [entity.domain] : []),
+            ]}
+            allowEmpty
+            disabled={disabled}
+            onSave={(domain) => save({ domain })}
+          />
         </Row>
         <Row label="Description">
           <TextField
