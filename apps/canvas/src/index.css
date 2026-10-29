@@ -1872,3 +1872,64 @@ textarea.input {
 .issue--info {
   background: var(--info-bg);
 }
+
+/* CI ------------------------------------------------------------------------------------------ */
+
+.ci {
+  display: grid;
+  gap: 8px;
+}
+
+.ci__providers {
+  display: flex;
+  gap: 14px;
+}
+
+.ci__file,
+.ci__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ci__state--current {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.ci__state--missing {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.ci__state--differs {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.ci__steps {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.ci__step {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.ci__step--passed .ci__mark {
+  color: var(--ok);
+}
+
+.ci__step--failed .ci__mark {
+  color: var(--error);
+}
+
+.ci__step--running .ci__mark {
+  color: var(--accent);
+}

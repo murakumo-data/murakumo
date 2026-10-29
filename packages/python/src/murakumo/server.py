@@ -145,6 +145,12 @@ class TimezoneBody(BaseModel):
     timezone: str
 
 
+class CIBody(BaseModel):
+    provider: str = "github"
+    deploy: bool = False
+    force: bool = False
+
+
 class NewDomain(BaseModel):
     name: str
     owner: str | None = None
@@ -522,6 +528,42 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.delete("/api/relationships/{relationship_id}")
     def remove_relationship(relationship_id: UUID, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_relationship(p, relationship_id), rev)
+
+    from murakumo import ci as ci_module
+
+    checks = ci_module.Runner(root)
+
+    @app.get("/api/ci")
+    def get_ci(provider: str = "github", deploy: bool = False) -> dict[str, Any]:
+        """The CI file: there, as Murakumo would write it, or changed; and the last local run of its checks."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        try:
+            return {**ci_module.status(project, provider, deploy), "run": checks.run.as_dict()}
+        except ci_module.CIError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/ci")
+    def post_ci(body: CIBody) -> dict[str, Any]:
+        """Write the CI file at the repository root. A file with changes of its own needs force."""
+        with lock:
+            project, _ = _blocked(root)
+            if project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            try:
+                return {**ci_module.write(project, body.provider, body.deploy, body.force), "run": checks.run.as_dict()}
+            except ci_module.CIError as exc:
+                raise HTTPException(409, {"message": str(exc)}) from None
+
+    @app.post("/api/ci/run")
+    def run_ci() -> dict[str, Any]:
+        """Run the CI's checks on this machine, in the background; GET /api/ci/run follows them."""
+        return checks.start().as_dict()
+
+    @app.get("/api/ci/run")
+    def get_ci_run() -> dict[str, Any]:
+        return checks.run.as_dict()
 
     @app.get("/api/pipeline-docs", response_class=HTMLResponse)
     def get_docs() -> HTMLResponse:

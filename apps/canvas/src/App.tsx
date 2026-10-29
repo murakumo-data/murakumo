@@ -15,6 +15,7 @@ import '@xyflow/react/dist/style.css'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { api, ApiError, type Entity, type Generated, type Layer, type LineageResult, type Position, type State } from './api'
+import { CIPanel } from './CI'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
 import { EntityNode, type EntityNodeType } from './EntityNode'
@@ -76,7 +77,7 @@ function Canvas() {
   const [message, setMessage] = useState<{ text: string; tone: 'error' | 'info' } | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [hidden, setHidden] = useState<Set<Layer>>(new Set())
-  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | null>(null)
+  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | null>(null)
   const [scheduleShown, setScheduleShown] = useState<{ name: string; entities: string[] } | null>(null)
   const shownSchedule = side === 'schedules' ? scheduleShown : null // only while its panel is open
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
@@ -92,6 +93,7 @@ function Canvas() {
   const [panelWidth, setPanelWidth] = useState(savedPanelWidth)
   const [nodes, setNodes, onNodesChange] = useNodesState<EntityNodeType>([])
   const busy = useRef(0)
+  const showMessage = useCallback((text: string, tone: 'info' | 'error') => setMessage({ text, tone }), [])
   const generatedRevision = useRef<string | undefined>(undefined)
   const positions = useRef<Record<string, Position>>({})
   const refreshTimer = useRef<number | undefined>(undefined)
@@ -628,6 +630,9 @@ function Canvas() {
           )}
         </div>
         <div className="toolbar__actions">
+          <button className="chip" onClick={() => setSide(side === 'ci' ? null : 'ci')} aria-expanded={side === 'ci'}>
+            CI
+          </button>
           <a className="chip" href="/api/pipeline-docs" target="_blank" rel="noreferrer" title="Pipeline docs: tables, columns, lineage and schedules">
             Docs
           </a>
@@ -764,6 +769,18 @@ function Canvas() {
               </button>
             </div>
             <SourcesPanel state={state} run={run} onMessage={(text) => setMessage({ text, tone: 'info' })} />
+          </aside>
+        )}
+
+        {side === 'ci' && (
+          <aside className="issues-panel" aria-label="CI">
+            <div className="issues-panel__head">
+              <strong>CI</strong>
+              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
+                ×
+              </button>
+            </div>
+            <CIPanel onMessage={showMessage} />
           </aside>
         )}
 

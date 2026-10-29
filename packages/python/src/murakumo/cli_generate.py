@@ -336,3 +336,61 @@ def docs_command(
     console.print(f"Docs: {page}")
     if open_browser:
         webbrowser.open(page.as_uri())
+
+
+def ci_command(
+    project_path: Path = ProjectOption,
+    provider: str = typer.Option("github", "--provider", help="github (GitHub Actions) or gitlab."),
+    deploy: bool = typer.Option(
+        False, "--deploy", help="Also build production on pushes to main, after approval, with the CI's secrets."
+    ),
+    force: bool = typer.Option(False, "--force", help="Replace a CI file that has changes of its own."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the file instead of writing it."),
+    run: bool = typer.Option(False, "--run", help="Run the CI's checks here instead, one after another."),
+) -> None:
+    """Write a CI workflow that checks every change: validate, generate --check, migrate --check, verify.
+
+    The file goes at the root of the git repository. Once written it is yours: Murakumo will not
+    overwrite changes you make to it without --force, and shows the difference instead.
+    """
+    from murakumo import ci
+
+    project = open_project(project_path)
+    if run:
+        result = ci.run_checks(project.root, ci.Run())
+        for step in result.steps:
+            mark = "[green]✓[/green]" if step.state == "passed" else "[red]✗[/red]"
+            console.print(f"{mark} {step.name}  [dim]{step.command}[/dim]")
+            if step.state == "failed":
+                console.print(escape(step.output))
+        if any(s.state == "failed" for s in result.steps):
+            raise typer.Exit(1)
+        return
+    try:
+        info = ci.status(project, provider, deploy)
+    except ci.CIError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    if dry_run:
+        typer.echo(info["content"], nl=False)
+        return
+    if deploy and not info["deploy_possible"]:
+        console.print(
+            "[yellow]![/yellow] The project builds into a DuckDB file, so there is no production to deploy to."
+        )
+    if info["state"] == "differs" and not force:
+        typer.echo(info["diff"], nl=False)
+        fail(f"{info['file']} has changes of its own (above); keep them, or replace it with --force")
+        raise typer.Exit(1)
+    if info["state"] == "current":
+        console.print(f"{info['file']} is up to date.")
+        return
+    ci.write(project, provider, deploy, force=True)
+    console.print(f"Wrote {info['file']} in {info['repository']}. Commit it, and the checks run on every push.")
+    if deploy and info["deploy_possible"]:
+        where = "Settings → Secrets and variables → Actions" if provider == "github" else "Settings → CI/CD → Variables"
+        console.print(
+            f"Add the warehouse credentials as secrets ({where}), and reviewers to the production environment."
+        )
+    if not info["in_git"]:
+        console.print("[yellow]![/yellow] The project is not in a git repository yet: run `git init` first.")

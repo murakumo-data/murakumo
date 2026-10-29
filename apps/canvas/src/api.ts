@@ -182,6 +182,23 @@ export type LineageResult = {
   joins: { relationship: string; left: { entity: string; column: string }; right: { entity: string; column: string } }[]
 }
 
+export type CIStep = { name: string; command: string; state: string; output: string }
+export type CIRun = { running: boolean; steps: CIStep[] }
+
+export type CIInfo = {
+  provider: 'github' | 'gitlab'
+  file: string
+  path: string
+  repository: string
+  in_git: boolean
+  state: 'missing' | 'current' | 'differs'
+  content: string
+  diff: string
+  found: Record<string, boolean>
+  deploy_possible: boolean
+  run: CIRun
+}
+
 export type EntityCode = {
   blocked: string | null
   files: { path: string; status: FileStatus; content: string }[]
@@ -293,6 +310,13 @@ export const api = {
       undefined,
       false,
     ),
+
+  ci: (provider: string, deploy: boolean) =>
+    request<CIInfo>('GET', `/ci?provider=${provider}&deploy=${deploy}`, undefined, false),
+  writeCI: (provider: string, deploy: boolean, force: boolean) =>
+    request<CIInfo>('POST', '/ci', { provider, deploy, force }, false),
+  startCIRun: () => request<CIRun>('POST', '/ci/run', undefined, false),
+  ciRun: () => request<CIRun>('GET', '/ci/run', undefined, false),
 
   generated: () => request<Generated>('GET', '/generated', undefined, false),
   generatedFile: (path: string) =>
