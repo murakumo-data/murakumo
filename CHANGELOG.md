@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-10-29)
 
 Running the project: schedules, pipelines for the orchestrator, plain SQL, pipeline docs and CI.
 
