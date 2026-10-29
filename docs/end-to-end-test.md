@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.2.0
+# End-to-end test: Murakumo 0.3.0
 
-A step-by-step test of Murakumo 0.2.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 0.3.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -11,8 +11,8 @@ should see.
 | 2-4 | Creating a project folder with the guided setup, and going into it | 10 min |
 | 5-9 | The canvas: viewing, editing, mapping, calculated columns, lineage, domains, generating, migrations | 50 min |
 | 10-11 | Importing a data dictionary; editing YAML by hand alongside the canvas | 10 min |
-| 12-14 | Building and testing on DuckDB, with made-up data and then real data, keeping the tables, and browsing them as a source | 25 min |
-| 15 | The checks a CI pipeline would run | 5 min |
+| 12-14 | Building and testing on DuckDB, with made-up data and real data; schedules, pipelines, docs and plain SQL | 35 min |
+| 15 | The checks a CI pipeline would run, and CI from the canvas | 10 min |
 | 16 | Optional: the same project on Snowflake, built and kept | 20 min |
 | 17 | Cleaning up | 2 min |
 
@@ -119,10 +119,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.2.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 0.3.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.2.0.
+☐ Version 0.3.0.
 
 ---
 
@@ -892,6 +892,92 @@ two marts, DDL files, and in `fct_trip.sql` the `trip_minutes` line you mapped o
 
 ☐ The generated SQL matches the model.
 
+**14.2 Schedules.** In the canvas, click **Schedules** in the toolbar. It says there are no
+schedules yet, so everything is refreshed once a day at 06:00, and that pipelines for **airflow**
+are written to `generated/orchestration/airflow/`. Click **+ Schedule**:
+
+| Field | Enter |
+| --- | --- |
+| Name | `zones` |
+| When | **Every hour** (the cron box shows `0 * * * *`) |
+| Refreshes | `+dim_taxi_zone` |
+
+Click **Add schedule**. It reads *every hour, on the hour · next ...*, with **2 tables**. Click
+**2 tables**: on the canvas only `dim_taxi_zone` and `taxi_zone_lookup` stay bright. Now add a
+second schedule, `nightly`, choose **Weekdays at 06:00**, and leave **Refreshes** empty: it reads
+*every weekday at 06:00 UTC* and refreshes the rest (the other tables). Click `fct_trip`: the
+inspector's **Refreshed** row says `nightly: every weekday at 06:00 UTC`.
+
+In the first Terminal tab:
+
+```bash
+murakumo schedules
+murakumo build --schedule zones
+```
+
+You should see the two schedules with their next runs, then a build of only the zone tables:
+`built: 2 models and snapshots, N/N tests passed`.
+
+☐ Schedules are added on the canvas, listed in the terminal, and one builds on its own.
+
+**14.3 Pipelines.** Click the blue **N files to write** chip and write the files (the schedules
+changed the dbt selectors and the pipelines). Then:
+
+```bash
+ls generated/orchestration/airflow generated/orchestration/airflow/dags
+cat generated/dbt/selectors.yml
+```
+
+You should see `README.md`, `requirements.txt` and `dags/` with `taxi_platform__zones.py` and
+`taxi_platform__nightly.py`; and in `selectors.yml`, a selector per schedule naming its models.
+Open `generated/orchestration/airflow/README.md` in a text editor: it lists the schedules and how
+to run the DAGs in Airflow.
+
+Optional (5 minutes; downloads Airflow, about 300 MB): run the `zones` DAG once, for real, on the
+DuckDB file. Routes A and C have uv; route B: `pip install uv` first.
+
+```bash
+export AIRFLOW_HOME=~/murakumo-e2e/airflow AIRFLOW__CORE__DAGS_FOLDER=$PWD/generated/orchestration/airflow/dags AIRFLOW__CORE__LOAD_EXAMPLES=False AIRFLOW__COSMOS__ENABLE_DATASET_ALIAS=False MURAKUMO_DUCKDB_PATH=$PWD/taxi_platform.duckdb MURAKUMO_TARGET=dev
+uv run --no-project --python 3.12 --with "apache-airflow==2.10.5" --with "astronomer-cosmos>=1.8" --with dbt-duckdb airflow db migrate
+uv run --no-project --python 3.12 --with "apache-airflow==2.10.5" --with "astronomer-cosmos>=1.8" --with dbt-duckdb airflow dags test taxi_platform__zones
+```
+
+The last lines should include `state=success`.
+
+☐ A pipeline per schedule is generated (and, optionally, the DAG runs).
+
+**14.4 Pipeline docs.** Click **Docs** in the canvas toolbar. A new tab opens with the project's
+docs: the domains, the two schedules and what each refreshes, the sources, and a section per
+table. Type `fct` in **Find a table**, then click `fct_trip`: its grain, load, schedule, the tables
+it comes from, and each column with where it comes from (`trip_id` shows its `md5(...)`
+expression). The same page is in `generated/docs/index.html`, with a Markdown page per table:
+
+```bash
+ls generated/docs
+```
+
+☐ The docs show the model, its lineage and its schedules.
+
+**14.5 Plain SQL.** Export the project as scripts that run without dbt:
+
+```bash
+murakumo export sql
+ls export/sql/duckdb
+```
+
+You should see `Wrote N scripts and N test files to export/sql/duckdb/`, then `00_landing.sql`
+and numbered scripts in the order they run (staging first, then `dim_taxi_zone` and `fct_trip`),
+`tests/` and a `README.md`. Look at the incremental one:
+
+```bash
+cat export/sql/duckdb/*fct_trip.sql
+```
+
+It creates `marts.fct_trip` in full the first time, then adds only trips past the latest
+`pickup_at`, replacing rows with the same `trip_id`. Remove the folder: `rm -rf export`.
+
+☐ The project exports as plain SQL.
+
 ---
 
 ## Part 15: The checks a CI pipeline would run
@@ -941,6 +1027,28 @@ git commit -m "Model trips, FHV and weather"
 ```
 
 ☐ Committed.
+
+**15.4 CI from the canvas.** In the canvas, click **CI**. It shows **GitHub Actions** selected,
+`.github/workflows/murakumo.yml` **not written yet**, and the production option greyed out (a
+DuckDB file has no production to deploy to). Click **Show the file**: the four checks above, as
+steps. Click **Create CI workflow**: the badge says **up to date**.
+
+Click **Run checks now**. The four checks run one after another, each ticked as it passes;
+building on DuckDB takes a minute or so. At the end: **All checks passed.**
+
+Now change the workflow by hand and see that Murakumo leaves it alone:
+
+```bash
+echo "# my own note" >> .github/workflows/murakumo.yml
+murakumo ci; echo $?
+```
+
+You should see the difference (your line, marked `-`), an error saying the file has changes of its
+own, and `1`. In the canvas (close and reopen **CI**), the badge says **changed by hand**. Put
+Murakumo's version back with `murakumo ci --force`, then commit it:
+`git add .github && git commit -m "CI"`.
+
+☐ The workflow is written, its checks pass here, and changes made by hand are kept.
 
 ---
 
@@ -1115,8 +1223,8 @@ output or a screenshot.
 | 11 Fix by hand in a text editor | | |
 | 12 Verify with made-up data | | |
 | 13 Verify with real data, build, browse as a source | | |
-| 14 Generated code | | |
-| 15 CI checks | | |
+| 14 Generated code, schedules, pipelines, docs, plain SQL | | |
+| 15 CI checks, and CI from the canvas | | |
 | 16 Snowflake (optional) | | |
 | 17 Clean up | | |
 

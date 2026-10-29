@@ -1933,3 +1933,8 @@ textarea.input {
 .ci__step--running .ci__mark {
   color: var(--accent);
 }
+
+a.chip {
+  color: inherit;
+  text-decoration: none;
+}
