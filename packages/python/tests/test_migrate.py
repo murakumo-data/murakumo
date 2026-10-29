@@ -189,3 +189,11 @@ def test_warehouses_without_if_exists_get_a_note(commerce):
     lines = statements(plan_migration(commerce, "databricks"))
     index = lines.index("ALTER TABLE marts.fct_order_line RENAME COLUMN net_amount TO net_revenue;")
     assert lines[index - 1].startswith("-- Only where dbt has already built fct_order_line")
+
+
+def test_column_order_is_a_note_not_a_change(taxi):
+    migrate(taxi)
+    edit.move_column(taxi, "taxi_zone_lookup", "Zone")
+    pending = plan_migration(taxi)
+    assert pending.changes == []
+    assert len(pending.notes) == 1 and "taxi_zone_lookup: new column order" in pending.notes[0]

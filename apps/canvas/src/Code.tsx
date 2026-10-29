@@ -120,6 +120,16 @@ export function ChangesPanel({ generated, entityName, onGenerate, onMigrate, bus
         )}
       </section>
 
+      {(generated.notes ?? []).length > 0 && (
+        <section className="section">
+          <ul className="notes small muted">
+            {generated.notes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {migration && (
         <section className="section">
           <div className="section__head">

@@ -91,6 +91,7 @@ export type Generated = {
   diagnostics: Diagnostic[]
   files: GeneratedFile[]
   migration: Migration | null
+  notes: string[]
 }
 
 export type EntityCode = {
@@ -153,6 +154,8 @@ export const api = {
     request<State>('PATCH', `/entities/${entityId}/columns/${columnId}`, changes),
   removeColumn: (entityId: string, columnId: string) =>
     request<State>('DELETE', `/entities/${entityId}/columns/${columnId}`),
+  orderColumns: (entityId: string, columns: string[]) =>
+    request<State>('PUT', `/entities/${entityId}/columns/order`, { columns }),
 
   addRelationship: (body: { from: string; to: string; keys: JoinKey[]; cardinality?: string }) =>
     request<State>('POST', '/relationships', body),

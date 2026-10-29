@@ -103,6 +103,10 @@ class MigrationBody(BaseModel):
     name: str | None = None
 
 
+class ColumnOrder(BaseModel):
+    columns: list[UUID]
+
+
 # State ------------------------------------------------------------------------------------------
 
 
@@ -210,6 +214,7 @@ def generated(root: Path, warehouse: Warehouse | None = None) -> dict[str, Any]:
         "diagnostics": [],
         "files": [],
         "migration": None,
+        "notes": [],
     }
     if project is None or blocked:
         return summary
@@ -228,7 +233,9 @@ def generated(root: Path, warehouse: Warehouse | None = None) -> dict[str, Any]:
     files += [{"path": p, "status": "removed", "entities": [], "edited_by_hand": False} for p in changes.removed]
     summary["files"] = sorted(files, key=lambda f: f["path"])
     summary["diagnostics"] = [_diagnostic(d, project, root) for d in output.diagnostics]
-    summary["migration"] = _migration(plan_migration(project, chosen))
+    pending = plan_migration(project, chosen)
+    summary["migration"] = _migration(pending)
+    summary["notes"] = pending.notes
     return summary
 
 
@@ -430,6 +437,14 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 edit.update_column(project, entity, column, changes)
             if new_name and new_name != column:
                 edit.rename_column(project, entity, column, new_name)
+
+        return change(action, rev)
+
+    @app.put("/api/entities/{entity_id}/columns/order")
+    def put_column_order(entity_id: UUID, body: ColumnOrder, rev: Revision = None) -> dict[str, Any]:
+        def action(project: Project) -> None:
+            names = [column_name(project, entity_id, column_id) for column_id in body.columns]
+            edit.order_columns(project, entity_name(project, entity_id), names)
 
         return change(action, rev)
 

@@ -244,3 +244,15 @@ def test_generate_is_blocked_by_model_errors(client, project):
     summary = client.get("/api/generated").json()
     assert summary["blocked"] and summary["files"] == []
     assert client.post("/api/generate").status_code == 409
+
+
+def test_column_order(client):
+    state = client.get("/api/state").json()
+    zone = entity_id(state, "dim_taxi_zone")
+    names = ["service_zone", "zone_id", "borough", "zone_name"]
+    ids = [column_id(state, "dim_taxi_zone", n) for n in names]
+    state = client.put(f"/api/entities/{zone}/columns/order", json={"columns": ids}).json()
+    columns = next(e["attributes"] for e in state["model"]["entities"] if e["name"] == "dim_taxi_zone")
+    assert [c["name"] for c in columns] == names
+    response = client.put(f"/api/entities/{zone}/columns/order", json={"columns": ids[:2]})
+    assert response.status_code == 400 and "every column" in response.json()["message"]

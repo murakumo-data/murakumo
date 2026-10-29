@@ -410,6 +410,55 @@ def rename_column(project: Project, entity_name: str, name: str, new_name: str) 
     return column
 
 
+# Column order -----------------------------------------------------------------------------------
+
+
+def order_columns(project: Project, entity_name: str, names: list[str]) -> Entity:
+    """Put an entity's columns in the given order. ``names`` must list every column once.
+
+    Mappings follow the columns, so the YAML reads in the same order as the table.
+    """
+    entity = _entity(project, entity_name)
+    wanted = [n.lower() for n in names]
+    have = [a.name.lower() for a in entity.attributes]
+    if sorted(wanted) != sorted(have):
+        missing = sorted(set(have) - set(wanted))
+        extra = sorted(set(wanted) - set(have))
+        if len(set(wanted)) != len(wanted):
+            raise EditError("each column can appear only once in the new order")
+        problem = [f"missing {', '.join(missing)}" if missing else "", f"unknown {', '.join(extra)}" if extra else ""]
+        raise EditError(f"the new order must list every column of {entity.name}: " + "; ".join(p for p in problem if p))
+    position = {name: i for i, name in enumerate(wanted)}
+    entity.attributes = sorted(entity.attributes, key=lambda a: position[a.name.lower()])
+    entity.mappings = sorted(entity.mappings, key=lambda m: position.get(m.target.lower(), len(position)))
+    return entity
+
+
+def move_column(
+    project: Project, entity_name: str, name: str, after: str | None = None, before: str | None = None
+) -> Entity:
+    """Move one column after or before another; with neither, to the start."""
+    entity = _entity(project, entity_name)
+    column = entity.attribute(name)
+    if column is None:
+        raise EditError(f"{entity.name} has no column {name!r}")
+    if after and before:
+        raise EditError("give either after or before, not both")
+    anchor_name = after or before
+    names = [a.name for a in entity.attributes if a is not column]
+    if anchor_name is None:
+        index = 0
+    else:
+        anchor = entity.attribute(anchor_name)
+        if anchor is None:
+            raise EditError(f"{entity.name} has no column {anchor_name!r}")
+        if anchor is column:
+            raise EditError("a column cannot move next to itself")
+        index = names.index(anchor.name) + (1 if after else 0)
+    names.insert(index, column.name)
+    return order_columns(project, entity.name, names)
+
+
 def parse_join(text: str) -> tuple[str, str]:
     """``customer_id=id`` -> ("customer_id", "id")."""
     left, sep, right = text.partition("=")

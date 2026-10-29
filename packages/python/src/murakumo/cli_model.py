@@ -28,6 +28,7 @@ remove_app = typer.Typer(help="Remove an entity or column from the model.", no_a
 rename_app = typer.Typer(
     help="Rename an entity or column, and every reference to it in the model.", no_args_is_help=True
 )
+move_app = typer.Typer(help="Change the order of an entity's columns.", no_args_is_help=True)
 
 ProjectOption = typer.Option(Path("."), "--project", "-p", help="Project folder, or any folder inside it.")
 DryRunOption = typer.Option(False, "--dry-run", help="Show what would change without writing anything.")
@@ -357,3 +358,24 @@ def rename_column(entity: str, name: str, new_name: str, project_path: Path = Pr
         project_path,
         lambda p: f"Renamed {entity}.{name} to {edit.rename_column(p, entity, name, new_name).name}.",
     )
+
+
+@move_app.command("column")
+def move_column(
+    entity: str,
+    name: str,
+    after: str | None = typer.Option(None, "--after", help="Put it straight after this column."),
+    before: str | None = typer.Option(None, "--before", help="Put it straight before this column."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Move a column. With neither --after nor --before, it moves to the start.
+
+    Generated tables and models list columns in this order. Tables that already exist keep theirs:
+    no warehouse reorders columns in place, and nothing needs to read them by position.
+    """
+
+    def change(project: Project) -> str:
+        moved = edit.move_column(project, entity, name, after, before)
+        return f"{moved.name}: {', '.join(a.name for a in moved.attributes)}"
+
+    _edit(project_path, change)

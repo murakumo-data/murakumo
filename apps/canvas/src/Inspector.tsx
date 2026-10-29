@@ -62,6 +62,22 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
   const [picking, setPicking] = useState(false)
   const matches = (name: string) => name.toLowerCase().includes(search.trim().toLowerCase())
   const shown = entity.attributes.filter((a) => matches(a.name))
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null)
+
+  // Columns move by dragging the ⋮⋮ handle, or with Alt+↑/↓ on it. The new order is sent whole.
+  const move = (id: string, target: string, after: boolean) => {
+    const ids = entity.attributes.map((a) => a.id).filter((x) => x !== id)
+    const index = ids.indexOf(target)
+    if (index < 0) return
+    ids.splice(after ? index + 1 : index, 0, id)
+    if (ids.join() !== entity.attributes.map((a) => a.id).join()) run(() => api.orderColumns(entity.id, ids))
+  }
+  const step = (id: string, by: -1 | 1) => {
+    const index = entity.attributes.findIndex((a) => a.id === id)
+    const neighbour = entity.attributes[index + by]
+    if (neighbour) move(id, neighbour.id, by === 1)
+  }
 
   const addColumn = async () => {
     if (!column.name.trim()) return
@@ -143,6 +159,7 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
         )}
         <div className="columns">
           <div className="columns__head">
+            <span />
             <span>Name</span>
             <span>Type</span>
             <span title="Primary key">PK</span>
@@ -150,7 +167,50 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
             <span />
           </div>
           {shown.map((a) => (
-            <div key={a.id} className="columns__row">
+            <div
+              key={a.id}
+              className={[
+                'columns__row',
+                dragging === a.id ? 'columns__row--dragging' : '',
+                dropAt?.id === a.id ? (dropAt.after ? 'columns__row--drop-after' : 'columns__row--drop-before') : '',
+              ].join(' ')}
+              onDragOver={(e) => {
+                if (!dragging || dragging === a.id) return
+                e.preventDefault()
+                const box = e.currentTarget.getBoundingClientRect()
+                setDropAt({ id: a.id, after: e.clientY > box.top + box.height / 2 })
+              }}
+              onDragLeave={() => setDropAt((d) => (d?.id === a.id ? null : d))}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragging && dropAt) move(dragging, dropAt.id, dropAt.after)
+                setDragging(null)
+                setDropAt(null)
+              }}
+            >
+              <button
+                className="drag-handle"
+                draggable={!disabled}
+                disabled={disabled}
+                title="Drag to move, or Alt+↑/↓"
+                aria-label={`Move ${a.name}: Alt and arrow keys`}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', a.name)
+                  setDragging(a.id)
+                }}
+                onDragEnd={() => {
+                  setDragging(null)
+                  setDropAt(null)
+                }}
+                onKeyDown={(e) => {
+                  if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+                  e.preventDefault()
+                  step(a.id, e.key === 'ArrowUp' ? -1 : 1)
+                }}
+              >
+                ⋮⋮
+              </button>
               <TextField label={`${a.name} name`} value={a.name} disabled={disabled} onSave={(name) => name && saveColumn(a.id, { name })} />
               <TextField
                 label={`${a.name} type`}
@@ -192,6 +252,7 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
                 addColumn()
               }}
             >
+              <span />
               <input
                 className="input"
                 placeholder="new_column"

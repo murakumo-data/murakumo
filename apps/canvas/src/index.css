@@ -711,7 +711,7 @@ textarea.input {
 .columns__head,
 .columns__row {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 24px 24px 24px;
+  grid-template-columns: 14px minmax(0, 1.3fr) minmax(0, 1fr) 24px 24px 24px;
   gap: 6px;
   align-items: center;
 }
@@ -726,8 +726,41 @@ textarea.input {
   font-size: 12px;
 }
 
+.columns__row--dragging {
+  opacity: 0.4;
+}
+
+.columns__row--drop-before {
+  box-shadow: 0 -2px 0 var(--accent);
+}
+
+.columns__row--drop-after {
+  box-shadow: 0 2px 0 var(--accent);
+}
+
+.drag-handle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: -2px;
+  cursor: grab;
+  line-height: 1;
+}
+
+.drag-handle:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
+.drag-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  border-radius: 3px;
+}
+
 .columns__row--new {
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 84px;
+  grid-template-columns: 14px minmax(0, 1.3fr) minmax(0, 1fr) 84px;
   margin-top: 4px;
   padding-top: 8px;
   border-top: 1px dashed var(--border);

@@ -92,6 +92,8 @@ def migrate_command(
         else:
             console.print(f"{where} is up to date.")
         return
+    for note in pending.notes:
+        console.print(f"  [dim]note: {escape(note)}[/dim]")
     if not pending.changes and not pending.baseline:
         console.print("No changes to tables that keep data; no migration needed.")
         return

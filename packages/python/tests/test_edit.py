@@ -217,3 +217,24 @@ def test_set_mapping(commerce):
 def test_set_mapping_errors(commerce, target, sources, expression, message):
     with pytest.raises(edit.EditError, match=message):
         edit.set_mapping(commerce, "fct_order_line", target, sources, expression)
+
+
+def test_move_and_order_columns(project):
+    entity = edit.move_column(project, "dim_taxi_zone", "zone_name", after="zone_id")
+    assert [a.name for a in entity.attributes] == ["zone_id", "zone_name", "borough", "service_zone"]
+    assert [m.target for m in entity.mappings] == ["zone_id", "zone_name", "borough", "service_zone"]
+    entity = edit.move_column(project, "dim_taxi_zone", "service_zone")
+    assert entity.attributes[0].name == "service_zone"
+    entity = edit.move_column(project, "dim_taxi_zone", "service_zone", before="borough")
+    assert [a.name for a in entity.attributes] == ["zone_id", "zone_name", "service_zone", "borough"]
+    with pytest.raises(edit.EditError, match="missing borough"):
+        edit.order_columns(project, "dim_taxi_zone", ["zone_id", "zone_name", "service_zone"])
+    with pytest.raises(edit.EditError, match="next to itself"):
+        edit.move_column(project, "dim_taxi_zone", "borough", after="borough")
+
+
+def test_cli_move_column(project):
+    result = run(project, "move", "column", "taxi_zone_lookup", "Zone", "--after", "LocationID")
+    assert result.exit_code == 0, result.output
+    entity = load_project(project.root).project.model.entity("taxi_zone_lookup")
+    assert [a.name for a in entity.attributes][:2] == ["LocationID", "Zone"]
