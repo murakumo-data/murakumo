@@ -360,6 +360,7 @@ app.command("generate")(cli_generate.generate_command)
 app.command("migrate")(cli_generate.migrate_command)
 app.command("verify")(cli_generate.verify_command)
 app.command("build")(cli_generate.build_command)
+app.command("export")(cli_generate.export_command)
 app.command("lineage")(cli_model.lineage_command)
 app.command("schedules")(cli_model.schedules_command)
 

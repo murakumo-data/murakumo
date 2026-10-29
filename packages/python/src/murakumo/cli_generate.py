@@ -271,3 +271,41 @@ def build_command(
     console.print(f"[{colour}]{word}[/{colour}]: {summary}. Tables are in {result.location}.")
     if not result.ok:
         raise typer.Exit(1)
+
+
+def export_command(
+    what: str = typer.Argument("sql", help="What to export: sql, the project as plain SQL scripts."),
+    project_path: Path = ProjectOption,
+    warehouse: Warehouse | None = WarehouseOption,
+    out: Path | None = typer.Option(None, "--out", help="Folder to write to. Default: export/sql/<warehouse>."),
+) -> None:
+    """Export the project as plain SQL: scripts that build it without dbt, in order, with tests as queries.
+
+    Set `plain_sql: true` under generation in murakumo.yaml to keep them in generated/sql/ instead,
+    written (and checked) with everything else.
+    """
+    from murakumo.generate import export_sql
+
+    if what != "sql":
+        fail(f"cannot export {what!r}; `murakumo export sql` is the one there is")
+        raise typer.Exit(1)
+    project = open_project(project_path)
+    problems = validate_project(project)
+    if any(d.level is Level.ERROR for d in problems):
+        print_diagnostics([d for d in problems if d.level is Level.ERROR], project.root)
+        fail("the model has errors; fix them before exporting")
+        raise typer.Exit(1)
+    output = generate(project, warehouse)
+    files = export_sql(output.plan, output.files)
+    folder = out or project.root / "export" / "sql" / output.plan.target.warehouse.value
+    folder.mkdir(parents=True, exist_ok=True)
+    for stale in folder.rglob("*.sql"):
+        stale.unlink()
+    for path, content in files.items():
+        target = folder / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    scripts = sum(1 for p in files if p.endswith(".sql") and "/" not in p)
+    tests = sum(1 for p in files if p.startswith("tests/"))
+    shown = folder.relative_to(project.root) if folder.is_relative_to(project.root) else folder
+    console.print(f"Wrote {scripts} scripts and {tests} test files to {shown}/. README.md there says how to run them.")

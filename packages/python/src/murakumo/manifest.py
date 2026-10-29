@@ -217,6 +217,7 @@ class Generation(Section):
     transform: str = Field(default="dbt", pattern="^(dbt|sqlmesh|spark)$")
     python_engine: str = Field(default="none", pattern="^(pyspark|polars|none)$")
     orchestrator: Orchestrator = Orchestrator.AIRFLOW
+    plain_sql: bool = False  # also write the project as plain SQL scripts, under generated/sql/
     streaming: Streaming | None = None
     infrastructure: str | None = None
     semantic_layer: str | None = None

@@ -47,12 +47,23 @@ def generate(project: Project, warehouse: Warehouse | str | None = None) -> Outp
     output.files["dbt/selectors.yml"] = dbt.selectors(project, plan)
     for path, content in orchestration.render(project, plan).items():
         output.files[path] = content
+    if project.manifest.generation.plain_sql:
+        for path, content in export_sql(plan, output.files).items():
+            output.files[f"sql/{target.warehouse.value}/{path}"] = content
     statements = ddl.DDL(plan)
     for path, content in ddl.render(plan, statements).items():
         output.files[f"ddl/{target.warehouse.value}/{path}"] = content
     output.ddl = statements.blocks
     output.owners = _owners(plan)
     return output
+
+
+def export_sql(plan: Plan, files: dict[str, str]) -> dict[str, str]:
+    """The project as plain SQL scripts, from the dbt files already generated for the plan."""
+    from murakumo.generate import plain
+
+    dbt_files = {path.removeprefix("dbt/"): content for path, content in files.items() if path.startswith("dbt/")}
+    return plain.render(plan, dbt_files)
 
 
 def _owners(plan: Plan) -> dict[str, list[UUID]]:
