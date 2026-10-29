@@ -1,11 +1,27 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { api, type Diagnostic, type Entity, type Relationship, type State } from './api'
+import { api, impactText, previewOf, type Diagnostic, type Entity, type ImpactReport, type Relationship, type State } from './api'
 import { EntityCodeView } from './Code'
 import { ExpressionEditor } from './ExpressionEditor'
 import { Row, SelectField, TextField } from './Field'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
+
+/** Run an edit, asking first when it would break something downstream (and always, with `ask`). */
+async function careful(run: Run, action: () => Promise<State>, ask?: string): Promise<boolean> {
+  let report: ImpactReport | null = null
+  try {
+    report = await previewOf(action)
+  } catch {
+    // A preview that fails is reported by the edit itself below.
+  }
+  if (report?.worst === 'breaking') {
+    if (!window.confirm(impactText(report))) return false
+  } else if (ask && !window.confirm(ask)) {
+    return false
+  }
+  return run(action)
+}
 
 function Issues({ diagnostics }: { diagnostics: Diagnostic[] }) {
   if (diagnostics.length === 0) return null
@@ -74,9 +90,9 @@ type FormProps = {
 function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormProps) {
   const { choices, editable } = state
   const disabled = !editable
-  const save = (changes: Record<string, unknown>) => run(() => api.updateEntity(entity.id, changes))
+  const save = (changes: Record<string, unknown>) => careful(run, () => api.updateEntity(entity.id, changes))
   const saveColumn = (columnId: string, changes: Record<string, unknown>) =>
-    run(() => api.updateColumn(entity.id, columnId, changes))
+    careful(run, () => api.updateColumn(entity.id, columnId, changes))
   const [column, setColumn] = useState({ name: '', type: 'string' })
   const [search, setSearch] = useState('')
   const [picking, setPicking] = useState(false)
@@ -332,7 +348,7 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormPr
                 title={`Remove ${a.name}`}
                 aria-label={`Remove ${a.name}`}
                 disabled={disabled}
-                onClick={() => run(() => api.removeColumn(entity.id, a.id))}
+                onClick={() => careful(run, () => api.removeColumn(entity.id, a.id))}
               >
                 ×
               </button>
@@ -382,11 +398,13 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormPr
         <section className="section section--danger">
           <button
             className="button button--danger"
-            onClick={() => {
-              if (window.confirm(`Remove ${entity.name}, its file and the relationships that use it?`)) {
-                run(() => api.removeEntity(entity.id))
-              }
-            }}
+            onClick={() =>
+              careful(
+                run,
+                () => api.removeEntity(entity.id),
+                `Remove ${entity.name}, its file and the relationships that use it?`,
+              )
+            }
           >
             Remove entity
           </button>
@@ -541,7 +559,8 @@ function Mappings({ state, entity, run, filter }: { state: State; entity: Entity
 export function RelationshipPanel({ state, relationship, run }: { state: State; relationship: Relationship; run: Run }) {
   const { choices, editable } = state
   const disabled = !editable
-  const save = (changes: Record<string, unknown>) => run(() => api.updateRelationship(relationship.id, changes))
+  const save = (changes: Record<string, unknown>) =>
+    careful(run, () => api.updateRelationship(relationship.id, changes))
   const issues = state.diagnostics.filter((d) => d.where?.startsWith(`relationships[${relationship.name ?? ''}`))
 
   return (

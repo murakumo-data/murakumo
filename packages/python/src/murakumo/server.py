@@ -20,6 +20,7 @@ import difflib
 import hashlib
 import threading
 from collections.abc import Callable
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
@@ -45,6 +46,8 @@ from murakumo.project import MODEL_DIR, Project, load_layout, load_project, save
 from murakumo.validate import validate_project
 
 REVISION_HEADER = "X-Murakumo-Revision"
+PREVIEW_HEADER = "X-Murakumo-Preview"  # on an edit: say what it would reach, without saving it
+PREVIEW: ContextVar[bool] = ContextVar("preview", default=False)
 LOCAL_HOSTS = ["localhost", "127.0.0.1"]
 
 Revision = Annotated[str | None, Header(alias=REVISION_HEADER)]
@@ -327,7 +330,17 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS)
 
-    def change(action: Callable[[Project], Any], expected: str | None, prune: bool = False) -> dict[str, Any]:
+    @app.middleware("http")
+    async def preview_header(request, call_next):
+        token = PREVIEW.set(request.headers.get(PREVIEW_HEADER) == "1")
+        try:
+            return await call_next(request)
+        finally:
+            PREVIEW.reset(token)
+
+    def change(
+        action: Callable[[Project], Any], expected: str | None, prune: bool = False, previewable: bool = False
+    ) -> dict[str, Any]:
         with lock:
             if expected and expected != revision(root):
                 raise HTTPException(
@@ -343,6 +356,12 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 placed = action(project)
             except edit.EditError as exc:
                 raise HTTPException(400, {"message": str(exc)}) from None
+            if previewable and PREVIEW.get():
+                # Asked what the edit would reach: answer from memory, and save nothing.
+                from murakumo.impact import report
+
+                before = load_project(root).project.model
+                return {"preview": report(project, before, project.model).as_dict()}
             positions = load_layout(root)
             if isinstance(placed, dict):  # an action that adds an entity may say where to draw it
                 positions.update(placed)
@@ -465,11 +484,11 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             if new_name and new_name != name:
                 edit.rename_entity(project, name, new_name)
 
-        return change(action, rev, prune=True)
+        return change(action, rev, prune=True, previewable=True)
 
     @app.delete("/api/entities/{entity_id}")
     def remove_entity(entity_id: UUID, rev: Revision = None) -> dict[str, Any]:
-        return change(lambda p: edit.remove_entity(p, entity_name(p, entity_id)), rev, prune=True)
+        return change(lambda p: edit.remove_entity(p, entity_name(p, entity_id)), rev, prune=True, previewable=True)
 
     @app.post("/api/entities/{entity_id}/columns")
     def add_column(entity_id: UUID, body: NewColumn, rev: Revision = None) -> dict[str, Any]:
@@ -499,7 +518,7 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             if new_name and new_name != column:
                 edit.rename_column(project, entity, column, new_name)
 
-        return change(action, rev)
+        return change(action, rev, previewable=True)
 
     @app.put("/api/entities/{entity_id}/columns/order")
     def put_column_order(entity_id: UUID, body: ColumnOrder, rev: Revision = None) -> dict[str, Any]:
@@ -514,7 +533,7 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         def action(project: Project) -> None:
             edit.remove_column(project, entity_name(project, entity_id), column_name(project, entity_id, column_id))
 
-        return change(action, rev)
+        return change(action, rev, previewable=True)
 
     @app.post("/api/relationships")
     def add_relationship(body: NewRelationship, rev: Revision = None) -> dict[str, Any]:
@@ -528,11 +547,11 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
     @app.patch("/api/relationships/{relationship_id}")
     def update_relationship(relationship_id: UUID, body: Changes, rev: Revision = None) -> dict[str, Any]:
-        return change(lambda p: edit.update_relationship(p, relationship_id, body), rev)
+        return change(lambda p: edit.update_relationship(p, relationship_id, body), rev, previewable=True)
 
     @app.delete("/api/relationships/{relationship_id}")
     def remove_relationship(relationship_id: UUID, rev: Revision = None) -> dict[str, Any]:
-        return change(lambda p: edit.remove_relationship(p, relationship_id), rev)
+        return change(lambda p: edit.remove_relationship(p, relationship_id), rev, previewable=True)
 
     from murakumo import ci as ci_module
 

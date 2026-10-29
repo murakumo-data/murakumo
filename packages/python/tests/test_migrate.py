@@ -197,3 +197,13 @@ def test_column_order_is_a_note_not_a_change(taxi):
     pending = plan_migration(taxi)
     assert pending.changes == []
     assert len(pending.notes) == 1 and "taxi_zone_lookup: new column order" in pending.notes[0]
+
+
+def test_scd1_to_scd2_says_history_starts(taxi):
+    migrate(taxi)
+    edit.update_entity(taxi, "dim_taxi_zone", {"history": "scd2"})
+    pending = plan_migration(taxi)
+    assert [c.summary for c in pending.changes] == [
+        "dim_taxi_zone starts keeping history (SCD2) in snapshots.snp_dim_taxi_zone"
+    ]
+    assert "first version" in "\n".join(pending.changes[0].sql)

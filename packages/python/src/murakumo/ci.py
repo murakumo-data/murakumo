@@ -147,9 +147,14 @@ def github_workflow(project: Project, deploy: bool, preview: bool = False) -> st
     root = repository_root(project)
     folder = project.root.relative_to(root).as_posix() if project.root != root else "."
     check_steps: list[dict[str, Any]] = [
-        {"uses": "actions/checkout@v4"},
+        {"uses": "actions/checkout@v4", "with": {"fetch-depth": 0}},  # the whole history, to compare with main
         {"uses": "astral-sh/setup-uv@v6"},
         {"name": "Install Murakumo", "run": _install(["duckdb", "verify"])},
+        {
+            "name": "Model changes and their impact",
+            "if": "github.event_name == 'pull_request'",
+            "run": 'murakumo diff "origin/${{ github.base_ref }}" --format markdown >> "$GITHUB_STEP_SUMMARY"',
+        },
     ]
     check_steps += [{"name": name, "run": "murakumo " + " ".join(args)} for name, args in CHECKS]
     preview = preview and preview_possible(project)
@@ -226,7 +231,13 @@ def gitlab_pipeline(project: Project, deploy: bool, preview: bool = False) -> st
             "stage": "check",
             "image": "python:3.12",
             "before_script": [*before, _install(["duckdb", "verify"])],
-            "script": ["murakumo " + " ".join(args) for _, args in CHECKS],
+            "variables": {"GIT_DEPTH": "0"},
+            "script": [
+                'if [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" ]; then '
+                'git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" && '
+                'murakumo diff "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"; fi',
+                *("murakumo " + " ".join(args) for _, args in CHECKS),
+            ],
             "rules": [
                 {"if": "$CI_PIPELINE_SOURCE == 'merge_request_event'"},
                 {"if": "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"},

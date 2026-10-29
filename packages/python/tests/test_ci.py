@@ -28,7 +28,8 @@ def test_github_workflow(project):
     workflow = yaml.safe_load(content)
     check = workflow["jobs"]["check"]
     assert check["defaults"]["run"]["working-directory"] == "platform"
-    assert [s["run"] for s in check["steps"][3:]] == [
+    assert "--format markdown" in check["steps"][3]["run"]  # the pull request's impact summary
+    assert [s["run"] for s in check["steps"][4:]] == [
         "murakumo validate --strict",
         "murakumo generate --check",
         "murakumo migrate --check",

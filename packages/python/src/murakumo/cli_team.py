@@ -75,24 +75,51 @@ def sync_command(
 def diff_command(
     ref: str = typer.Argument("", help="Compare with this branch or commit. Default: the parent branch."),
     project_path: Path = ProjectOption,
-    output: str = typer.Option("text", "--format", help="text or json."),
+    output: str = typer.Option("text", "--format", help="text, json, or markdown (for a pull request's summary)."),
+    fail_on: str = typer.Option(
+        "", "--fail-on", help="Exit 1 if a change is at least this risky: breaking, compatible or additive."
+    ),
 ) -> None:
-    """What changed in the model compared with a branch or commit, change by change, with how risky each is."""
+    """What changed in the model compared with a branch or commit, how risky each change is, and what it reaches."""
     import json
 
-    from murakumo import gitsync
-    from murakumo.modeldiff import diff
+    from murakumo import gitsync, impact
+    from murakumo.modeldiff import _ORDER
 
     project = open_project(project_path)
     try:
         w = gitsync.where(project)
         against = ref or w.ref
-        changes = [c.as_dict() for c in diff(gitsync.model_at(project, w, against), project.model)]
+        old = gitsync.model_at(project, w, against)
     except gitsync.GitError as exc:
         fail(str(exc))
         raise typer.Exit(1) from None
+    result = impact.report(project, old, project.model)
     if output == "json":
-        typer.echo(json.dumps({"against": against, "changes": changes}, indent=2))
-        return
-    console.print(f"Model changes since [bold]{against}[/bold]:")
-    print_changes(changes, "none")
+        typer.echo(json.dumps({"against": against, **result.as_dict()}, indent=2))
+    elif output == "markdown":
+        typer.echo(impact.markdown(result, against), nl=False)
+    else:
+        console.print(f"Model changes since [bold]{against}[/bold]:")
+        if not result.impacts:
+            console.print("  [dim]none[/dim]")
+        for item in result.impacts:
+            print_changes([item.change.as_dict()], "")
+            reach = []
+            if item.columns:
+                reach.append(
+                    f"{len(item.columns)} column(s): {', '.join(item.columns[:6])}"
+                    + (" ..." if len(item.columns) > 6 else "")
+                )
+            if item.tests:
+                reach.append(f"{len(item.tests)} test(s)")
+            if item.metrics:
+                reach.append("metric(s) " + ", ".join(item.metrics))
+            if item.schedules:
+                reach.append("schedule " + ", ".join(item.schedules))
+            if reach:
+                console.print(f"  {'':<10} [dim]reaches {escape('; '.join(reach))}[/dim]")
+        if result.migration:
+            console.print("Needs a migration: " + escape("; ".join(result.migration)))
+    if fail_on and result.worst and _ORDER[result.worst] >= _ORDER.get(fail_on, 99):
+        raise typer.Exit(1)

@@ -75,7 +75,46 @@ def _by_id(items) -> dict[str, Any]:
     return {str(item.id): item for item in items}
 
 
-def _entity_changes(old: Entity, new: Entity) -> list[Change]:
+class Renames:
+    """Entity and column renames between two models, to compare references as if made after them."""
+
+    def __init__(self, old: Model, new: Model):
+        self.entities: dict[str, str] = {}
+        self.columns: dict[tuple[str, str], str] = {}
+        new_entities = _by_id(new.entities)
+        for entity in old.entities:
+            after = new_entities.get(str(entity.id))
+            if after is None:
+                continue
+            if after.name != entity.name:
+                self.entities[entity.name.lower()] = after.name
+            new_columns = _by_id(after.attributes)
+            for column in entity.attributes:
+                moved = new_columns.get(str(column.id))
+                if moved is not None and moved.name != column.name:
+                    self.columns[(entity.name.lower(), column.name.lower())] = moved.name
+
+    def entity(self, name: str) -> str:
+        return self.entities.get(name.lower(), name)
+
+    def ref(self, ref: str) -> str:
+        entity, _, column = ref.partition(".")
+        return f"{self.entity(entity)}.{self.columns.get((entity.lower(), column.lower()), column)}"
+
+    def expression(self, text: str | None, sources: list[str]) -> str:
+        if not text:
+            return ""
+        from murakumo.edit import _rename_in_expression
+
+        for (entity, column), new in self.columns.items():
+            reads = any(s.lower() == f"{entity}.{column}" for s in sources)
+            text = _rename_in_expression(text, entity, column, new, reads)
+        for entity, new in self.entities.items():
+            text = _rename_in_expression(text, entity, None, new)
+        return text
+
+
+def _entity_changes(old: Entity, new: Entity, renames: Renames) -> list[Change]:
     name = new.name
     out: list[Change] = []
     if old.name != new.name:
@@ -184,11 +223,25 @@ def _entity_changes(old: Entity, new: Entity) -> list[Change]:
                     Change("mapping_changed", COMPATIBLE, name, f"{name}.{mapping.target}: now mapped", mapping.target)
                 )
             continue
-        if before.sources != mapping.sources or (before.expression or "") != (mapping.expression or ""):
+        sources = [renames.ref(r) for r in before.sources]
+        expression = renames.expression(before.expression, before.sources)
+        if sources != mapping.sources or expression != (mapping.expression or ""):
             out.append(
                 Change("mapping_changed", COMPATIBLE, name, f"{name}.{mapping.target}: mapping changed", mapping.target)
             )
     return out
+
+
+def _relationship(rel, renames: Renames | None) -> tuple:
+    """What a relationship says, with an old one's names brought up to date."""
+    from_, to = rel.from_, rel.to
+    keys = [(k.from_, k.to) for k in rel.keys]
+    if renames is not None:
+        keys = [
+            (renames.ref(f"{from_}.{a}").split(".", 1)[1], renames.ref(f"{to}.{b}").split(".", 1)[1]) for a, b in keys
+        ]
+        from_, to = renames.entity(from_), renames.entity(to)
+    return (rel.name, from_, to, rel.cardinality, rel.optional, rel.role, rel.description, keys)
 
 
 def _relationship_key(rel) -> str:
@@ -198,6 +251,7 @@ def _relationship_key(rel) -> str:
 def diff(old: Model, new: Model) -> list[Change]:
     """Every change from ``old`` to ``new``, most severe first, in a stable order."""
     changes: list[Change] = []
+    renames = Renames(old, new)
     old_entities, new_entities = _by_id(old.entities), _by_id(new.entities)
     for key, entity in new_entities.items():
         before = old_entities.get(key)
@@ -211,7 +265,7 @@ def diff(old: Model, new: Model) -> list[Change]:
                 )
             )
         else:
-            changes += _entity_changes(before, entity)
+            changes += _entity_changes(before, entity, renames)
     for key, entity in old_entities.items():
         if key not in new_entities:
             changes.append(Change("entity_removed", BREAKING, entity.name, f"table {entity.name} removed"))
@@ -223,7 +277,7 @@ def diff(old: Model, new: Model) -> list[Change]:
             changes.append(
                 Change("relationship_added", ADDITIVE, rel.from_, f"new relationship {_relationship_key(rel)}")
             )
-        elif before.model_dump() != rel.model_dump():
+        elif _relationship(before, renames) != _relationship(rel, None):
             changes.append(
                 Change("relationship_changed", COMPATIBLE, rel.from_, f"relationship {_relationship_key(rel)} changed")
             )

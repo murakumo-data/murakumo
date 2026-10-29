@@ -241,6 +241,13 @@ export type EntityCode = {
   ddl: string | null
 }
 
+export type ImpactReport = {
+  worst: 'additive' | 'compatible' | 'breaking' | null
+  impacts: { change: ModelChange; columns: string[]; tables: string[]; tests: string[]; metrics: string[]; schedules: string[] }[]
+  files: string[]
+  migration: string[]
+}
+
 export class ApiError extends Error {
   status: number
   state?: State
@@ -256,6 +263,9 @@ export class ApiError extends Error {
 // made against files that have since changed on disk.
 let revision: string | undefined
 
+// While true, edits are sent as previews: the server says what they would reach and saves nothing.
+let previewing = false
+
 async function request<T>(method: string, path: string, body?: unknown, track = true): Promise<T> {
   let response: Response
   try {
@@ -264,6 +274,7 @@ async function request<T>(method: string, path: string, body?: unknown, track = 
       headers: {
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...(revision && method !== 'GET' ? { 'X-Murakumo-Revision': revision } : {}),
+        ...(previewing ? { 'X-Murakumo-Preview': '1' } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
@@ -371,4 +382,36 @@ export const api = {
   entityCode: (id: string) => request<EntityCode>('GET', `/entities/${id}/code`, undefined, false),
   generate: () => request<Generated>('POST', '/generate', undefined, false),
   writeMigration: (name: string | null) => request<Generated>('POST', '/migrations', { name }, false),
+}
+
+/** What an edit would reach, without making it: the edit is sent as a preview. */
+export async function previewOf(action: () => Promise<unknown>): Promise<ImpactReport | null> {
+  previewing = true
+  try {
+    const result = (await action()) as { preview?: ImpactReport }
+    return result.preview ?? null
+  } finally {
+    previewing = false
+  }
+}
+
+/** The words for a confirmation before a breaking edit. */
+export function impactText(report: ImpactReport): string {
+  const lines = report.impacts
+    .filter((i) => i.change.class === 'breaking')
+    .map((i) => {
+      const reach = [
+        i.columns.length ? `${i.columns.length} column${i.columns.length === 1 ? '' : 's'} built from it` : '',
+        i.tests.length ? `${i.tests.length} test${i.tests.length === 1 ? '' : 's'}` : '',
+        i.schedules.length ? `schedule ${i.schedules.join(', ')}` : '',
+      ].filter(Boolean)
+      return `• ${i.change.summary}${reach.length ? `\n    reaches ${reach.join(', ')}` : ''}`
+    })
+  const tables = [...new Set(report.impacts.flatMap((i) => i.tables))]
+  return (
+    `This is a breaking change: something that reads ${tables.join(', ')} may fail or change meaning.\n\n` +
+    lines.join('\n') +
+    (report.migration.length ? `\n\nIt needs a migration: ${report.migration.join('; ')}.` : '') +
+    '\n\nGo ahead?'
+  )
 }

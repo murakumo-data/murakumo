@@ -263,6 +263,18 @@ def diff(
                 changes.append(Change(f"create schema {table.schema}", _slug("schema", table.schema), [statement]))
             create = creates.get(key, "").rstrip("\n")
             changes.append(Change(f"create {table.schema}.{table.name}", _slug("create", table.name), [create]))
+        elif table.kind == "snapshot" and old:  # after the first migration: a table started keeping history
+            entity = next((e.name for e in project.model.entities if str(e.id) == key.split(":")[0]), table.name)
+            changes.append(
+                Change(
+                    f"{entity} starts keeping history (SCD2) in {table.schema}.{table.name}",
+                    _slug("history", entity),
+                    [
+                        f"-- dbt creates {sql.table(table)} on its next run, recording every current row of",
+                        f"-- {entity} as its first version, valid from that run. Earlier history is not known.",
+                    ],
+                )
+            )
         else:
             changes.append(
                 Change(
