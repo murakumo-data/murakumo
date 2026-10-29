@@ -216,6 +216,8 @@ class Orchestration(Section):
 class Collaboration(Section):
     base_branch: str = "main"  # the branch people branch from and bring in with `murakumo sync`
     remote: str = "origin"
+    personal_schemas: bool = True  # on a shared warehouse, build the personal environment into dev_<name>_*
+    personal_environment: str = "dev"
 
 
 class Generation(Section):

@@ -68,9 +68,23 @@ def migrate_command(
     check: bool = typer.Option(False, "--check", help="Write nothing; fail if the model needs a migration (for CI)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print the migration instead of writing it."),
     warehouse: Warehouse | None = WarehouseOption,
+    apply: bool = typer.Option(
+        False, "--apply", help="Run the migration files the warehouse has not run yet, instead of writing one."
+    ),
+    prefix: str = typer.Option("", "--prefix", help="With --apply: run them on the schemas under this prefix."),
+    mark_applied: bool = typer.Option(
+        False, "--mark-applied", help="With --apply: record them as run without running them (tables changed by hand)."
+    ),
 ) -> None:
-    """Write the next migration: ALTER statements for tables that keep data, from what changed in the model."""
+    """Write the next migration: ALTER statements for tables that keep data, from what changed in the model.
+
+    With --apply, run the migrations the warehouse has not run yet instead, recording each in
+    audit.murakumo_migrations; with --prefix, on a personal, pull-request or cloned environment.
+    """
     project = open_project(project_path)
+    if apply:
+        _apply_migrations(project, warehouse, prefix, mark_applied)
+        return
     problems = validate_project(project)
     if any(d.level is Level.ERROR for d in problems):
         print_diagnostics([d for d in problems if d.level is Level.ERROR], project.root)
@@ -221,6 +235,12 @@ def build_command(
     schedule: str | None = typer.Option(
         None, "--schedule", help="Build only what this schedule refreshes, as its orchestrator would."
     ),
+    prefix: str | None = typer.Option(
+        None,
+        "--prefix",
+        help="Build into the schemas under this prefix, such as pr_42_. On a shared warehouse, dev builds go "
+        "to dev_<your name>_ by default.",
+    ),
 ) -> None:
     """Build the project into the warehouse and keep it: raw tables, then every dbt model and test.
 
@@ -249,10 +269,30 @@ def build_command(
                 "tables keep their old shape until you run [bold]murakumo migrate[/bold] and apply the SQL."
             )
 
-    target = (warehouse or project.manifest.targets.warehouse.type).value
+    from murakumo.environments import EnvError, prefix_for
+
+    chosen = Warehouse(warehouse or project.manifest.targets.warehouse.type)
+    target = chosen.value
+    environment_name = environment or (project.manifest.targets.environments or ["dev"])[0]
+    try:
+        schema_prefix = prefix_for(project, environment_name, chosen, prefix)
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    if schema_prefix:
+        console.print(f"Building into the schemas under [bold]{schema_prefix}[/bold] ({schema_prefix}staging, ...).")
     with console.status(f"Building on {target}: raw tables, then dbt build..."):
         try:
-            result = build(project, warehouse, environment, data=files, limit=limit, sample=sample, schedule=schedule)
+            result = build(
+                project,
+                warehouse,
+                environment,
+                data=files,
+                limit=limit,
+                sample=sample,
+                schedule=schedule,
+                schema_prefix=schema_prefix,
+            )
         except SourceUnavailable as exc:
             fail(str(exc))
             raise typer.Exit(1) from None
@@ -344,6 +384,11 @@ def ci_command(
     deploy: bool = typer.Option(
         False, "--deploy", help="Also build production on pushes to main, after approval, with the CI's secrets."
     ),
+    preview: bool = typer.Option(
+        False,
+        "--preview",
+        help="Also build each pull request on a clone of production, with its new migrations (Snowflake).",
+    ),
     force: bool = typer.Option(False, "--force", help="Replace a CI file that has changes of its own."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print the file instead of writing it."),
     run: bool = typer.Option(False, "--run", help="Run the CI's checks here instead, one after another."),
@@ -367,7 +412,7 @@ def ci_command(
             raise typer.Exit(1)
         return
     try:
-        info = ci.status(project, provider, deploy)
+        info = ci.status(project, provider, deploy, preview)
     except ci.CIError as exc:
         fail(str(exc))
         raise typer.Exit(1) from None
@@ -385,7 +430,9 @@ def ci_command(
     if info["state"] == "current":
         console.print(f"{info['file']} is up to date.")
         return
-    ci.write(project, provider, deploy, force=True)
+    if preview and not info["preview_possible"]:
+        console.print("[yellow]![/yellow] Pull-request previews clone production, which needs Snowflake; left out.")
+    ci.write(project, provider, deploy, force=True, preview=preview)
     console.print(f"Wrote {info['file']} in {info['repository']}. Commit it, and the checks run on every push.")
     if deploy and info["deploy_possible"]:
         where = "Settings → Secrets and variables → Actions" if provider == "github" else "Settings → CI/CD → Variables"
@@ -394,3 +441,123 @@ def ci_command(
         )
     if not info["in_git"]:
         console.print("[yellow]![/yellow] The project is not in a git repository yet: run `git init` first.")
+
+
+def _apply_migrations(project, warehouse, prefix: str, mark_applied: bool) -> None:
+    from murakumo.environments import EnvError, connect
+    from murakumo.migrate import apply_migrations
+
+    try:
+        connection = connect(project, warehouse)
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    try:
+        applied = apply_migrations(project, connection, prefix.lower(), mark_only=mark_applied)
+    except Exception as exc:  # noqa: BLE001 - a warehouse error; show it and stop
+        fail(f"a migration failed: {' '.join(str(exc).split())}")
+        raise typer.Exit(1) from None
+    finally:
+        connection.close()
+    where = f"the schemas under {prefix}" if prefix else "the shared schemas"
+    verb = "Recorded" if mark_applied else "Applied"
+    if applied:
+        console.print(f"{verb} {len(applied)} migration(s) on {where}: {', '.join(applied)}")
+    else:
+        console.print(f"{where[0].upper() + where[1:]} have run every migration.")
+
+
+env_app = typer.Typer(
+    help="Your own schemas, and pull-request ones: see, clone and drop them.", invoke_without_command=True
+)
+
+
+@env_app.callback()
+def env_show(
+    ctx: typer.Context,
+    project_path: Path = ProjectOption,
+    environment: str | None = typer.Option(None, "--env", help="The environment. Default: the first one."),
+    prefix: str | None = typer.Option(None, "--prefix", help="Look at this prefix instead of your own."),
+) -> None:
+    """Show the schemas your builds use, and what is in them."""
+    if ctx.invoked_subcommand:
+        return
+    from murakumo.environments import EnvError, connect, describe, developer, prefix_for
+
+    project = open_project(project_path)
+    warehouse = project.manifest.targets.warehouse.type
+    name = environment or (project.manifest.targets.environments or ["dev"])[0]
+    chosen = prefix_for(project, name, warehouse, prefix)
+    where = f"the schemas under [bold]{chosen}[/bold]." if chosen else "the shared schemas (no prefix)."
+    console.print(f"You are [bold]{developer()}[/bold]; {name} builds go to {where}")
+    try:
+        connection = connect(project)
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    try:
+        for row in describe(project, connection, chosen):
+            state = f"{row['tables']} table(s)" if row["exists"] else "[dim]not created yet[/dim]"
+            console.print(f"  {row['schema']:<32} {state}")
+    finally:
+        connection.close()
+
+
+@env_app.command("clone")
+def env_clone(
+    prefix: str = typer.Option(..., "--prefix", help="The prefix to copy into, such as pr_42_ or dev_ana_."),
+    source: str = typer.Option("", "--from-prefix", help="Copy these schemas instead of the shared ones."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Copy the shared schemas into a prefix: zero-copy clones on Snowflake, table copies on DuckDB.
+
+    Then `murakumo migrate --apply --prefix X` runs the branch's new migrations there, and
+    `murakumo build --prefix X` builds and tests on real data, before anything reaches production.
+    """
+    from murakumo.environments import EnvError, clone, connect
+
+    project = open_project(project_path)
+    try:
+        connection = connect(project)
+        try:
+            copied = clone(project, connection, prefix, source)
+        finally:
+            connection.close()
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    for line in copied:
+        console.print(f"  {line}")
+    console.print(
+        f"Cloned {len(copied)} schema(s)." if copied else "Nothing to clone: the source schemas do not exist."
+    )
+
+
+@env_app.command("drop")
+def env_drop(
+    prefix: str | None = typer.Option(None, "--prefix", help="The prefix to drop. Default: your own."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask first."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Drop every project schema under a prefix (your own by default). The shared schemas are never dropped."""
+    from murakumo.environments import EnvError, connect, drop, prefix_for
+
+    project = open_project(project_path)
+    warehouse = project.manifest.targets.warehouse.type
+    name = project.manifest.collaboration.personal_environment
+    chosen = prefix if prefix is not None else prefix_for(project, name, warehouse)
+    if not chosen:
+        fail("name a prefix, such as --prefix pr_42_: your builds use the shared schemas, which are never dropped")
+        raise typer.Exit(1)
+    if not yes and not typer.confirm(f"Drop every schema under {chosen} and everything in them?"):
+        raise typer.Exit(1)
+    try:
+        connection = connect(project)
+        try:
+            dropped = drop(project, connection, chosen)
+        finally:
+            connection.close()
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    console.print(f"Dropped {', '.join(dropped)}." if dropped else f"Nothing under {chosen} to drop.")

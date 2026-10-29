@@ -90,6 +90,11 @@ export function GitPanel({ onState, onMessage, revision }: Props) {
           {busy === 'fetch' ? 'Checking…' : 'Check for updates'}
         </button>
       </div>
+      <p className="muted small">
+        {info.personal_prefix
+          ? `Your ${info.personal_environment} builds go to your own schemas, ${info.personal_prefix}staging and so on, so nobody else's work is touched.`
+          : `Your ${info.personal_environment} builds go to the project's DuckDB file on this computer.`}
+      </p>
       {!info.on_base && (
         <p className="small">
           {info.behind === 0

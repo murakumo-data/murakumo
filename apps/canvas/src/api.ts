@@ -196,6 +196,7 @@ export type CIInfo = {
   diff: string
   found: Record<string, boolean>
   deploy_possible: boolean
+  preview_possible: boolean
   run: CIRun
 }
 
@@ -220,6 +221,9 @@ export type GitStatus = {
   incoming_changes: ModelChange[]
   merging: boolean
   conflicts: string[]
+  developer: string
+  personal_environment: string
+  personal_prefix: string // where this person's dev builds go; empty for the shared schemas
 }
 
 export type SyncResult = {
@@ -343,10 +347,10 @@ export const api = {
       false,
     ),
 
-  ci: (provider: string, deploy: boolean) =>
-    request<CIInfo>('GET', `/ci?provider=${provider}&deploy=${deploy}`, undefined, false),
-  writeCI: (provider: string, deploy: boolean, force: boolean) =>
-    request<CIInfo>('POST', '/ci', { provider, deploy, force }, false),
+  ci: (provider: string, deploy: boolean, preview: boolean) =>
+    request<CIInfo>('GET', `/ci?provider=${provider}&deploy=${deploy}&preview=${preview}`, undefined, false),
+  writeCI: (provider: string, deploy: boolean, preview: boolean, force: boolean) =>
+    request<CIInfo>('POST', '/ci', { provider, deploy, preview, force }, false),
   startCIRun: () => request<CIRun>('POST', '/ci/run', undefined, false),
   ciRun: () => request<CIRun>('GET', '/ci/run', undefined, false),
 

@@ -148,6 +148,7 @@ class TimezoneBody(BaseModel):
 class CIBody(BaseModel):
     provider: str = "github"
     deploy: bool = False
+    preview: bool = False
     force: bool = False
 
 
@@ -538,13 +539,13 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     checks = ci_module.Runner(root)
 
     @app.get("/api/ci")
-    def get_ci(provider: str = "github", deploy: bool = False) -> dict[str, Any]:
+    def get_ci(provider: str = "github", deploy: bool = False, preview: bool = False) -> dict[str, Any]:
         """The CI file: there, as Murakumo would write it, or changed; and the last local run of its checks."""
         project, _ = _blocked(root)
         if project is None:
             raise HTTPException(409, {"message": "the project did not load"})
         try:
-            return {**ci_module.status(project, provider, deploy), "run": checks.run.as_dict()}
+            return {**ci_module.status(project, provider, deploy, preview), "run": checks.run.as_dict()}
         except ci_module.CIError as exc:
             raise HTTPException(400, {"message": str(exc)}) from None
 
@@ -556,7 +557,8 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             if project is None:
                 raise HTTPException(409, {"message": "the project did not load"})
             try:
-                return {**ci_module.write(project, body.provider, body.deploy, body.force), "run": checks.run.as_dict()}
+                written = ci_module.write(project, body.provider, body.deploy, body.force, body.preview)
+                return {**written, "run": checks.run.as_dict()}
             except ci_module.CIError as exc:
                 raise HTTPException(409, {"message": str(exc)}) from None
 
@@ -583,7 +585,17 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         project, _ = _blocked(root)
         if project is None:
             raise HTTPException(409, {"message": "the project did not load"})
-        return git_call(lambda: gitsync.status(project, refresh=refresh))
+        from murakumo.environments import developer, prefix_for
+
+        info = git_call(lambda: gitsync.status(project, refresh=refresh))
+        personal = project.manifest.collaboration.personal_environment
+        warehouse = project.manifest.targets.warehouse.type
+        return {
+            **info,
+            "developer": developer(),
+            "personal_environment": personal,
+            "personal_prefix": prefix_for(project, personal, warehouse),
+        }
 
     @app.post("/api/git/sync")
     def post_sync(resume: bool = False) -> dict[str, Any]:

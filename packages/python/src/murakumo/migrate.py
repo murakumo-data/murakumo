@@ -441,4 +441,74 @@ def write_migration(project: Project, pending: Pending, name: str | None = None)
     return file
 
 
-__all__ = ["Change", "Pending", "current_tables", "load_state", "plan_migration", "write_migration"]
+# Applying ---------------------------------------------------------------------------------------
+
+APPLIED = "murakumo_migrations"  # in the audit schema: which migration files have run
+
+
+def prefixed(sql: str, prefix: str, dialect: str, schemas: set[str]) -> list[str]:
+    """The statements of a migration, with the project's schemas moved under ``prefix``."""
+    import sqlglot
+    from sqlglot import exp
+
+    statements = []
+    for tree in sqlglot.parse(sql, read=dialect):
+        if tree is None:
+            continue
+        if prefix:
+            if isinstance(tree, exp.Create) and str(tree.args.get("kind", "")).upper() == "SCHEMA":
+                table = tree.this
+                if table.name.lower() in schemas:
+                    table.set("this", exp.to_identifier(prefix + table.name))
+            for table in tree.find_all(exp.Table):
+                if table.db and table.db.lower() in schemas:
+                    table.set("db", exp.to_identifier(prefix + table.db))
+        statements.append(tree.sql(dialect=dialect))
+    return statements
+
+
+def apply_migrations(project: Project, connection, prefix: str = "", mark_only: bool = False) -> list[str]:
+    """Run the migration files this warehouse (under ``prefix``) has not run yet, in order.
+
+    Each one is recorded in ``<prefix>audit.murakumo_migrations``. ``mark_only`` records them without
+    running them, for tables that were brought up to date by hand.
+    """
+    from murakumo.environments import project_schemas
+
+    warehouse = connection.warehouse
+    files = sorted(p for p in folder(project.root, warehouse).glob("*.sql") if _NUMBERED.match(p.name))
+    audit = f"{prefix}audit"
+    record = f"{audit}.{APPLIED}" if warehouse is Warehouse.DUCKDB else f"{connection.database}.{audit}.{APPLIED}"
+    schema_name = audit if warehouse is Warehouse.DUCKDB else f"{connection.database}.{audit}"
+    connection.execute(f"create schema if not exists {schema_name}")
+    connection.execute(
+        f"create table if not exists {record} (number integer, name varchar, applied_at timestamp, by_hand boolean)"
+    )
+    done = {row[0] for row in connection.execute(f"select number from {record}", fetch=True)}
+    schemas = {s.lower() for s in project_schemas(project, warehouse)}
+    dialect = target_for(warehouse).dialect
+    applied = []
+    for path in files:
+        number = int(path.name[:4])
+        if number in done:
+            continue
+        if not mark_only:
+            for statement in prefixed(path.read_text(encoding="utf-8"), prefix, dialect, schemas):
+                connection.execute(statement)
+        connection.execute(
+            f"insert into {record} values ({number}, '{path.stem}', current_timestamp, {str(mark_only).lower()})"
+        )
+        applied.append(path.name)
+    return applied
+
+
+__all__ = [
+    "Change",
+    "Pending",
+    "apply_migrations",
+    "current_tables",
+    "load_state",
+    "plan_migration",
+    "prefixed",
+    "write_migration",
+]

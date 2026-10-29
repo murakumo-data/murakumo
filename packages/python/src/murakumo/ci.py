@@ -115,7 +115,35 @@ def _deploy_parts(project: Project) -> tuple[list[str], dict[str, str], bool] | 
     return commands, secrets, key_file
 
 
-def github_workflow(project: Project, deploy: bool) -> str:
+_GITHUB_KEY = (
+    'umask 077 && printf "%s" "$SNOWFLAKE_PRIVATE_KEY" > "$RUNNER_TEMP/snowflake_key.p8"\n'
+    'echo "SNOWFLAKE_PRIVATE_KEY_PATH=$RUNNER_TEMP/snowflake_key.p8" >> "$GITHUB_ENV"'
+)
+_GITLAB_KEY = [
+    'umask 077 && printf "%s" "$SNOWFLAKE_PRIVATE_KEY" > "$CI_PROJECT_DIR/snowflake_key.p8"',
+    'export SNOWFLAKE_PRIVATE_KEY_PATH="$CI_PROJECT_DIR/snowflake_key.p8"',
+]
+
+
+def preview_possible(project: Project) -> bool:
+    """Pull-request previews clone production, which needs a shared warehouse that clones: Snowflake."""
+    return project.manifest.targets.warehouse.type is Warehouse.SNOWFLAKE
+
+
+def _preview_commands(prefix: str, target: str) -> list[str]:
+    return [
+        f"murakumo env clone --prefix {prefix}",
+        f"murakumo migrate --apply --prefix {prefix}",
+        f"murakumo build --env {target} --prefix {prefix}",
+    ]
+
+
+def _target(project: Project) -> str:
+    environments = project.manifest.targets.environments or ["dev"]
+    return "prod" if "prod" in environments else environments[-1]
+
+
+def github_workflow(project: Project, deploy: bool, preview: bool = False) -> str:
     root = repository_root(project)
     folder = project.root.relative_to(root).as_posix() if project.root != root else "."
     check_steps: list[dict[str, Any]] = [
@@ -124,54 +152,76 @@ def github_workflow(project: Project, deploy: bool) -> str:
         {"name": "Install Murakumo", "run": _install(["duckdb", "verify"])},
     ]
     check_steps += [{"name": name, "run": "murakumo " + " ".join(args)} for name, args in CHECKS]
+    preview = preview and preview_possible(project)
     jobs: dict[str, Any] = {
         "check": {
             "name": "Model, code and migrations agree",
+            **({"if": "github.event.action != 'closed'"} if preview else {}),
             "runs-on": "ubuntu-latest",
             "defaults": {"run": {"working-directory": folder}},
             "steps": check_steps,
         }
     }
-    parts = _deploy_parts(project) if deploy else None
-    if parts:
-        commands, secrets, key_file = parts
+    parts = _deploy_parts(project) if (deploy or preview) else None
+
+    def warehouse_job(name: str, condition: str, commands: list[str], **extra: Any) -> dict[str, Any]:
+        install, secrets, key_file = parts
         steps: list[dict[str, Any]] = [{"uses": "actions/checkout@v4"}, {"uses": "astral-sh/setup-uv@v6"}]
         if key_file:
-            steps.append(
-                {
-                    "name": "Key file",
-                    "run": 'umask 077 && printf "%s" "$SNOWFLAKE_PRIVATE_KEY" > "$RUNNER_TEMP/snowflake_key.p8"\n'
-                    'echo "SNOWFLAKE_PRIVATE_KEY_PATH=$RUNNER_TEMP/snowflake_key.p8" >> "$GITHUB_ENV"',
-                }
-            )
-        steps.append({"name": "Install", "run": commands[0]})
-        steps.append({"name": "Build production", "run": "\n".join(commands[1:])})
-        jobs["deploy"] = {
-            "name": "Build production",
-            "needs": "check",
-            "if": "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+            steps.append({"name": "Key file", "run": _GITHUB_KEY})
+        steps.append({"name": "Install", "run": install[0]})
+        steps.append({"name": name, "run": "\n".join(commands)})
+        return {
+            "name": name,
+            "if": condition,
             "runs-on": "ubuntu-latest",
-            # Add required reviewers to this environment (Settings → Environments) to approve each deploy.
-            "environment": "production",
+            **extra,
             "defaults": {"run": {"working-directory": folder}},
             "env": {name: "${{ secrets." + secret + " }}" for name, secret in sorted(secrets.items())},
             "steps": steps,
         }
+
+    if parts and deploy:
+        jobs["deploy"] = warehouse_job(
+            "Build production",
+            "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+            parts[0][1:],
+            needs="check",
+            # Add required reviewers to this environment (Settings → Environments) to approve each deploy.
+            environment="production",
+        )
+    if parts and preview:
+        prefix = "pr_${{ github.event.number }}_"
+        jobs["preview"] = warehouse_job(
+            "Preview the pull request on a clone of production",
+            "github.event_name == 'pull_request' && github.event.action != 'closed'",
+            _preview_commands(prefix, _target(project)),
+            needs="check",
+            concurrency={"group": "preview-${{ github.event.number }}", "cancel-in-progress": True},
+        )
+        jobs["preview-cleanup"] = warehouse_job(
+            "Drop the pull request's schemas",
+            "github.event_name == 'pull_request' && github.event.action == 'closed'",
+            [f"murakumo env drop --prefix {prefix} --yes"],
+        )
+    pull_request = {"types": ["opened", "synchronize", "reopened", "closed"]} if preview else None
     workflow = {
         "name": "murakumo",
-        "on": {"pull_request": None, "push": {"branches": ["main"]}, "workflow_dispatch": None},
+        "on": {"pull_request": pull_request, "push": {"branches": ["main"]}, "workflow_dispatch": None},
         "jobs": jobs,
     }
     text = _yaml(workflow)
     return HEADER + text.replace("'on':", "on:").replace(": null", ":")
 
 
-def gitlab_pipeline(project: Project, deploy: bool) -> str:
+def gitlab_pipeline(project: Project, deploy: bool, preview: bool = False) -> str:
     root = repository_root(project)
     folder = project.root.relative_to(root).as_posix() if project.root != root else "."
     before = ["pip install uv", "export PATH=$HOME/.local/bin:$PATH", f"cd {folder}"]
+    preview = preview and preview_possible(project)
+    stages = ["check", *(["preview"] if preview else []), *(["deploy"] if deploy else [])]
     pipeline: dict[str, Any] = {
-        "stages": ["check", "deploy"] if deploy else ["check"],
+        "stages": stages,
         "murakumo-check": {
             "stage": "check",
             "image": "python:3.12",
@@ -183,39 +233,57 @@ def gitlab_pipeline(project: Project, deploy: bool) -> str:
             ],
         },
     }
-    parts = _deploy_parts(project) if deploy else None
+    parts = _deploy_parts(project) if (deploy or preview) else None
     if parts:
-        commands, _secrets, key_file = parts
-        setup = (
-            [
-                'umask 077 && printf "%s" "$SNOWFLAKE_PRIVATE_KEY" > "$CI_PROJECT_DIR/snowflake_key.p8"',
-                'export SNOWFLAKE_PRIVATE_KEY_PATH="$CI_PROJECT_DIR/snowflake_key.p8"',
-            ]
-            if key_file
-            else []
-        )
-        pipeline["murakumo-deploy"] = {
-            "stage": "deploy",
-            "image": "python:3.12",
-            # The warehouse credentials come from CI/CD variables (Settings → CI/CD → Variables).
-            "before_script": [*before, *setup, commands[0]],
-            "script": commands[1:],
-            "rules": [{"if": "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH", "when": "manual"}],
-            "environment": {"name": "production"},
-        }
+        install, _secrets, key_file = parts
+        # The warehouse credentials come from CI/CD variables (Settings → CI/CD → Variables).
+        setup = [*before, *(_GITLAB_KEY if key_file else []), install[0]]
+        if deploy:
+            pipeline["murakumo-deploy"] = {
+                "stage": "deploy",
+                "image": "python:3.12",
+                "before_script": setup,
+                "script": install[1:],
+                "rules": [{"if": "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH", "when": "manual"}],
+                "environment": {"name": "production"},
+            }
+        if preview:
+            prefix = "pr_${CI_MERGE_REQUEST_IID}_"
+            review = {
+                "name": "review/$CI_MERGE_REQUEST_IID",
+                "on_stop": "murakumo-preview-stop",
+                "auto_stop_in": "1 week",
+            }
+            pipeline["murakumo-preview"] = {
+                "stage": "preview",
+                "image": "python:3.12",
+                "before_script": setup,
+                "script": _preview_commands(prefix, _target(project)),
+                "rules": [{"if": "$CI_PIPELINE_SOURCE == 'merge_request_event'"}],
+                "environment": review,
+            }
+            pipeline["murakumo-preview-stop"] = {
+                "stage": "preview",
+                "image": "python:3.12",
+                "before_script": setup,
+                "script": [f"murakumo env drop --prefix {prefix} --yes"],
+                "rules": [{"if": "$CI_PIPELINE_SOURCE == 'merge_request_event'", "when": "manual"}],
+                "environment": {"name": "review/$CI_MERGE_REQUEST_IID", "action": "stop"},
+            }
     return HEADER + _yaml(pipeline)
 
 
-def render(project: Project, provider: str, deploy: bool) -> tuple[Path, str]:
+def render(project: Project, provider: str, deploy: bool, preview: bool = False) -> tuple[Path, str]:
     if provider not in PROVIDERS:
         raise CIError(f"unknown provider {provider!r}; use github or gitlab")
-    content = github_workflow(project, deploy) if provider == "github" else gitlab_pipeline(project, deploy)
+    render_one = github_workflow if provider == "github" else gitlab_pipeline
+    content = render_one(project, deploy, preview)
     return repository_root(project) / PROVIDERS[provider], content
 
 
-def status(project: Project, provider: str, deploy: bool) -> dict[str, Any]:
+def status(project: Project, provider: str, deploy: bool, preview: bool = False) -> dict[str, Any]:
     """Whether the CI file is there, as Murakumo would write it, or changed; with the diff."""
-    path, content = render(project, provider, deploy)
+    path, content = render(project, provider, deploy, preview)
     root = repository_root(project)
     existing = path.read_text(encoding="utf-8") if path.is_file() else None
     state = "missing" if existing is None else "current" if existing == content else "differs"
@@ -241,18 +309,19 @@ def status(project: Project, provider: str, deploy: bool) -> dict[str, Any]:
         "diff": diff,
         "found": found,
         "deploy_possible": _deploy_parts(project) is not None,
+        "preview_possible": preview_possible(project),
     }
 
 
-def write(project: Project, provider: str, deploy: bool, force: bool = False) -> dict[str, Any]:
-    info = status(project, provider, deploy)
+def write(project: Project, provider: str, deploy: bool, force: bool = False, preview: bool = False) -> dict[str, Any]:
+    info = status(project, provider, deploy, preview)
     if info["state"] == "differs" and not force:
         raise CIError(f"{info['file']} has changes that are not Murakumo's; see the difference, then replace it")
     if info["state"] != "current":
         path = Path(info["path"])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(info["content"], encoding="utf-8")
-    return status(project, provider, deploy)
+    return status(project, provider, deploy, preview)
 
 
 # Running the checks here ---------------------------------------------------------------------

@@ -513,13 +513,18 @@ class BuildResult(VerifyResult):
     skipped: list[str] = field(default_factory=list)  # raw tables that already had rows, so got no sample
 
 
+def _duckdb_path(project: Project) -> Path:
+    """The project's own DuckDB file: the manifest's database, or <project>.duckdb beside it."""
+    configured = project.manifest.targets.warehouse.database or ""
+    name = configured if configured.endswith((".duckdb", ".db")) else f"{project.manifest.project.name}.duckdb"
+    return (project.root / name).resolve()
+
+
 def _build_backend(project: Project, warehouse: Warehouse, folder: Path, prefix: str):
     if warehouse is Warehouse.SNOWFLAKE:
         backend = SnowflakeBackend(project, folder, prefix=prefix)
     else:
-        configured = project.manifest.targets.warehouse.database or ""
-        name = configured if configured.endswith((".duckdb", ".db")) else f"{project.manifest.project.name}.duckdb"
-        backend = DuckDBBackend(project, folder, path=(project.root / name).resolve())
+        backend = DuckDBBackend(project, folder, path=_duckdb_path(project))
         backend.prefix = prefix
     backend.batch = datetime.now().strftime("build_%Y%m%d_%H%M%S")
     return backend

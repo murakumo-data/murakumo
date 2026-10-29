@@ -81,3 +81,21 @@ def test_api(project):
     assert info["state"] == "missing" and info["file"] == ".github/workflows/murakumo.yml"
     assert client.post("/api/ci", json={"provider": "github"}).json()["state"] == "current"
     assert client.get("/api/ci/run").json() == {"running": False, "steps": []}
+
+
+def test_pull_request_previews(project):
+    project.manifest.targets.warehouse.type = Warehouse.SNOWFLAKE
+    workflow = yaml.safe_load(ci.render(project, "github", deploy=False, preview=True)[1])
+    assert workflow[True]["pull_request"]["types"] == ["opened", "synchronize", "reopened", "closed"]
+    preview = workflow["jobs"]["preview"]
+    assert preview["steps"][-1]["run"].splitlines() == [
+        "murakumo env clone --prefix pr_${{ github.event.number }}_",
+        "murakumo migrate --apply --prefix pr_${{ github.event.number }}_",
+        "murakumo build --env prod --prefix pr_${{ github.event.number }}_",
+    ]
+    cleanup = workflow["jobs"]["preview-cleanup"]
+    assert "closed" in cleanup["if"] and "env drop" in cleanup["steps"][-1]["run"]
+    gitlab = yaml.safe_load(ci.render(project, "gitlab", deploy=False, preview=True)[1])
+    assert gitlab["murakumo-preview"]["environment"]["on_stop"] == "murakumo-preview-stop"
+    project.manifest.targets.warehouse.type = Warehouse.DUCKDB
+    assert "preview" not in yaml.safe_load(ci.render(project, "github", deploy=False, preview=True)[1])["jobs"]
