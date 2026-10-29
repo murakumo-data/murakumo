@@ -1682,3 +1682,135 @@ textarea.input {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* Sources ------------------------------------------------------------------------------------- */
+
+.sources {
+  display: grid;
+  gap: 8px;
+}
+
+.sources__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sources__item {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.sources__head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sources__from {
+  overflow-wrap: anywhere;
+  font-size: 11.5px;
+}
+
+.sources__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.sources__add {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.badge--neutral {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.browser,
+.browser__tables,
+.browser__columns {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.browser {
+  display: grid;
+  gap: 4px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.browser__schema {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.browser__tables {
+  padding-left: 14px;
+}
+
+.browser__tables summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.browser__tables code {
+  font-size: 12px;
+}
+
+.browser__columns {
+  padding: 2px 0 6px 24px;
+}
+
+.browser__columns li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.import-preview {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.import-preview__lines {
+  max-height: 30vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.import-preview__line--add {
+  color: var(--ok);
+}
+
+.import-preview__line--remove {
+  color: var(--error);
+}
+
+.import-preview__line--change {
+  color: var(--warning);
+}

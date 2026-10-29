@@ -21,6 +21,7 @@ import { EntityNode, type EntityNodeType } from './EntityNode'
 import { EntityPanel, RelationshipPanel } from './Inspector'
 import { domainColour, ends, handleId, nodeHeight, placeEntities } from './layout'
 import { LineageBar, LineageEdge, type LineageEdgeType } from './Lineage'
+import { SourcesPanel } from './Sources'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
 const nodeTypes = { entity: EntityNode, domain: DomainArea }
@@ -74,7 +75,7 @@ function Canvas() {
   const [message, setMessage] = useState<{ text: string; tone: 'error' | 'info' } | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [hidden, setHidden] = useState<Set<Layer>>(new Set())
-  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | null>(null)
+  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | 'sources' | null>(null)
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
   const [domainFilter, setDomainFilter] = useState<string | null>(null)
   const [lineageOf, setLineageOf] = useState<{ entity: string; column: string | null } | null>(null)
@@ -591,6 +592,13 @@ function Canvas() {
           </button>
           <button
             className="chip"
+            onClick={() => setSide(side === 'sources' ? null : 'sources')}
+            aria-expanded={side === 'sources'}
+          >
+            Sources <span className="muted">{state.sources.length}</span>
+          </button>
+          <button
+            className="chip"
             onClick={() => setSide(side === 'domains' ? null : 'domains')}
             aria-expanded={side === 'domains'}
           >
@@ -724,6 +732,18 @@ function Canvas() {
               onMigrate={migrateNow}
               busy={generating}
             />
+          </aside>
+        )}
+
+        {side === 'sources' && (
+          <aside className="issues-panel" aria-label="Sources">
+            <div className="issues-panel__head">
+              <strong>Sources</strong>
+              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
+                ×
+              </button>
+            </div>
+            <SourcesPanel state={state} run={run} onMessage={(text) => setMessage({ text, tone: 'info' })} />
           </aside>
         )}
 

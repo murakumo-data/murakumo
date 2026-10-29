@@ -53,6 +53,41 @@ export type Diagnostic = {
 
 export type Position = { x: number; y: number }
 
+export type SourceInfo = {
+  name: string
+  type: string | null
+  kind: string | null // database, snowflake, csv, excel, file or openapi
+  from: string | null // the from: line, without passwords
+  declared: boolean
+  tables: number
+  description: string | null
+  updated: string | null
+}
+
+export type BrowseSchema = {
+  name: string
+  tables: {
+    name: string
+    description: string | null
+    in_model: boolean
+    columns: { name: string; type: string; nullable: boolean; primary_key: boolean }[]
+  }[]
+}
+
+export type ImportReport = {
+  source: string
+  added_source: boolean
+  added: string[]
+  changed: string[]
+  removed_columns: string[]
+  missing: string[]
+  removed: string[]
+  added_relationships: string[]
+  removed_relationships: string[]
+  diagnostics: { level: 'error' | 'warning'; code: string; message: string }[]
+  has_changes: boolean
+}
+
 export type Domain = { name: string; owner: string | null; description: string | null; entities: number }
 
 export type State = {
@@ -63,6 +98,7 @@ export type State = {
   model: { entities: Entity[]; relationships: Relationship[] } | null
   layout: Record<string, Position>
   domains: Domain[]
+  sources: SourceInfo[]
   diagnostics: Diagnostic[]
   choices: {
     sources: string[]
@@ -194,6 +230,14 @@ export const api = {
   updateRelationship: (id: string, changes: Record<string, unknown>) =>
     request<State>('PATCH', `/relationships/${id}`, changes),
   removeRelationship: (id: string) => request<State>('DELETE', `/relationships/${id}`),
+
+  addSource: (body: { name: string; kind: string; location: string }) => request<State>('POST', '/sources', body),
+  browseSource: (name: string) =>
+    request<{ schemas: BrowseSchema[] }>('GET', `/sources/${encodeURIComponent(name)}/browse`, undefined, false),
+  previewImport: (name: string, tables: string[] | null) =>
+    request<{ reports: ImportReport[] }>('POST', `/sources/${encodeURIComponent(name)}/import/preview`, { tables }, false),
+  importSource: (name: string, tables: string[] | null) =>
+    request<State>('POST', `/sources/${encodeURIComponent(name)}/import`, { tables }),
 
   addDomain: (body: { name: string; owner?: string | null; description?: string | null }) =>
     request<State>('POST', '/domains', body),

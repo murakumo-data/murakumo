@@ -239,26 +239,74 @@ def _snowflake(url: str) -> tuple[list[Column], dict, list, dict, dict]:
     return columns, primary, foreign, table_comments, column_comments
 
 
-def introspect(url: str, source: str, schemas: list[str] | None = None) -> SourceImport:
-    """Read a database's structure into a SourceImport. Raises SourceUnavailable."""
+def catalogue(url: str) -> tuple[list[Column], dict, list, dict, dict]:
+    """Columns, primary keys, foreign keys and comments of every table. Raises SourceUnavailable."""
     real = resolve(url)
     dialect = dialect_of(real)
     if dialect == "snowflake":
-        columns, primary, foreign, table_comments, column_comments = _snowflake(real)
-    else:
-        connection = connect(url)
-        try:
-            columns = _columns(connection, dialect)
-            primary, foreign = _constraints(connection)
-            table_comments, column_comments = _comments(connection, dialect)
-        finally:
-            connection.close()
+        return _snowflake(real)
+    connection = connect(url)
+    try:
+        columns = _columns(connection, dialect)
+        primary, foreign = _constraints(connection)
+        table_comments, column_comments = _comments(connection, dialect)
+    finally:
+        connection.close()
+    return columns, primary, foreign, table_comments, column_comments
+
+
+def browse(url: str) -> list[dict[str, Any]]:
+    """Schemas, their tables and the tables' columns, for picking what to import. Metadata only."""
+    columns, primary, _foreign, table_comments, _ = catalogue(url)
+    schemas: dict[str, dict[str, list[Column]]] = defaultdict(lambda: defaultdict(list))
+    for column in columns:
+        schemas[column.schema][column.table].append(column)
+    return [
+        {
+            "name": schema,
+            "tables": [
+                {
+                    "name": table,
+                    "description": table_comments.get((schema, table)),
+                    "columns": [
+                        {
+                            "name": c.name,
+                            "type": c.data_type,
+                            "nullable": c.nullable,
+                            "primary_key": c.name in primary.get((schema, table), []),
+                        }
+                        for c in sorted(table_columns, key=lambda c: c.position)
+                    ],
+                }
+                for table, table_columns in sorted(tables.items(), key=lambda t: t[0].lower())
+            ],
+        }
+        for schema, tables in sorted(schemas.items(), key=lambda s: s[0].lower())
+    ]
+
+
+def _picked(tables: list[str] | None) -> set[str] | None:
+    """``schema.table`` or ``table`` names, lower-cased, to compare with a table's two names."""
+    return {t.lower() for t in tables} if tables else None
+
+
+def introspect(
+    url: str, source: str, schemas: list[str] | None = None, tables: list[str] | None = None
+) -> SourceImport:
+    """Read a database's structure into a SourceImport. Raises SourceUnavailable.
+
+    ``tables`` limits the import to those tables (``schema.table`` or ``table``); the import is
+    then partial, so tables it leaves out are not reported as missing.
+    """
+    columns, primary, foreign, table_comments, column_comments = catalogue(url)
 
     wanted = {s.lower() for s in schemas} if schemas else None
     if wanted is not None:
         columns = [c for c in columns if c.schema.lower() in wanted]
+    picked = _picked(tables)
 
     result = SourceImport(source=SourceSystem(name=source, type=SourceType.DATABASE, connection=redact(url)))
+    result.partial = picked is not None
     if not columns:
         found = "no tables" if wanted is None else f"no tables in schema(s) {', '.join(sorted(wanted))}"
         result.diagnostics.append(warning("MK404", f"{found} found in {redact(url)}"))
@@ -275,7 +323,13 @@ def introspect(url: str, source: str, schemas: list[str] | None = None) -> Sourc
     def entity_name(schema: str, table: str) -> str:
         return safe_name(f"{schema}__{table}" if counts[table.lower()] > 1 else table, "table")
 
-    for (schema, table), table_columns in tables.items():
+    def chosen(schema: str, table: str) -> bool:
+        return picked is None or table.lower() in picked or f"{schema}.{table}".lower() in picked
+
+    # Names are decided from every table, then the picked ones are kept, so a table keeps the same
+    # entity name whichever tables are imported with it.
+    present = set(tables)
+    for (schema, table), table_columns in [(k, v) for k, v in tables.items() if chosen(*k)]:
         pk = {c.lower() for c in primary.get((schema, table), [])}
         attributes = []
         for column in table_columns:
@@ -305,7 +359,9 @@ def introspect(url: str, source: str, schemas: list[str] | None = None) -> Sourc
 
     relationships = []
     for schema, table, cols, ref_schema, ref_table, ref_cols in foreign:
-        if (schema, table) not in tables or (ref_schema, ref_table) not in tables:
+        if (schema, table) not in present or (ref_schema, ref_table) not in present:
+            continue
+        if not chosen(schema, table) or not chosen(ref_schema, ref_table):
             continue
         nullable = any(c.nullable for c in tables[(schema, table)] if c.name in cols)
         relationships.append(

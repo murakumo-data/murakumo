@@ -178,15 +178,24 @@ def import_database(
     url: str = typer.Argument(..., help="duckdb:///file.duckdb, postgresql://user@host/db, or env:VARIABLE."),
     source: str = typer.Option(..., help="Name for this source system."),
     schema: list[str] = typer.Option(None, help="Only these schemas. Repeat for several. Default: all."),
+    table: list[str] = typer.Option(
+        None, "--table", help="Only these tables, as table or schema.table. Repeat for several. Default: all."
+    ),
     project_path: Path = ProjectOption,
     dry_run: bool = DryRunOption,
     prune: bool = PruneOption,
 ) -> None:
-    """Read tables, columns, keys and comments from a live database (metadata only, never rows)."""
+    """Read tables, columns, keys and comments from a live database (metadata only, never rows).
+
+    With --table, only those tables are imported, and tables already in the model from this source
+    are left as they are.
+    """
     from murakumo.importers.database import introspect
 
     project = open_project(project_path)
-    imports = _guarded(lambda: [introspect(url, safe_name(source, "source"), schemas=schema or None)])
+    imports = _guarded(
+        lambda: [introspect(url, safe_name(source, "source"), schemas=schema or None, tables=table or None)]
+    )
     apply_imports(project, imports, dry_run, prune)
 
 

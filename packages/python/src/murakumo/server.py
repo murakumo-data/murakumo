@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from murakumo import __version__, edit
+from murakumo import sources as sources_module
 from murakumo.diagnostics import Diagnostic, Level
 from murakumo.expressions import check_expression, preview_expression
 from murakumo.generate import GENERATED_DIR, INDEX_FILE, compare, generate, write
@@ -121,6 +122,17 @@ class CalculatedColumn(BaseModel):
     type: str | None = None
 
 
+class NewSource(BaseModel):
+    name: str
+    kind: str  # database, snowflake, csv, excel, file or openapi
+    location: str = ""  # an environment variable's name for a database; a path or URL otherwise
+
+
+class SourceImportBody(BaseModel):
+    tables: list[str] | None = None  # schema.table or table; None imports the whole source
+    prune: bool = False
+
+
 class NewDomain(BaseModel):
     name: str
     owner: str | None = None
@@ -185,6 +197,7 @@ def state(root: Path) -> dict[str, Any]:
         "editable": editable,
         "model": project.model.model_dump(mode="json", by_alias=True) if project else None,
         "layout": {str(k): {"x": x, "y": y} for k, (x, y) in layout.items()},
+        "sources": sources_module.list_sources(project) if project else [],
         "domains": [
             {**d.model_dump(), "entities": len(edit.domain_usage(project, d.name))}
             for d in (project.manifest.project.domains if project else [])
@@ -531,6 +544,56 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             edit.add_calculated_column(project, entity_name(project, entity_id), body.name, body.expression, body.type)
 
         return change(action, rev)
+
+    @app.post("/api/sources")
+    def add_source(body: NewSource, rev: Revision = None) -> dict[str, Any]:
+        """Declare a source in murakumo.yaml. A database is named by an environment variable."""
+
+        def action(project: Project) -> None:
+            try:
+                sources_module.add_source(project, body.name, body.kind, body.location)
+            except sources_module.SourceError as exc:
+                raise edit.EditError(str(exc)) from None
+
+        return change(action, rev)
+
+    @app.get("/api/sources/{name}/browse")
+    def browse_source(name: str) -> dict[str, Any]:
+        """A database source's schemas, tables and columns. Reads the catalogue only, never rows."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        try:
+            return {"schemas": sources_module.browse_source(project, name)}
+        except sources_module.SourceError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/sources/{name}/import/preview")
+    def preview_import(name: str, body: SourceImportBody) -> dict[str, Any]:
+        """What importing would change, without writing anything."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        try:
+            return {"reports": sources_module.import_source(project, name, body.tables, body.prune)}
+        except sources_module.SourceError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/sources/{name}/import")
+    def run_import(name: str, body: SourceImportBody, rev: Revision = None) -> dict[str, Any]:
+        reports: list[dict[str, Any]] = []
+
+        def action(project: Project) -> None:
+            try:
+                reports.extend(sources_module.import_source(project, name, body.tables, body.prune))
+            except sources_module.SourceError as exc:
+                raise edit.EditError(str(exc)) from None
+            problems = [d for r in reports for d in r["diagnostics"] if d["level"] == "error"]
+            if problems:
+                raise edit.EditError("; ".join(d["message"] for d in problems))
+
+        new_state = change(action, rev, prune=body.prune)
+        return {**new_state, "reports": reports}
 
     @app.post("/api/domains")
     def add_domain(body: NewDomain, rev: Revision = None) -> dict[str, Any]:
