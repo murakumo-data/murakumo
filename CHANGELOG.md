@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.1.1 (2026-10-29)
 
 Fixes and polish from the first end-to-end test.
 
