@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 
 from murakumo import __version__, edit
 from murakumo.diagnostics import Diagnostic, Level
+from murakumo.expressions import check_expression, preview_expression
 from murakumo.generate import GENERATED_DIR, INDEX_FILE, compare, generate, write
 from murakumo.ir.model import Cardinality, Classification, EntityKind, Layer
 from murakumo.ir.types import TypeName
@@ -105,6 +106,18 @@ class MigrationBody(BaseModel):
 
 class ColumnOrder(BaseModel):
     columns: list[UUID]
+
+
+class ExpressionBody(BaseModel):
+    expression: str
+    sources: list[str] = Field(default_factory=list)
+    entity: str | None = None  # the entity whose column it calculates
+
+
+class CalculatedColumn(BaseModel):
+    name: str
+    expression: str
+    type: str | None = None
 
 
 class NewDomain(BaseModel):
@@ -482,6 +495,29 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.delete("/api/relationships/{relationship_id}")
     def remove_relationship(relationship_id: UUID, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_relationship(p, relationship_id), rev)
+
+    @app.post("/api/expressions/check")
+    def post_expression_check(body: ExpressionBody) -> dict[str, Any]:
+        """What an expression reads, whether it is valid, the type it returns and its warehouse SQL."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return check_expression(project, body.expression, body.sources, body.entity).as_dict()
+
+    @app.post("/api/expressions/preview")
+    def post_expression_preview(body: ExpressionBody) -> dict[str, Any]:
+        """The expression run on a few made-up rows, in DuckDB in memory."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return preview_expression(project, body.expression, body.sources, body.entity)
+
+    @app.post("/api/entities/{entity_id}/calculated")
+    def add_calculated(entity_id: UUID, body: CalculatedColumn, rev: Revision = None) -> dict[str, Any]:
+        def action(project: Project) -> None:
+            edit.add_calculated_column(project, entity_name(project, entity_id), body.name, body.expression, body.type)
+
+        return change(action, rev)
 
     @app.post("/api/domains")
     def add_domain(body: NewDomain, rev: Revision = None) -> dict[str, Any]:

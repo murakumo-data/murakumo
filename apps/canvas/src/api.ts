@@ -97,6 +97,25 @@ export type Generated = {
   notes: string[]
 }
 
+export type ExpressionCheck = {
+  ok: boolean
+  error: string | null
+  line: number | null
+  column: number | null
+  references: string[]
+  problems: string[]
+  type: string | null
+  warehouse_sql: string | null
+}
+
+export type ExpressionPreview = {
+  check: ExpressionCheck
+  columns: string[]
+  rows: (string | number | boolean | null)[][]
+  note: string | null
+  error?: string
+}
+
 export type EntityCode = {
   blocked: string | null
   files: { path: string; status: FileStatus; content: string }[]
@@ -177,6 +196,13 @@ export const api = {
 
   setMapping: (entityId: string, columnId: string, body: { sources: string[]; expression: string | null }) =>
     request<State>('PUT', `/entities/${entityId}/mappings/${columnId}`, body),
+
+  checkExpression: (expression: string, sources: string[] = [], entity: string | null = null) =>
+    request<ExpressionCheck>('POST', '/expressions/check', { expression, sources, entity }, false),
+  previewExpression: (expression: string, sources: string[] = [], entity: string | null = null) =>
+    request<ExpressionPreview>('POST', '/expressions/preview', { expression, sources, entity }, false),
+  addCalculatedColumn: (entityId: string, body: { name: string; expression: string; type?: string | null }) =>
+    request<State>('POST', `/entities/${entityId}/calculated`, body),
 
   generated: () => request<Generated>('GET', '/generated', undefined, false),
   generatedFile: (path: string) =>

@@ -1293,7 +1293,7 @@ textarea.input {
 }
 
 .domains__item--active {
-  background: var(--surface-muted, rgba(127, 127, 127, 0.1));
+  background: var(--surface-2);
 }
 
 .domains__swatch {
@@ -1308,4 +1308,250 @@ textarea.input {
   gap: 6px;
   padding-top: 8px;
   border-top: 1px dashed var(--border);
+}
+
+/* Expressions --------------------------------------------------------------------------------- */
+
+.section__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.expression-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.expression-button code {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expression-button--empty code {
+  color: var(--text-muted);
+}
+
+.expression-button__fx {
+  color: var(--accent);
+  font-style: italic;
+  font-weight: 600;
+}
+
+.expression {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.expression__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+}
+
+.expression__functions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip--small {
+  padding: 1px 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.expression__editor {
+  position: relative;
+}
+
+.expression__highlight,
+.expression__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.expression__highlight {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-color: transparent;
+  color: var(--text);
+  pointer-events: none;
+}
+
+.expression__input {
+  position: relative;
+  display: block;
+  resize: vertical;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+}
+
+.expression__input::placeholder {
+  color: var(--text-muted);
+}
+
+.expression__input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.tok--keyword {
+  color: #a347c2;
+}
+
+.tok--string {
+  color: #2f8f46;
+}
+
+.tok--number {
+  color: #c2410c;
+}
+
+.tok--function {
+  color: var(--accent);
+}
+
+.tok--column {
+  color: #0e7490;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tok--keyword {
+    color: #d49cf0;
+  }
+
+  .tok--string {
+    color: #7fd38f;
+  }
+
+  .tok--number {
+    color: #f59e63;
+  }
+
+  .tok--function {
+    color: #8fb2ff;
+  }
+
+  .tok--column {
+    color: #67d4e8;
+  }
+}
+
+.expression__suggestions {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 10;
+  min-width: 240px;
+  max-height: 220px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.expression__suggestion {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.expression__suggestion--active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.expression__suggestion--active .muted {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.expression__status {
+  font-size: 12px;
+}
+
+.expression__ok {
+  color: var(--ok);
+}
+
+.expression__problems {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--error);
+}
+
+.expression__preview {
+  overflow-x: auto;
+}
+
+.expression__preview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.expression__preview th,
+.expression__preview td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.expression__preview th {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.expression__result {
+  font-weight: 600;
+}
+
+.expression__actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.expression__spacer {
+  flex: 1;
 }

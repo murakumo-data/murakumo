@@ -266,3 +266,22 @@ def test_domains(client):
     assert client.delete("/api/domains/transport").status_code == 400
     state = client.delete("/api/domains/finance").json()
     assert [d["name"] for d in state["domains"]] == ["transport"]
+
+
+def test_expressions(client):
+    check = client.post("/api/expressions/check", json={"expression": "upper(taxi_zone_lookup.Zone)"}).json()
+    assert check["ok"] and check["type"] == "string"
+    preview = client.post("/api/expressions/preview", json={"expression": "upper(taxi_zone_lookup.Zone)"}).json()
+    assert preview["columns"] == ["taxi_zone_lookup.Zone", "result"] and preview["rows"]
+    state = client.get("/api/state").json()
+    zone = entity_id(state, "dim_taxi_zone")
+    state = client.post(
+        f"/api/entities/{zone}/calculated", json={"name": "label", "expression": "upper(taxi_zone_lookup.Zone)"}
+    ).json()
+    entity = next(e for e in state["model"]["entities"] if e["name"] == "dim_taxi_zone")
+    assert entity["attributes"][-1]["name"] == "label"
+    assert {
+        "target": "label",
+        "sources": ["taxi_zone_lookup.Zone"],
+        "expression": "upper(taxi_zone_lookup.Zone)",
+    } in entity["mappings"]

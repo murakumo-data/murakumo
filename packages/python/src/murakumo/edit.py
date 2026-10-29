@@ -295,6 +295,32 @@ def set_mapping(
     return mapping
 
 
+def add_calculated_column(
+    project: Project, entity_name: str, name: str, expression: str, type: str | None = None
+) -> Attribute:
+    """Add a column worked out by a SQL expression: the column, and its mapping, in one step.
+
+    The mapping's sources are the columns the expression reads; the type defaults to the one the
+    expression returns, when that can be told.
+    """
+    from murakumo.expressions import check_expression
+
+    entity = _entity(project, entity_name)
+    if entity.layer is Layer.RAW:
+        raise EditError(f"{entity.name} is a raw table: its columns come from the source, not from expressions")
+    check = check_expression(project, expression, target=entity.name)
+    if check.error:
+        raise EditError(f"cannot read the expression: {check.error}")
+    if check.problems:
+        raise EditError("; ".join(check.problems))
+    column_type = type or check.type
+    if not column_type:
+        raise EditError("cannot tell what type the expression returns; give the column a type")
+    column = add_column(project, entity.name, name, column_type)
+    set_mapping(project, entity.name, column.name, check.references, expression)
+    return column
+
+
 def _check_name(name: str) -> None:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) or len(name) > 255:
         raise EditError(f"{name!r} is not a valid name: use letters, digits and underscores, not starting with a digit")

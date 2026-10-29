@@ -262,3 +262,21 @@ def test_cli_domains(project):
     result = run(project, "rename", "domain", "mobility", "transport")
     assert result.exit_code == 0 and "4 entities" in result.output
     assert "domains: [transport, finance]" in (project.root / "murakumo.yaml").read_text()
+
+
+def test_calculated_column(project):
+    column = edit.add_calculated_column(
+        project,
+        "fct_trip",
+        "cost_per_mile",
+        "yellow_tripdata.total_amount / nullif(yellow_tripdata.trip_distance, 0)",
+    )
+    assert column.type.startswith("decimal") or column.type in ("double", "money")
+    mapping = next(m for m in project.model.entity("fct_trip").mappings if m.target == "cost_per_mile")
+    assert mapping.sources == ["yellow_tripdata.total_amount", "yellow_tripdata.trip_distance"]
+    with pytest.raises(edit.EditError, match="not its own columns"):
+        edit.add_calculated_column(project, "fct_trip", "z", "fct_trip.total_amount * 2")
+    with pytest.raises(edit.EditError, match="raw table"):
+        edit.add_calculated_column(project, "yellow_tripdata", "x", "1 + 1")
+    with pytest.raises(edit.EditError, match="has no column"):
+        edit.add_calculated_column(project, "fct_trip", "y", "fct_trip.nope + 1")

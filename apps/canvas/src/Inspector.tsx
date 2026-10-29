@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 
 import { api, type Diagnostic, type Entity, type Relationship, type State } from './api'
 import { EntityCodeView } from './Code'
+import { ExpressionEditor } from './ExpressionEditor'
 import { Row, SelectField, TextField } from './Field'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
@@ -60,6 +61,7 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
   const [column, setColumn] = useState({ name: '', type: 'string' })
   const [search, setSearch] = useState('')
   const [picking, setPicking] = useState(false)
+  const [calculating, setCalculating] = useState(false)
   const matches = (name: string) => name.toLowerCase().includes(search.trim().toLowerCase())
   const shown = entity.attributes.filter((a) => matches(a.name))
   const [dragging, setDragging] = useState<string | null>(null)
@@ -154,12 +156,34 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
             </span>
           </h3>
           {editable && (
-            <button className="button button--small" onClick={() => setPicking(!picking)} aria-expanded={picking}>
-              + From another table
-            </button>
+            <div className="section__actions">
+              {entity.layer !== 'raw' && (
+                <button
+                  className="button button--small"
+                  onClick={() => {
+                    setCalculating(!calculating)
+                    setPicking(false)
+                  }}
+                  aria-expanded={calculating}
+                >
+                  + Calculated
+                </button>
+              )}
+              <button
+                className="button button--small"
+                onClick={() => {
+                  setPicking(!picking)
+                  setCalculating(false)
+                }}
+                aria-expanded={picking}
+              >
+                + From another table
+              </button>
+            </div>
           )}
         </div>
         {picking && <CopyColumns state={state} entity={entity} run={run} onDone={() => setPicking(false)} />}
+        {calculating && <CalculatedColumn state={state} entity={entity} run={run} onDone={() => setCalculating(false)} />}
         {entity.attributes.length > 6 && (
           <input
             className="input input--search"
@@ -316,9 +340,51 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
 }
 
 /** How each column is derived: `entity.column` sources and an optional SQL expression (DuckDB SQL). */
+/** A new column worked out by an expression: its name, its type (suggested from the expression) and the SQL. */
+function CalculatedColumn({ state, entity, run, onDone }: { state: State; entity: Entity; run: Run; onDone: () => void }) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState('')
+  return (
+    <ExpressionEditor
+      entities={(state.model?.entities ?? []).filter((e) => e.id !== entity.id)}
+      target={entity.name}
+      initial=""
+      saveLabel="Add column"
+      onCancel={onDone}
+      onSave={async (expression, check) => {
+        if (!name.trim() || !expression) return false
+        const ok = await run(() =>
+          api.addCalculatedColumn(entity.id, { name: name.trim(), expression, type: type.trim() || check?.type || null }),
+        )
+        if (ok) onDone()
+        return ok
+      }}
+    >
+      <div className="expression__fields">
+        <input
+          className="input"
+          placeholder="column_name"
+          aria-label="Calculated column name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <input
+          className="input"
+          list="logical-types"
+          placeholder="type (from the expression)"
+          aria-label="Calculated column type"
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+        />
+      </div>
+    </ExpressionEditor>
+  )
+}
+
 function Mappings({ state, entity, run, filter }: { state: State; entity: Entity; run: Run; filter: (name: string) => boolean }) {
   const disabled = !state.editable
   const [picking, setPicking] = useState<string | null>(null) // the column whose sources are being picked
+  const [editing, setEditing] = useState<string | null>(null) // the column whose expression is open
   const others = (state.model?.entities ?? []).filter((e) => e.id !== entity.id)
   const upstream = others.flatMap((e) => e.attributes.map((a) => `${e.name}.${a.name}`))
   const mappingFor = (name: string) => entity.mappings.find((m) => m.target.toLowerCase() === name.toLowerCase())
@@ -365,14 +431,32 @@ function Mappings({ state, entity, run, filter }: { state: State; entity: Entity
                     </button>
                   )}
                 </div>
-                <TextField
-                  label={`${a.name} expression`}
-                  value={expression}
-                  placeholder="expression (optional)"
-                  disabled={disabled}
-                  onSave={(text) => save(a.id, sources, text)}
-                />
+                <button
+                  className={expression ? 'expression-button' : 'expression-button expression-button--empty'}
+                  disabled={disabled && !expression}
+                  aria-expanded={editing === a.id}
+                  aria-label={`${a.name} expression`}
+                  title={expression ?? 'Add an expression to combine or calculate'}
+                  onClick={() => setEditing(editing === a.id ? null : a.id)}
+                >
+                  <span className="expression-button__fx">ƒx</span>
+                  <code>{expression ?? 'expression'}</code>
+                </button>
               </div>
+              {editing === a.id && !disabled && (
+                <ExpressionEditor
+                  entities={others}
+                  target={entity.name}
+                  initial={expression ?? ''}
+                  sources={sources}
+                  onCancel={() => setEditing(null)}
+                  onSave={async (text, check) => {
+                    // The columns an expression reads become the mapping's sources.
+                    const next = text && check?.references.length ? check.references : sources
+                    if (await save(a.id, next, text)) setEditing(null)
+                  }}
+                />
+              )}
               {picking === a.id && (
                 <ColumnPicker
                   entities={others}
