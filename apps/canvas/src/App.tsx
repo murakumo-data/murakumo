@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 
 import { api, ApiError, type Entity, type Generated, type Layer, type LineageResult, type Position, type State } from './api'
 import { CIPanel } from './CI'
+import { GitPanel } from './Git'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
 import { EntityNode, type EntityNodeType } from './EntityNode'
@@ -77,7 +78,7 @@ function Canvas() {
   const [message, setMessage] = useState<{ text: string; tone: 'error' | 'info' } | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [hidden, setHidden] = useState<Set<Layer>>(new Set())
-  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | null>(null)
+  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git' | null>(null)
   const [scheduleShown, setScheduleShown] = useState<{ name: string; entities: string[] } | null>(null)
   const shownSchedule = side === 'schedules' ? scheduleShown : null // only while its panel is open
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
@@ -630,6 +631,9 @@ function Canvas() {
           )}
         </div>
         <div className="toolbar__actions">
+          <button className="chip" onClick={() => setSide(side === 'git' ? null : 'git')} aria-expanded={side === 'git'}>
+            Team
+          </button>
           <button className="chip" onClick={() => setSide(side === 'ci' ? null : 'ci')} aria-expanded={side === 'ci'}>
             CI
           </button>
@@ -769,6 +773,18 @@ function Canvas() {
               </button>
             </div>
             <SourcesPanel state={state} run={run} onMessage={(text) => setMessage({ text, tone: 'info' })} />
+          </aside>
+        )}
+
+        {side === 'git' && (
+          <aside className="issues-panel" aria-label="Team">
+            <div className="issues-panel__head">
+              <strong>Team</strong>
+              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
+                ×
+              </button>
+            </div>
+            <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} />
           </aside>
         )}
 

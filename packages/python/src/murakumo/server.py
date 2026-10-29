@@ -151,6 +151,10 @@ class CIBody(BaseModel):
     force: bool = False
 
 
+class CommitBody(BaseModel):
+    message: str
+
+
 class NewDomain(BaseModel):
     name: str
     owner: str | None = None
@@ -564,6 +568,48 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.get("/api/ci/run")
     def get_ci_run() -> dict[str, Any]:
         return checks.run.as_dict()
+
+    from murakumo import gitsync
+
+    def git_call(action: Callable[[], Any]) -> Any:
+        try:
+            return action()
+        except gitsync.GitError as exc:
+            raise HTTPException(409, {"message": str(exc)}) from None
+
+    @app.get("/api/git")
+    def get_git(refresh: bool = False) -> dict[str, Any]:
+        """Branch, parent branch, how far apart, and the model changes on each side."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return git_call(lambda: gitsync.status(project, refresh=refresh))
+
+    @app.post("/api/git/sync")
+    def post_sync(resume: bool = False) -> dict[str, Any]:
+        """Bring in the parent branch, as `murakumo sync` does. Returns the result and the new state."""
+        with lock:
+            result = load_project(root)
+            if result.project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            done = git_call(lambda: gitsync.sync(result.project, resume=resume))
+            return {"sync": done.as_dict(), "state": state(root)}
+
+    @app.post("/api/git/abort")
+    def post_abort() -> dict[str, Any]:
+        with lock:
+            result = load_project(root)
+            git_call(lambda: gitsync.abort(result.project))
+            return {"state": state(root)}
+
+    @app.post("/api/git/commit")
+    def post_commit(body: CommitBody) -> dict[str, Any]:
+        """Commit everything in the project's folder."""
+        with lock:
+            result = load_project(root)
+            if result.project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            return {"commit": git_call(lambda: gitsync.commit(result.project, body.message))}
 
     @app.get("/api/pipeline-docs", response_class=HTMLResponse)
     def get_docs() -> HTMLResponse:

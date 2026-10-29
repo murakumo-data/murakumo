@@ -213,6 +213,11 @@ class Orchestration(Section):
         return next((s for s in self.schedules if s.name.lower() == name.lower()), None)
 
 
+class Collaboration(Section):
+    base_branch: str = "main"  # the branch people branch from and bring in with `murakumo sync`
+    remote: str = "origin"
+
+
 class Generation(Section):
     transform: str = Field(default="dbt", pattern="^(dbt|sqlmesh|spark)$")
     python_engine: str = Field(default="none", pattern="^(pyspark|polars|none)$")
@@ -261,6 +266,7 @@ class Manifest(Section):
     conventions: Conventions = Field(default_factory=Conventions)
     generation: Generation = Field(default_factory=Generation)
     orchestration: Orchestration = Field(default_factory=Orchestration)
+    collaboration: Collaboration = Field(default_factory=Collaboration)
     quality: Quality = Field(default_factory=Quality)
     contracts: Contracts = Field(default_factory=Contracts)
     governance: Governance = Field(default_factory=Governance)

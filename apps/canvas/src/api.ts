@@ -199,6 +199,38 @@ export type CIInfo = {
   run: CIRun
 }
 
+export type ModelChange = {
+  kind: string
+  class: 'additive' | 'compatible' | 'breaking'
+  entity: string
+  column: string | null
+  summary: string
+  detail: Record<string, unknown>
+}
+
+export type GitStatus = {
+  branch: string
+  base: string
+  ref: string
+  on_base: boolean
+  ahead: number
+  behind: number
+  uncommitted: string[]
+  local_changes: ModelChange[]
+  incoming_changes: ModelChange[]
+  merging: boolean
+  conflicts: string[]
+}
+
+export type SyncResult = {
+  state: 'up_to_date' | 'synced' | 'conflicts'
+  incoming: ModelChange[]
+  conflicts: string[]
+  migrations: string[]
+  generated: number
+  commit: string | null
+}
+
 export type EntityCode = {
   blocked: string | null
   files: { path: string; status: FileStatus; content: string }[]
@@ -317,6 +349,12 @@ export const api = {
     request<CIInfo>('POST', '/ci', { provider, deploy, force }, false),
   startCIRun: () => request<CIRun>('POST', '/ci/run', undefined, false),
   ciRun: () => request<CIRun>('GET', '/ci/run', undefined, false),
+
+  git: (refresh = false) => request<GitStatus>('GET', `/git?refresh=${refresh}`, undefined, false),
+  sync: (resume = false) =>
+    request<{ sync: SyncResult; state: State }>('POST', `/git/sync?resume=${resume}`, undefined, false),
+  abortSync: () => request<{ state: State }>('POST', '/git/abort', undefined, false),
+  commit: (message: string) => request<{ commit: string }>('POST', '/git/commit', { message }, false),
 
   generated: () => request<Generated>('GET', '/generated', undefined, false),
   generatedFile: (path: string) =>

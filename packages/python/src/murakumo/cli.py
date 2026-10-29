@@ -354,7 +354,7 @@ app.add_typer(cli_model.rename_app, name="rename")
 app.add_typer(cli_model.remove_app, name="remove")
 app.add_typer(cli_model.move_app, name="move")
 
-from murakumo import cli_generate  # noqa: E402
+from murakumo import cli_generate, cli_team  # noqa: E402
 
 app.command("generate")(cli_generate.generate_command)
 app.command("migrate")(cli_generate.migrate_command)
@@ -363,6 +363,8 @@ app.command("build")(cli_generate.build_command)
 app.command("export")(cli_generate.export_command)
 app.command("docs")(cli_generate.docs_command)
 app.command("ci")(cli_generate.ci_command)
+app.command("sync")(cli_team.sync_command)
+app.command("diff")(cli_team.diff_command)
 app.command("lineage")(cli_model.lineage_command)
 app.command("schedules")(cli_model.schedules_command)
 
