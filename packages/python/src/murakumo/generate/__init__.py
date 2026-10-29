@@ -15,7 +15,7 @@ from uuid import UUID
 
 from murakumo import __version__
 from murakumo.diagnostics import Diagnostic
-from murakumo.generate import dbt, ddl
+from murakumo.generate import dbt, ddl, orchestration
 from murakumo.generate.plan import Plan, build_plan
 from murakumo.generate.targets import Target, target_for
 from murakumo.ir.model import Entity, Layer
@@ -45,6 +45,8 @@ def generate(project: Project, warehouse: Warehouse | str | None = None) -> Outp
     for path, content in dbt.render(plan).items():
         output.files[f"dbt/{path}"] = content
     output.files["dbt/selectors.yml"] = dbt.selectors(project, plan)
+    for path, content in orchestration.render(project, plan).items():
+        output.files[path] = content
     statements = ddl.DDL(plan)
     for path, content in ddl.render(plan, statements).items():
         output.files[f"ddl/{target.warehouse.value}/{path}"] = content

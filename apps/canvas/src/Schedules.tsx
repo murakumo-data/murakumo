@@ -54,6 +54,11 @@ export function SchedulesPanel({ state, run, highlighted, onHighlight }: Props) 
         <code>source:</code> or a table name; <code>+name</code> adds what it is built from, <code>name+</code> what is built
         from it. A schedule with nothing selected refreshes the rest.
       </p>
+      <p className="small">
+        Pipelines for <strong>{info.orchestrator}</strong> are written to <code>{info.pipelines}</code> when you
+        write the code, with a README on deploying them. Change the orchestrator with{' '}
+        <code>murakumo config --orchestrator</code>.
+      </p>
       <label className="row">
         <span className="row__label">Time zone</span>
         <TextField

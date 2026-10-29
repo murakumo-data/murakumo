@@ -404,30 +404,29 @@ def _connect_source(area: str, url: str) -> Check:
 
 
 def _local_orchestrator(orchestrator: Orchestrator, root: Path, adapter: str) -> list[str]:
-    """Step by step, to run the orchestrator on this machine and point it at the generated dbt project."""
-    dbt_dir = root / "generated" / "dbt"
+    """Step by step, to run the orchestrator on this machine with the pipelines Murakumo generates."""
+    folder = root / "generated" / "orchestration" / orchestrator.value
     venv = f"python3 -m venv ~/{orchestrator.value}-env && source ~/{orchestrator.value}-env/bin/activate"
     if orchestrator is Orchestrator.AIRFLOW:
         return [
             "Install Docker Desktop and open it once, so it is running (the Astro CLI runs Airflow in Docker).",
             "brew install astro",
             "mkdir -p ~/airflow-local && cd ~/airflow-local && astro dev init",
-            f"echo astronomer-cosmos >> requirements.txt && echo {adapter} >> requirements.txt",
-            "astro dev start   # Airflow opens at http://localhost:8080",
-            f"Copy {dbt_dir} into ~/airflow-local/dags/dbt and run it with a Cosmos DbtDag (see the Cosmos docs).",
+            f"cat {folder}/requirements.txt >> requirements.txt",
+            f"cp -R {root / 'generated'} dags/murakumo   # the DAGs find the dbt project beside them",
+            "astro dev start   # Airflow opens at http://localhost:8080; turn the DAGs on there",
         ]
     if orchestrator is Orchestrator.DAGSTER:
         return [
             f"{venv}   # Dagster in its own environment",
-            f"pip install dagster dagster-webserver dagster-dbt {adapter}",
-            f"cd ~ && dagster-dbt project scaffold --project-name orchestration --dbt-project-dir {dbt_dir}",
-            "cd ~/orchestration && dagster dev   # Dagster opens at http://localhost:3000",
+            f"pip install -r {folder}/requirements.txt",
+            f"dagster dev -f {folder}/definitions.py   # Dagster opens at http://localhost:3000",
         ]
     return [
         f"{venv}   # Prefect in its own environment",
-        f"pip install prefect prefect-dbt {adapter}",
+        f"pip install -r {folder}/requirements.txt",
         "prefect server start   # Prefect opens at http://localhost:4200; leave it running",
-        f"In a new terminal, write a flow that runs `dbt build` in {dbt_dir} with prefect-dbt (see its docs).",
+        f"In a new terminal: cd {folder} && prefect deploy --all   # one deployment per schedule",
     ]
 
 
@@ -460,12 +459,13 @@ _ORCHESTRATOR_DOCS: dict[Orchestrator, list[str]] = {
 
 _CLOUD_ORCHESTRATORS: dict[Orchestrator, list[str]] = {
     Orchestrator.DATABRICKS_WORKFLOWS: [
-        "In your Databricks workspace: Workflows → Create job → add a task of type dbt.",
-        "Point the task at the generated/dbt folder of this project's git repository.",
+        "Install the Databricks CLI and sign in: brew install databricks/tap/databricks && databricks auth login",
+        "cd generated/orchestration/databricks_workflows && databricks bundle deploy -t prod --var warehouse_id=<id>",
+        "Unpause the jobs in the Databricks UI (Workflows) when you are ready.",
     ],
     Orchestrator.SNOWFLAKE_TASKS: [
-        "In Snowsight: Projects → dbt Projects → create one from this project's git repository (generated/dbt).",
-        "Schedule it with a task: create task ... schedule = 'USING CRON 0 6 * * * UTC' as execute dbt project ...",
+        "Deploy generated/dbt as a dbt project in Snowflake (Snowsight: Projects → dbt Projects).",
+        "Run generated/orchestration/snowflake_tasks/tasks.sql in a worksheet: one task per schedule.",
     ],
     Orchestrator.AWS_GLUE: [
         "In the AWS console: Glue → ETL jobs → a Python shell job that installs dbt and runs `dbt build`.",
@@ -477,7 +477,8 @@ _CLOUD_ORCHESTRATORS: dict[Orchestrator, list[str]] = {
     ],
     Orchestrator.GCP_COMPOSER: [
         "In Google Cloud: Composer → Create environment (managed Airflow).",
-        "Add astronomer-cosmos to its PyPI packages, and copy generated/dbt into its dags/ bucket.",
+        "Add generated/orchestration/gcp_composer/requirements.txt to its PyPI packages.",
+        "Copy the whole generated/ folder into its dags/ bucket: the DAGs find the dbt project beside them.",
     ],
     Orchestrator.GCP_WORKFLOWS: [
         "Run `dbt build` as a Cloud Run job built from generated/dbt.",
@@ -494,9 +495,10 @@ def orchestrator_checks(project: Project) -> list[Check]:
     orchestrator = project.manifest.generation.orchestrator
     area = f"Orchestrator: {orchestrator.value}"
     note = (
-        "Not needed to build: `murakumo build` runs the project by hand. An orchestrator runs it on a "
-        "schedule. Murakumo does not generate its pipelines yet; until then, schedule `dbt build` in "
-        "generated/dbt with the steps below."
+        "Not needed to build: `murakumo build` runs the project by hand. An orchestrator runs it on the "
+        f"schedules in murakumo.yaml (`murakumo schedules`). `murakumo generate` writes its pipelines to "
+        f"generated/orchestration/{orchestrator.value}/, with a README on deploying them; the steps below "
+        "get it running."
     )
     docs = _ORCHESTRATOR_DOCS.get(orchestrator, [])
     if orchestrator in _CLOUD_ORCHESTRATORS:

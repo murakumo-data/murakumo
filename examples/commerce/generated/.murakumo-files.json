@@ -36,6 +36,10 @@
     "dbt/selectors.yml": "227c56397532361d71d6d0fae25cbde1a11fdebae8d24b5a8e710b93570f483a",
     "dbt/snapshots/_snapshots.yml": "83530ee4b688b7e3c8a1defa83a8061eb56580d3b221cbaa27e5c96bf61fa0d2",
     "ddl/duckdb/marts.sql": "57c85f12f3fe887d50497559fda3be0307c4441cb90671cb9036014f7e3cbf78",
-    "ddl/duckdb/raw.sql": "e96d6fb1ceea593f549b6b6ad4bf1439eff1c242051cf30dafac866eed755c62"
+    "ddl/duckdb/raw.sql": "e96d6fb1ceea593f549b6b6ad4bf1439eff1c242051cf30dafac866eed755c62",
+    "orchestration/airflow/README.md": "c708cb2a315c251bb97b51b4c4ba5fa63ec194541dcf842fb8c8362e9a4a1358",
+    "orchestration/airflow/dags/commerce__hourly_sales.py": "70b1a791758b6d63b3d52cbd69509706f056c2066bf36642fc82abd42507cf86",
+    "orchestration/airflow/dags/commerce__nightly.py": "0662b85d19ef665a1043712775453a05aac24c15d00762a0915a034d2ae53d7b",
+    "orchestration/airflow/requirements.txt": "cb14c1eb178e6ed33374b710eb5b1a5586934f3dc143f076ee5a67e2dae58f05"
   }
 }

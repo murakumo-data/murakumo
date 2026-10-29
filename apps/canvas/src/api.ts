@@ -99,7 +99,13 @@ export type ScheduleInfo = {
   rest: boolean // it refreshes whatever no other schedule selects
 }
 
-export type Orchestration = { timezone: string; implicit: boolean; schedules: ScheduleInfo[] }
+export type Orchestration = {
+  timezone: string
+  implicit: boolean
+  schedules: ScheduleInfo[]
+  orchestrator: string
+  pipelines: string // where `murakumo generate` writes the orchestrator's pipelines
+}
 
 export type Domain = { name: string; owner: string | null; description: string | null; entities: number }
 

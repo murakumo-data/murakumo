@@ -191,22 +191,34 @@ def summary(project: Project) -> dict[str, Any]:
                 "rest": not schedule.select,
             }
         )
-    return {"timezone": timezone, "implicit": implicit, "schedules": rows}
+    orchestrator = project.manifest.generation.orchestrator.value
+    return {
+        "timezone": timezone,
+        "implicit": implicit,
+        "schedules": rows,
+        "orchestrator": orchestrator,
+        "pipelines": f"generated/orchestration/{orchestrator}/",
+    }
 
 
-def dbt_selectors(project: Project, plan) -> dict[str, Any]:
-    """``selectors.yml``: one selector per schedule, naming the dbt models of its entities."""
+def dbt_models(plan, entities: list[Entity]) -> list[str]:
+    """The dbt models and snapshots generated for these entities."""
     models: dict[str, list[str]] = defaultdict(list)
     for model in plan.models:
         models[model.entity.name.lower()].append(model.name)
     for snapshot in plan.snapshots:
         if snapshot.entity is not None:
             models[snapshot.entity.name.lower()].append(snapshot.name)
+    return sorted({name for e in entities for name in models.get(e.name.lower(), [])})
+
+
+def dbt_selectors(project: Project, plan) -> dict[str, Any]:
+    """``selectors.yml``: one selector per schedule, naming the dbt models of its entities."""
     timezone = project.manifest.orchestration.timezone
     selectors = []
     resolved_all = resolve(project)
     for entry in resolved_all:
-        names = sorted({name for e in entry.entities for name in models.get(e.name.lower(), [])})
+        names = dbt_models(plan, entry.entities)
         selector: dict[str, Any] = {
             "name": entry.schedule.name,
             "description": entry.schedule.description or describe(entry.schedule.cron, timezone),

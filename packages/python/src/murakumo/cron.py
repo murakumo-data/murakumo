@@ -209,10 +209,33 @@ def describe(text: str, timezone: str = "UTC") -> str:
     return f"{days} {when} {timezone}"
 
 
+def quartz(text: str) -> str:
+    """The same time as a Quartz cron expression (Databricks, some Java schedulers).
+
+    Quartz adds seconds, numbers weekdays 1-7 from Sunday, and needs ``?`` in one of the two day
+    fields. A time that restricts both days of the month and of the week cannot be written.
+    """
+    parse(text)
+    minute, hour, day, month, weekday = MACROS.get(text.strip().lower(), text.strip()).split()
+    if day != "*" and weekday != "*":
+        raise CronError(f"{text!r} sets both the day of the month and of the week, which Quartz cannot express")
+    if weekday == "*":
+        return f"0 {minute} {hour} {day} {month} ?"
+
+    def convert(part: str) -> str:
+        base, sep, step = part.partition("/")
+        if base == "*":
+            return part
+        bounds = [str(_value(b, 0, 6, _DAYS, "day of the week") + 1) for b in base.split("-")]
+        return "-".join(bounds) + (sep + step if sep else "")
+
+    return f"0 {minute} {hour} ? {month} {','.join(convert(p) for p in weekday.split(','))}"
+
+
 def _suffix(day: int) -> str:
     if 10 <= day % 100 <= 20:
         return "th"
     return {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
 
 
-__all__ = ["Cron", "CronError", "check", "describe", "next_runs", "parse", "zone"]
+__all__ = ["Cron", "CronError", "check", "describe", "next_runs", "parse", "quartz", "zone"]
