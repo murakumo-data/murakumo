@@ -31,10 +31,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from murakumo import __version__, edit
+from murakumo import sources as sources_module
 from murakumo.diagnostics import Diagnostic, Level
+from murakumo.expressions import check_expression, preview_expression
 from murakumo.generate import GENERATED_DIR, INDEX_FILE, compare, generate, write
 from murakumo.ir.model import Cardinality, Classification, EntityKind, Layer
 from murakumo.ir.types import TypeName
+from murakumo.lineage import resolve_ref, trace
 from murakumo.manifest import MANIFEST_FILE, Warehouse
 from murakumo.migrate import MIGRATIONS_DIR, Pending, plan_migration, write_migration
 from murakumo.project import MODEL_DIR, Project, load_layout, load_project, save_layout, save_model
@@ -103,6 +106,39 @@ class MigrationBody(BaseModel):
     name: str | None = None
 
 
+class ColumnOrder(BaseModel):
+    columns: list[UUID]
+
+
+class ExpressionBody(BaseModel):
+    expression: str
+    sources: list[str] = Field(default_factory=list)
+    entity: str | None = None  # the entity whose column it calculates
+
+
+class CalculatedColumn(BaseModel):
+    name: str
+    expression: str
+    type: str | None = None
+
+
+class NewSource(BaseModel):
+    name: str
+    kind: str  # database, snowflake, csv, excel, file or openapi
+    location: str = ""  # an environment variable's name for a database; a path or URL otherwise
+
+
+class SourceImportBody(BaseModel):
+    tables: list[str] | None = None  # schema.table or table; None imports the whole source
+    prune: bool = False
+
+
+class NewDomain(BaseModel):
+    name: str
+    owner: str | None = None
+    description: str | None = None
+
+
 # State ------------------------------------------------------------------------------------------
 
 
@@ -161,6 +197,11 @@ def state(root: Path) -> dict[str, Any]:
         "editable": editable,
         "model": project.model.model_dump(mode="json", by_alias=True) if project else None,
         "layout": {str(k): {"x": x, "y": y} for k, (x, y) in layout.items()},
+        "sources": sources_module.list_sources(project) if project else [],
+        "domains": [
+            {**d.model_dump(), "entities": len(edit.domain_usage(project, d.name))}
+            for d in (project.manifest.project.domains if project else [])
+        ],
         "diagnostics": [_diagnostic(d, project, root) for d in diagnostics],
         "choices": {
             "sources": sources,
@@ -210,6 +251,7 @@ def generated(root: Path, warehouse: Warehouse | None = None) -> dict[str, Any]:
         "diagnostics": [],
         "files": [],
         "migration": None,
+        "notes": [],
     }
     if project is None or blocked:
         return summary
@@ -228,7 +270,9 @@ def generated(root: Path, warehouse: Warehouse | None = None) -> dict[str, Any]:
     files += [{"path": p, "status": "removed", "entities": [], "edited_by_hand": False} for p in changes.removed]
     summary["files"] = sorted(files, key=lambda f: f["path"])
     summary["diagnostics"] = [_diagnostic(d, project, root) for d in output.diagnostics]
-    summary["migration"] = _migration(plan_migration(project, chosen))
+    pending = plan_migration(project, chosen)
+    summary["migration"] = _migration(pending)
+    summary["notes"] = pending.notes
     return summary
 
 
@@ -433,6 +477,14 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
         return change(action, rev)
 
+    @app.put("/api/entities/{entity_id}/columns/order")
+    def put_column_order(entity_id: UUID, body: ColumnOrder, rev: Revision = None) -> dict[str, Any]:
+        def action(project: Project) -> None:
+            names = [column_name(project, entity_id, column_id) for column_id in body.columns]
+            edit.order_columns(project, entity_name(project, entity_id), names)
+
+        return change(action, rev)
+
     @app.delete("/api/entities/{entity_id}/columns/{column_id}")
     def remove_column(entity_id: UUID, column_id: UUID, rev: Revision = None) -> dict[str, Any]:
         def action(project: Project) -> None:
@@ -457,6 +509,115 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.delete("/api/relationships/{relationship_id}")
     def remove_relationship(relationship_id: UUID, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_relationship(p, relationship_id), rev)
+
+    @app.get("/api/lineage")
+    def get_lineage(entity: str, column: str | None = None) -> dict[str, Any]:
+        """Where a column (or every column of an entity) comes from, and what uses it."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        try:
+            name, attribute = resolve_ref(project, f"{entity}.{column}" if column else entity)
+        except ValueError as exc:
+            raise HTTPException(404, {"message": str(exc)}) from None
+        return trace(project, name, attribute)
+
+    @app.post("/api/expressions/check")
+    def post_expression_check(body: ExpressionBody) -> dict[str, Any]:
+        """What an expression reads, whether it is valid, the type it returns and its warehouse SQL."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return check_expression(project, body.expression, body.sources, body.entity).as_dict()
+
+    @app.post("/api/expressions/preview")
+    def post_expression_preview(body: ExpressionBody) -> dict[str, Any]:
+        """The expression run on a few made-up rows, in DuckDB in memory."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return preview_expression(project, body.expression, body.sources, body.entity)
+
+    @app.post("/api/entities/{entity_id}/calculated")
+    def add_calculated(entity_id: UUID, body: CalculatedColumn, rev: Revision = None) -> dict[str, Any]:
+        def action(project: Project) -> None:
+            edit.add_calculated_column(project, entity_name(project, entity_id), body.name, body.expression, body.type)
+
+        return change(action, rev)
+
+    @app.post("/api/sources")
+    def add_source(body: NewSource, rev: Revision = None) -> dict[str, Any]:
+        """Declare a source in murakumo.yaml. A database is named by an environment variable."""
+
+        def action(project: Project) -> None:
+            try:
+                sources_module.add_source(project, body.name, body.kind, body.location)
+            except sources_module.SourceError as exc:
+                raise edit.EditError(str(exc)) from None
+
+        return change(action, rev)
+
+    @app.delete("/api/sources/{name}")
+    def remove_source(name: str, rev: Revision = None) -> dict[str, Any]:
+        """Remove a source no table uses."""
+
+        def action(project: Project) -> None:
+            try:
+                sources_module.remove_source(project, name)
+            except sources_module.SourceError as exc:
+                raise edit.EditError(str(exc)) from None
+
+        return change(action, rev, prune=True)
+
+    @app.get("/api/sources/{name}/browse")
+    def browse_source(name: str) -> dict[str, Any]:
+        """A database source's schemas, tables and columns. Reads the catalogue only, never rows."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        try:
+            return {"schemas": sources_module.browse_source(project, name)}
+        except sources_module.SourceError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/sources/{name}/import/preview")
+    def preview_import(name: str, body: SourceImportBody) -> dict[str, Any]:
+        """What importing would change, without writing anything."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        try:
+            return {"reports": sources_module.import_source(project, name, body.tables, body.prune)}
+        except sources_module.SourceError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/sources/{name}/import")
+    def run_import(name: str, body: SourceImportBody, rev: Revision = None) -> dict[str, Any]:
+        reports: list[dict[str, Any]] = []
+
+        def action(project: Project) -> None:
+            try:
+                reports.extend(sources_module.import_source(project, name, body.tables, body.prune))
+            except sources_module.SourceError as exc:
+                raise edit.EditError(str(exc)) from None
+            problems = [d for r in reports for d in r["diagnostics"] if d["level"] == "error"]
+            if problems:
+                raise edit.EditError("; ".join(d["message"] for d in problems))
+
+        new_state = change(action, rev, prune=body.prune)
+        return {**new_state, "reports": reports}
+
+    @app.post("/api/domains")
+    def add_domain(body: NewDomain, rev: Revision = None) -> dict[str, Any]:
+        return change(lambda p: edit.add_domain(p, body.name, body.owner, body.description), rev)
+
+    @app.patch("/api/domains/{name}")
+    def update_domain(name: str, body: Changes, rev: Revision = None) -> dict[str, Any]:
+        return change(lambda p: edit.update_domain(p, name, body), rev)
+
+    @app.delete("/api/domains/{name}")
+    def remove_domain(name: str, rev: Revision = None) -> dict[str, Any]:
+        return change(lambda p: edit.remove_domain(p, name), rev)
 
     @app.put("/api/layout")
     def put_layout(body: Layout) -> dict[str, str]:

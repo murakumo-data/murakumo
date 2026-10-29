@@ -312,6 +312,13 @@ class Planner:
                 sql = "null"
             else:
                 sql = self.mapping_sql(entity, mapping, aliases)
+            meta = _meta(attribute)
+            if mapping is not None:
+                from murakumo.lineage import mapping_reads  # lineage reads the plan's dialect
+
+                reads = mapping_reads(self.project, mapping)
+                if reads:
+                    meta["lineage"] = [f"{e}.{c}" for e, c in reads]
             columns.append(
                 Column(
                     name=attribute.name,
@@ -319,7 +326,7 @@ class Planner:
                     data_type=data_type,
                     description=attribute.description,
                     tests=self.column_tests(entity, attribute, attribute.name, history=history),
-                    meta=_meta(attribute),
+                    meta=meta,
                 )
             )
         columns.append(self.updated_at())

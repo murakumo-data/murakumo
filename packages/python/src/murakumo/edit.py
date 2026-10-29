@@ -29,6 +29,8 @@ from murakumo.ir.model import (
     SourceSystem,
     SourceType,
 )
+from murakumo.manifest import Domain
+from murakumo.manifest_edit import ManifestEditError, write_section
 from murakumo.project import Project
 
 
@@ -293,6 +295,32 @@ def set_mapping(
     return mapping
 
 
+def add_calculated_column(
+    project: Project, entity_name: str, name: str, expression: str, type: str | None = None
+) -> Attribute:
+    """Add a column worked out by a SQL expression: the column, and its mapping, in one step.
+
+    The mapping's sources are the columns the expression reads; the type defaults to the one the
+    expression returns, when that can be told.
+    """
+    from murakumo.expressions import check_expression
+
+    entity = _entity(project, entity_name)
+    if entity.layer is Layer.RAW:
+        raise EditError(f"{entity.name} is a raw table: its columns come from the source, not from expressions")
+    check = check_expression(project, expression, target=entity.name)
+    if check.error:
+        raise EditError(f"cannot read the expression: {check.error}")
+    if check.problems:
+        raise EditError("; ".join(check.problems))
+    column_type = type or check.type
+    if not column_type:
+        raise EditError("cannot tell what type the expression returns; give the column a type")
+    column = add_column(project, entity.name, name, column_type)
+    set_mapping(project, entity.name, column.name, check.references, expression)
+    return column
+
+
 def _check_name(name: str) -> None:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) or len(name) > 255:
         raise EditError(f"{name!r} is not a valid name: use letters, digits and underscores, not starting with a digit")
@@ -408,6 +436,121 @@ def rename_column(project: Project, entity_name: str, name: str, new_name: str) 
             if rel.to.lower() == entity.name.lower() and key.to.lower() == old.lower():
                 key.to = new_name
     return column
+
+
+# Column order -----------------------------------------------------------------------------------
+
+
+def order_columns(project: Project, entity_name: str, names: list[str]) -> Entity:
+    """Put an entity's columns in the given order. ``names`` must list every column once.
+
+    Mappings follow the columns, so the YAML reads in the same order as the table.
+    """
+    entity = _entity(project, entity_name)
+    wanted = [n.lower() for n in names]
+    have = [a.name.lower() for a in entity.attributes]
+    if sorted(wanted) != sorted(have):
+        missing = sorted(set(have) - set(wanted))
+        extra = sorted(set(wanted) - set(have))
+        if len(set(wanted)) != len(wanted):
+            raise EditError("each column can appear only once in the new order")
+        problem = [f"missing {', '.join(missing)}" if missing else "", f"unknown {', '.join(extra)}" if extra else ""]
+        raise EditError(f"the new order must list every column of {entity.name}: " + "; ".join(p for p in problem if p))
+    position = {name: i for i, name in enumerate(wanted)}
+    entity.attributes = sorted(entity.attributes, key=lambda a: position[a.name.lower()])
+    entity.mappings = sorted(entity.mappings, key=lambda m: position.get(m.target.lower(), len(position)))
+    return entity
+
+
+def move_column(
+    project: Project, entity_name: str, name: str, after: str | None = None, before: str | None = None
+) -> Entity:
+    """Move one column after or before another; with neither, to the start."""
+    entity = _entity(project, entity_name)
+    column = entity.attribute(name)
+    if column is None:
+        raise EditError(f"{entity.name} has no column {name!r}")
+    if after and before:
+        raise EditError("give either after or before, not both")
+    anchor_name = after or before
+    names = [a.name for a in entity.attributes if a is not column]
+    if anchor_name is None:
+        index = 0
+    else:
+        anchor = entity.attribute(anchor_name)
+        if anchor is None:
+            raise EditError(f"{entity.name} has no column {anchor_name!r}")
+        if anchor is column:
+            raise EditError("a column cannot move next to itself")
+        index = names.index(anchor.name) + (1 if after else 0)
+    names.insert(index, column.name)
+    return order_columns(project, entity.name, names)
+
+
+# Domains ----------------------------------------------------------------------------------------
+# Domains are listed in murakumo.yaml under project.domains, so these write the manifest straight
+# away (keeping its comments); entities that change are saved by the caller as usual.
+
+
+def _domain_yaml(domain: Domain) -> str | dict[str, Any]:
+    data = domain.model_dump(exclude_none=True)
+    return data["name"] if set(data) == {"name"} else data
+
+
+def _save_domains(project: Project, domains: list[Domain]) -> None:
+    try:
+        project.manifest = write_section(project.root, ("project", "domains"), [_domain_yaml(d) for d in domains])
+    except ManifestEditError as exc:
+        raise EditError(str(exc)) from None
+
+
+def _domain(project: Project, name: str) -> Domain:
+    domain = project.manifest.domain(name)
+    if domain is None:
+        raise EditError(f"domain {name!r} is not listed under project.domains")
+    return domain
+
+
+def domain_usage(project: Project, name: str) -> list[Entity]:
+    return [e for e in project.model.entities if (e.domain or "").lower() == name.lower()]
+
+
+def add_domain(project: Project, name: str, owner: str | None = None, description: str | None = None) -> Domain:
+    _check_name(name)
+    if project.manifest.domain(name):
+        raise EditError(f"domain {name!r} already exists")
+    domain = Domain(name=name, owner=owner or None, description=description or None)
+    _save_domains(project, [*project.manifest.project.domains, domain])
+    return domain
+
+
+def update_domain(project: Project, name: str, changes: dict[str, Any]) -> Domain:
+    """Change a domain's owner or description; a new ``name`` renames it, and every entity in it."""
+    domain = _domain(project, name)
+    unknown = set(changes) - {"name", "owner", "description"}
+    if unknown:
+        raise EditError(f"cannot change {', '.join(sorted(unknown))} on a domain")
+    new_name = changes.get("name") or domain.name
+    if new_name != domain.name:
+        _check_name(new_name)
+        if new_name.lower() != domain.name.lower() and project.manifest.domain(new_name):
+            raise EditError(f"domain {new_name!r} already exists")
+    data = domain.model_dump() | {k: (v or None) for k, v in changes.items()} | {"name": new_name}
+    updated = Domain(**data)
+    for entity in domain_usage(project, domain.name):
+        entity.domain = updated.name
+    _save_domains(project, [updated if d is domain else d for d in project.manifest.project.domains])
+    return updated
+
+
+def remove_domain(project: Project, name: str) -> Domain:
+    domain = _domain(project, name)
+    used = domain_usage(project, domain.name)
+    if used:
+        names = ", ".join(e.name for e in used[:5]) + (" and more" if len(used) > 5 else "")
+        raise EditError(f"domain {domain.name} is used by {names}; move them to another domain first")
+    _save_domains(project, [d for d in project.manifest.project.domains if d is not domain])
+    return domain
 
 
 def parse_join(text: str) -> tuple[str, str]:

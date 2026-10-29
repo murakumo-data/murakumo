@@ -352,6 +352,7 @@ app.add_typer(cli_model.import_app, name="import")
 app.add_typer(cli_model.add_app, name="add")
 app.add_typer(cli_model.rename_app, name="rename")
 app.add_typer(cli_model.remove_app, name="remove")
+app.add_typer(cli_model.move_app, name="move")
 
 from murakumo import cli_generate  # noqa: E402
 
@@ -359,6 +360,7 @@ app.command("generate")(cli_generate.generate_command)
 app.command("migrate")(cli_generate.migrate_command)
 app.command("verify")(cli_generate.verify_command)
 app.command("build")(cli_generate.build_command)
+app.command("lineage")(cli_model.lineage_command)
 
 
 @app.command()

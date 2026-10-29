@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.1.1
+# End-to-end test: Murakumo 0.2.0
 
-A step-by-step test of Murakumo 0.1.1 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 0.2.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -9,9 +9,9 @@ should see.
 | --- | --- | --- |
 | 0-1 | Installing Murakumo with uv, pip or npm | 5-10 min |
 | 2-4 | Creating a project folder with the guided setup, and going into it | 10 min |
-| 5-9 | The canvas: viewing, editing, mapping, generating, migrations | 35 min |
+| 5-9 | The canvas: viewing, editing, mapping, calculated columns, lineage, domains, generating, migrations | 50 min |
 | 10-11 | Importing a data dictionary; editing YAML by hand alongside the canvas | 10 min |
-| 12-14 | Building and testing on DuckDB, with made-up data and then real data, and keeping the tables | 20 min |
+| 12-14 | Building and testing on DuckDB, with made-up data and then real data, keeping the tables, and browsing them as a source | 25 min |
 | 15 | The checks a CI pipeline would run | 5 min |
 | 16 | Optional: the same project on Snowflake, built and kept | 20 min |
 | 17 | Cleaning up | 2 min |
@@ -119,10 +119,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.1.1`, then a short description that mentions `murakumo init` and
+You should see `murakumo 0.2.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.1.1.
+☐ Version 0.2.0.
 
 ---
 
@@ -402,37 +402,43 @@ null*. In the **Mappings** section, `trip_minutes` is highlighted.
 
 ☐ The column is added and MK503 is shown.
 
-**6.4 Try a mistake.** In the `trip_minutes` row of **Mappings**, click the right-hand box
-(*expression*), type the incomplete expression below and press **Enter**:
+**6.4 Try a mistake.** In the `trip_minutes` row of **Mappings**, click the right-hand button,
+**ƒx expression**. An expression editor opens under the row, with buttons for common functions
+above it. Type the incomplete expression below:
 
 ```text
 date_diff('minute',
 ```
 
-You should see a red banner starting *cannot read the expression*. Nothing is saved: the model
-still has no mapping for `trip_minutes`. Click in the box and press **Esc** to clear what you typed.
+Under the box, in red: *the expression is incomplete*, and **Save** is greyed out. Nothing can be
+saved until the expression reads correctly.
 
-☐ The bad expression is refused.
+☐ The bad expression is caught as you type.
 
-**6.5 Map it properly.** In the `trip_minutes` row, click **☰** next to the middle box
-(*sources*). A list of every other table's columns opens, with tick boxes and a search box. Type
-`yellow_tripdata.tpep` in the search box, tick `tpep_pickup_datetime` and
-`tpep_dropoff_datetime`, and click **Use these**. (You can also type sources straight into the
-box, separated by commas; suggestions appear as you type.)
-
-The middle box now reads
-`yellow_tripdata.tpep_pickup_datetime, yellow_tripdata.tpep_dropoff_datetime`, and the chip turns red for a moment: **1 error**, *MK502 fct_trip.trip_minutes maps 2 columns; combine
-them with an expression*. That is right: two columns need an expression saying how to combine them.
-In the *expression* box type this and press **Enter**:
+**6.5 Write it with suggestions.** Select everything in the box (Cmd+A) and delete it. Now type
+`date_diff('minute', yellow_tripdata.` (with the dot): a list of `yellow_tripdata`'s columns
+appears under the box, each with its type. Type `tpep_p`; the list narrows to
+`tpep_pickup_datetime`; press **Tab** to put it in. Type `, yellow_tripdata.tpep_d`, press **Tab**,
+and type `)`. The box now reads, with keywords, functions, text and columns in different colours:
 
 ```text
-date_diff('minute', tpep_pickup_datetime, tpep_dropoff_datetime)
+date_diff('minute', yellow_tripdata.tpep_pickup_datetime, yellow_tripdata.tpep_dropoff_datetime)
 ```
 
-You should see the error disappear (the chip says **Valid** again). On the **Code** tab, the SQL
-now has a line with `DATE_DIFF('MINUTE', ...) as trip_minutes`.
+Under it, in green: *✓ Reads yellow_tripdata.tpep_pickup_datetime,
+yellow_tripdata.tpep_dropoff_datetime · returns bigint*.
 
-☐ The mapping is saved and appears in the SQL.
+Click **Preview**. A small table shows a dozen made-up pickup and drop-off times and, in bold, the
+minutes between them. (*Made-up rows, run in DuckDB on this computer*: no warehouse is involved.)
+
+Click **Save**. The editor closes; the middle box (*sources*) now lists the two columns the
+expression reads, and the chip says **Valid**. On the **Code** tab, the SQL has a line with
+`DATE_DIFF('MINUTE', ...) as trip_minutes`.
+
+(The **☰** button next to the sources box still ticks sources in a list, for a column that copies
+one column as it is.)
+
+☐ The expression is checked, previewed and saved, and appears in the SQL.
 
 **6.6 Add a table.** Click **+ Entity** (top right). Name: `fhv_tripdata`. Layer: `raw`. Source:
 `nyc_tlc`. Click **Add**.
@@ -491,6 +497,77 @@ You should see `model/entities/nyc_tlc/fhv_tripdata.yaml` as new, `fct_trip.yaml
 `taxi_zone_lookup` with `role: pickup`. The canvas writes plain YAML, the same as the CLI.
 
 ☐ The changes are on disk.
+
+**6.10 Reorder columns.** Click `fct_trip`. In **Columns**, each row starts with a **⋮⋮** handle.
+Drag `trip_minutes` by its handle up to just below `dropoff_at` (a blue line shows where it will
+go) and let go. The column moves there, in the inspector and in the box on the canvas. (With the
+keyboard: Tab to a handle and press Alt+↑ or Alt+↓.)
+
+☐ The column moved.
+
+**6.11 Add a calculated column.** Still on `fct_trip`, click **+ Calculated** (next to
+**Columns**). Type `amount_per_mile` in the name box and leave the type box empty. In the
+expression box type:
+
+```text
+round(yellow_tripdata.total_amount / nullif(yellow_tripdata.trip_distance, 0), 2)
+```
+
+Under it: *✓ Reads yellow_tripdata.total_amount, yellow_tripdata.trip_distance · returns double*.
+The type box would use `double`; type `decimal(10,2)` in it instead, to choose the type yourself.
+Click **Preview** to see it on made-up rows, then **Add column**.
+
+`amount_per_mile` appears at the bottom of the columns, typed `decimal(10,2)`, with its mapping
+already filled in, and the chip stays **Valid**.
+
+Now try one that cannot work: click **+ Calculated** again and type `fct_trip.total_amount * 2`.
+Under it, in red: *fct_trip.total_amount: read the tables fct_trip is built from, not its own
+columns*. Click **Cancel**.
+
+☐ The calculated column is added with its mapping; reading its own table is refused.
+
+**6.12 Follow lineage.** In `fct_trip`'s columns, click **⇄** in the `trip_id` row. On the canvas,
+`fct_trip.trip_id` and the seven `yellow_tripdata` columns it is made from are highlighted, joined
+by moving dashed lines, and the other tables fade. A bar at the top says *Lineage of
+fct_trip.trip_id*, with seven columns under **Comes from** and nothing under **Used by**. Hover
+over a dashed line: it shows the expression, `md5(concat_ws('|', ...))`.
+
+In the bar, click `yellow_tripdata.total_amount`. Now it is that column's lineage: **Used by**
+lists `fct_trip.amount_per_mile`, `fct_trip.total_amount` and `fct_trip.trip_id`. Close the bar
+with ×.
+
+Then in the first Terminal tab:
+
+```bash
+murakumo lineage fct_trip.amount_per_mile
+murakumo lineage yellow_tripdata.total_amount --down
+```
+
+You should see trees: the first shows `fct_trip.amount_per_mile` with its expression, coming from
+`yellow_tripdata.total_amount` and `yellow_tripdata.trip_distance` (both `raw`); the second shows
+the three `fct_trip` columns that use `total_amount`.
+
+☐ Lineage shows on the canvas and in the terminal, and they agree.
+
+**6.13 Domains.** Click **Domains** in the toolbar. The panel lists `mobility`, with **4 tables**.
+Type `Taxi analytics` in its **owner** box and press **Enter**. In the empty row at the bottom,
+add a domain `finance` with owner `Finance team`.
+
+Click **Show domains** in the toolbar: each table gets a coloured stripe, and a dashed area labelled
+*mobility · Taxi analytics* is drawn behind the `mobility` tables. Click `fhv_tripdata`: its
+**Domain** is empty; pick `mobility` from the list. The area grows to include it.
+
+Back in the Domains panel, `finance` has no tables, so its **×** works: click it. (`mobility`'s ×
+is greyed out, because tables use it.) In the first Terminal tab:
+
+```bash
+grep -A3 "domains" murakumo.yaml
+```
+
+You should see `mobility` with `owner: Taxi analytics`, and the rest of the file, comments
+included, as it was.
+
+☐ Domains are managed from the canvas and shown as areas.
 
 ---
 
@@ -770,6 +847,35 @@ models on the rows already landed; it never deletes them.
 
 ☐ The tables are there to query.
 
+**13.5 Browse a database from the canvas.** The project's DuckDB file is a database like any
+other, so it can be browsed as a source. The canvas reads connection strings from environment
+variables, so restart it with one set. In the **canvas tab**, press **Ctrl+C**, then:
+
+```bash
+export WAREHOUSE_DB="duckdb:///$PWD/taxi_platform.duckdb"
+murakumo canvas
+```
+
+In the canvas, click **Sources** in the toolbar. You should see `nyc_tlc` and `open_meteo`, each
+with its tables. Click **+ Add source**: Name `warehouse`, Kind **Database (PostgreSQL, DuckDB)**,
+Variable `WAREHOUSE_DB` (the variable's name, not the connection string). Click **Add source**.
+`warehouse` appears with `introspect:env:WAREHOUSE_DB`.
+
+Click **Browse tables**, then **Connect and list tables**. You should see the schemas
+(`marts`, `raw_nyc_tlc`, `raw_open_meteo`, `staging`, ...) with their table counts. Open
+`staging` (click its name) and tick `stg_nyc_tlc__taxi_zone_lookup`; click its name to see its
+columns and types. Click **Preview import**: *+ source warehouse* and
+*+ table stg_nyc_tlc__taxi_zone_lookup*. Don't import it: this was only a look.
+
+Now tick `fct_trip` under `marts` as well and click **Preview import** again. It refuses:
+*MK401 fct_trip already exists in the marts layer; not overwritten by warehouse*, and
+**Import into the model** is greyed out. An import never overwrites a table that belongs elsewhere.
+
+Click **← All sources**. `warehouse` has no tables, so it has a **×**: click it to remove it from
+`murakumo.yaml`.
+
+☐ The database's tables are listed and previewed, a clash is refused, and the source is removed.
+
 ---
 
 ## Part 14: Look at what was generated
@@ -1001,14 +1107,14 @@ output or a screenshot.
 | 3 Look at the project | | |
 | 4 Setup checklist | | |
 | 5 Canvas: view | | |
-| 6 Canvas: edit, map, relate | | |
+| 6 Canvas: edit, map, relate, calculate, lineage, domains | | |
 | 7 Generate and diff | | |
 | 8 Migrations on the canvas | | |
 | 9 Editing alongside the canvas | | |
 | 10 Import a dictionary | | |
 | 11 Fix by hand in a text editor | | |
 | 12 Verify with made-up data | | |
-| 13 Verify with real data | | |
+| 13 Verify with real data, build, browse as a source | | |
 | 14 Generated code | | |
 | 15 CI checks | | |
 | 16 Snowflake (optional) | | |

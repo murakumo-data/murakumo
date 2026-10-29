@@ -70,6 +70,18 @@ An entity in `intermediate`, `marts` or `semantic` is built from its mappings:
 
 Columns with no mapping are generated as typed nulls, with warning MK503.
 
+Every column of a modelled entity carries its lineage in the dbt YAML, as `meta.lineage`: the
+`entity.column`s it is made from, so tools that read dbt's manifest (catalogues, docs sites) can
+show it too.
+
+### Domains
+
+Each domain in `project.domains` that has models becomes a dbt group in `models/_groups.yml`,
+owned by the domain's owner, and each model of an entity in a domain gets `group:` and
+`meta.domain` in its config. Models keep the default `protected` access, so models in other
+domains can still use them; groups say who owns what. Files stay in their layer folders, so
+setting a domain moves nothing.
+
 ### Warehouses
 
 DuckDB, Snowflake, Databricks, BigQuery, PostgreSQL, Redshift, Microsoft Fabric and Synapse each

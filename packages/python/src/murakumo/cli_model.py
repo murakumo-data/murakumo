@@ -23,11 +23,12 @@ import_app = typer.Typer(
     "With no subcommand, imports every source in murakumo.yaml that has a from: line.",
     invoke_without_command=True,
 )
-add_app = typer.Typer(help="Add a source, entity, column or relationship to the model.", no_args_is_help=True)
-remove_app = typer.Typer(help="Remove an entity or column from the model.", no_args_is_help=True)
+add_app = typer.Typer(help="Add a source, domain, entity, column or relationship to the model.", no_args_is_help=True)
+remove_app = typer.Typer(help="Remove a source, domain, entity or column from the model.", no_args_is_help=True)
 rename_app = typer.Typer(
-    help="Rename an entity or column, and every reference to it in the model.", no_args_is_help=True
+    help="Rename a domain, entity or column, and every reference to it in the model.", no_args_is_help=True
 )
+move_app = typer.Typer(help="Change the order of an entity's columns.", no_args_is_help=True)
 
 ProjectOption = typer.Option(Path("."), "--project", "-p", help="Project folder, or any folder inside it.")
 DryRunOption = typer.Option(False, "--dry-run", help="Show what would change without writing anything.")
@@ -177,15 +178,24 @@ def import_database(
     url: str = typer.Argument(..., help="duckdb:///file.duckdb, postgresql://user@host/db, or env:VARIABLE."),
     source: str = typer.Option(..., help="Name for this source system."),
     schema: list[str] = typer.Option(None, help="Only these schemas. Repeat for several. Default: all."),
+    table: list[str] = typer.Option(
+        None, "--table", help="Only these tables, as table or schema.table. Repeat for several. Default: all."
+    ),
     project_path: Path = ProjectOption,
     dry_run: bool = DryRunOption,
     prune: bool = PruneOption,
 ) -> None:
-    """Read tables, columns, keys and comments from a live database (metadata only, never rows)."""
+    """Read tables, columns, keys and comments from a live database (metadata only, never rows).
+
+    With --table, only those tables are imported, and tables already in the model from this source
+    are left as they are.
+    """
     from murakumo.importers.database import introspect
 
     project = open_project(project_path)
-    imports = _guarded(lambda: [introspect(url, safe_name(source, "source"), schemas=schema or None)])
+    imports = _guarded(
+        lambda: [introspect(url, safe_name(source, "source"), schemas=schema or None, tables=table or None)]
+    )
     apply_imports(project, imports, dry_run, prune)
 
 
@@ -266,6 +276,17 @@ def add_source(
     _edit(project_path, lambda p: f"Added source {edit.add_source(p, name, type, connection, description).name}.")
 
 
+@add_app.command("domain")
+def add_domain(
+    name: str,
+    owner: str | None = typer.Option(None, help="The team or person responsible for it."),
+    description: str | None = typer.Option(None),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Add a domain to project.domains in murakumo.yaml. Put entities in it with --domain."""
+    _edit(project_path, lambda p: f"Added domain {edit.add_domain(p, name, owner, description).name}.")
+
+
 @add_app.command("entity")
 def add_entity(
     name: str,
@@ -344,6 +365,38 @@ def remove_column(entity: str, name: str, project_path: Path = ProjectOption) ->
     _edit(project_path, lambda p: f"Removed {entity}.{edit.remove_column(p, entity, name).name}.")
 
 
+@remove_app.command("source")
+def remove_source(name: str, project_path: Path = ProjectOption) -> None:
+    """Remove a source that has no tables: its entry in murakumo.yaml and its file in model/sources/."""
+    from murakumo import sources
+
+    def change(project: Project) -> str:
+        try:
+            return f"Removed source {sources.remove_source(project, name)}."
+        except sources.SourceError as exc:
+            raise edit.EditError(str(exc)) from None
+
+    _edit(project_path, change, prune=True)
+
+
+@remove_app.command("domain")
+def remove_domain(name: str, project_path: Path = ProjectOption) -> None:
+    """Remove a domain that no entity uses."""
+    _edit(project_path, lambda p: f"Removed domain {edit.remove_domain(p, name).name}.")
+
+
+@rename_app.command("domain")
+def rename_domain(name: str, new_name: str, project_path: Path = ProjectOption) -> None:
+    """Rename a domain, and move every entity in it to the new name."""
+
+    def change(project: Project) -> str:
+        count = len(edit.domain_usage(project, name))
+        renamed = edit.update_domain(project, name, {"name": new_name})
+        return f"Renamed domain {name} to {renamed.name} ({count} entities)."
+
+    _edit(project_path, change)
+
+
 @rename_app.command("entity")
 def rename_entity(name: str, new_name: str, project_path: Path = ProjectOption) -> None:
     """Rename an entity. Relationships, mappings and metrics that use it follow, and so does its file."""
@@ -357,3 +410,79 @@ def rename_column(entity: str, name: str, new_name: str, project_path: Path = Pr
         project_path,
         lambda p: f"Renamed {entity}.{name} to {edit.rename_column(p, entity, name, new_name).name}.",
     )
+
+
+@move_app.command("column")
+def move_column(
+    entity: str,
+    name: str,
+    after: str | None = typer.Option(None, "--after", help="Put it straight after this column."),
+    before: str | None = typer.Option(None, "--before", help="Put it straight before this column."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Move a column. With neither --after nor --before, it moves to the start.
+
+    Generated tables and models list columns in this order. Tables that already exist keep theirs:
+    no warehouse reorders columns in place, and nothing needs to read them by position.
+    """
+
+    def change(project: Project) -> str:
+        moved = edit.move_column(project, entity, name, after, before)
+        return f"{moved.name}: {', '.join(a.name for a in moved.attributes)}"
+
+    _edit(project_path, change)
+
+
+def lineage_command(
+    target: str = typer.Argument(..., metavar="ENTITY[.COLUMN]", help="A column, or a whole entity."),
+    down: bool = typer.Option(False, "--down", help="Show what the column feeds instead of where it comes from."),
+    output: str = typer.Option("tree", "--format", help="tree or json."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Show where a column comes from (or, with --down, what uses it), column by column."""
+    import json
+
+    from rich.tree import Tree
+
+    from murakumo.lineage import build_lineage, resolve_ref, trace
+
+    project = open_project(project_path)
+    try:
+        entity, column = resolve_ref(project, target)
+    except ValueError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    lineage = build_lineage(project)
+    if output == "json":
+        typer.echo(json.dumps(trace(project, entity, column, lineage), indent=2))
+        return
+
+    links = lineage.downstream if down else lineage.upstream
+
+    def label(ref: tuple[str, str], expression: str | None = None) -> str:
+        layer = lineage.layers.get(ref[0], "")
+        text = f"[bold]{escape(ref[0])}[/bold].{escape(ref[1])} [dim]{layer}[/dim]"
+        return text + (f"  [cyan]{escape(expression)}[/cyan]" if expression else "")
+
+    def grow(tree: Tree, ref: tuple[str, str], path: set) -> None:
+        for flow in links.get(ref, []):
+            nxt = flow.target if down else flow.source
+            # The expression belongs to the column it calculates: the target of the flow.
+            shown = flow.expression if (down and flow.expression) else None
+            branch = tree.add(label(nxt, shown))
+            if nxt in path:
+                branch.add("[dim](loops back)[/dim]")
+                continue
+            grow(branch, nxt, path | {nxt})
+
+    columns = [column] if column else lineage.columns.get(entity, [])
+    for name in columns:
+        ref = (entity, name)
+        expression = None if down else next((f.expression for f in links.get(ref, []) if f.expression), None)
+        tree = Tree(label(ref, expression))
+        grow(tree, ref, {ref})
+        if not tree.children:
+            tree.add(
+                "[dim]" + ("nothing uses it" if down else "no mapping: a source column, or not mapped yet") + "[/dim]"
+            )
+        console.print(tree)

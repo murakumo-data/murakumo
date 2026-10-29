@@ -217,3 +217,66 @@ def test_set_mapping(commerce):
 def test_set_mapping_errors(commerce, target, sources, expression, message):
     with pytest.raises(edit.EditError, match=message):
         edit.set_mapping(commerce, "fct_order_line", target, sources, expression)
+
+
+def test_move_and_order_columns(project):
+    entity = edit.move_column(project, "dim_taxi_zone", "zone_name", after="zone_id")
+    assert [a.name for a in entity.attributes] == ["zone_id", "zone_name", "borough", "service_zone"]
+    assert [m.target for m in entity.mappings] == ["zone_id", "zone_name", "borough", "service_zone"]
+    entity = edit.move_column(project, "dim_taxi_zone", "service_zone")
+    assert entity.attributes[0].name == "service_zone"
+    entity = edit.move_column(project, "dim_taxi_zone", "service_zone", before="borough")
+    assert [a.name for a in entity.attributes] == ["zone_id", "zone_name", "service_zone", "borough"]
+    with pytest.raises(edit.EditError, match="missing borough"):
+        edit.order_columns(project, "dim_taxi_zone", ["zone_id", "zone_name", "service_zone"])
+    with pytest.raises(edit.EditError, match="next to itself"):
+        edit.move_column(project, "dim_taxi_zone", "borough", after="borough")
+
+
+def test_cli_move_column(project):
+    result = run(project, "move", "column", "taxi_zone_lookup", "Zone", "--after", "LocationID")
+    assert result.exit_code == 0, result.output
+    entity = load_project(project.root).project.model.entity("taxi_zone_lookup")
+    assert [a.name for a in entity.attributes][:2] == ["LocationID", "Zone"]
+
+
+def test_domains(project):
+    manifest = project.root / "murakumo.yaml"
+    edit.add_domain(project, "finance", owner="Finance team")
+    text = manifest.read_text()
+    assert "- name: finance\n      owner: Finance team" in text and "# kimball | datavault" in text
+    edit.update_domain(project, "mobility", {"name": "transport", "owner": "Ops"})
+    assert {e.domain for e in project.model.entities} == {"transport"}
+    save_model(project)
+    reloaded = load_project(project.root).project
+    assert [d.name for d in reloaded.manifest.project.domains] == ["transport", "finance"]
+    assert validate_project(reloaded) == [] or all(d.level is not Level.ERROR for d in validate_project(reloaded))
+    with pytest.raises(edit.EditError, match="used by"):
+        edit.remove_domain(reloaded, "transport")
+    edit.remove_domain(reloaded, "finance")
+    assert "finance" not in manifest.read_text()
+
+
+def test_cli_domains(project):
+    assert run(project, "add", "domain", "finance").exit_code == 0
+    result = run(project, "rename", "domain", "mobility", "transport")
+    assert result.exit_code == 0 and "4 entities" in result.output
+    assert "domains: [transport, finance]" in (project.root / "murakumo.yaml").read_text()
+
+
+def test_calculated_column(project):
+    column = edit.add_calculated_column(
+        project,
+        "fct_trip",
+        "cost_per_mile",
+        "yellow_tripdata.total_amount / nullif(yellow_tripdata.trip_distance, 0)",
+    )
+    assert column.type.startswith("decimal") or column.type in ("double", "money")
+    mapping = next(m for m in project.model.entity("fct_trip").mappings if m.target == "cost_per_mile")
+    assert mapping.sources == ["yellow_tripdata.total_amount", "yellow_tripdata.trip_distance"]
+    with pytest.raises(edit.EditError, match="not its own columns"):
+        edit.add_calculated_column(project, "fct_trip", "z", "fct_trip.total_amount * 2")
+    with pytest.raises(edit.EditError, match="raw table"):
+        edit.add_calculated_column(project, "yellow_tripdata", "x", "1 + 1")
+    with pytest.raises(edit.EditError, match="has no column"):
+        edit.add_calculated_column(project, "fct_trip", "y", "fct_trip.nope + 1")

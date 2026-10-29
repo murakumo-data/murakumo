@@ -244,3 +244,50 @@ def test_generate_is_blocked_by_model_errors(client, project):
     summary = client.get("/api/generated").json()
     assert summary["blocked"] and summary["files"] == []
     assert client.post("/api/generate").status_code == 409
+
+
+def test_column_order(client):
+    state = client.get("/api/state").json()
+    zone = entity_id(state, "dim_taxi_zone")
+    names = ["service_zone", "zone_id", "borough", "zone_name"]
+    ids = [column_id(state, "dim_taxi_zone", n) for n in names]
+    state = client.put(f"/api/entities/{zone}/columns/order", json={"columns": ids}).json()
+    columns = next(e["attributes"] for e in state["model"]["entities"] if e["name"] == "dim_taxi_zone")
+    assert [c["name"] for c in columns] == names
+    response = client.put(f"/api/entities/{zone}/columns/order", json={"columns": ids[:2]})
+    assert response.status_code == 400 and "every column" in response.json()["message"]
+
+
+def test_domains(client):
+    state = client.post("/api/domains", json={"name": "finance", "owner": "Finance"}).json()
+    assert {"name": "finance", "owner": "Finance", "description": None, "entities": 0} in state["domains"]
+    state = client.patch("/api/domains/mobility", json={"name": "transport"}).json()
+    assert {e["domain"] for e in state["model"]["entities"]} == {"transport"}
+    assert client.delete("/api/domains/transport").status_code == 400
+    state = client.delete("/api/domains/finance").json()
+    assert [d["name"] for d in state["domains"]] == ["transport"]
+
+
+def test_expressions(client):
+    check = client.post("/api/expressions/check", json={"expression": "upper(taxi_zone_lookup.Zone)"}).json()
+    assert check["ok"] and check["type"] == "string"
+    preview = client.post("/api/expressions/preview", json={"expression": "upper(taxi_zone_lookup.Zone)"}).json()
+    assert preview["columns"] == ["taxi_zone_lookup.Zone", "result"] and preview["rows"]
+    state = client.get("/api/state").json()
+    zone = entity_id(state, "dim_taxi_zone")
+    state = client.post(
+        f"/api/entities/{zone}/calculated", json={"name": "label", "expression": "upper(taxi_zone_lookup.Zone)"}
+    ).json()
+    entity = next(e for e in state["model"]["entities"] if e["name"] == "dim_taxi_zone")
+    assert entity["attributes"][-1]["name"] == "label"
+    assert {
+        "target": "label",
+        "sources": ["taxi_zone_lookup.Zone"],
+        "expression": "upper(taxi_zone_lookup.Zone)",
+    } in entity["mappings"]
+
+
+def test_lineage(client):
+    result = client.get("/api/lineage", params={"entity": "dim_taxi_zone", "column": "borough"}).json()
+    assert {"entity": "taxi_zone_lookup", "column": "Borough", "layer": "raw", "depth": -1} in result["nodes"]
+    assert client.get("/api/lineage", params={"entity": "nope"}).status_code == 404

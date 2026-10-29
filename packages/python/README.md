@@ -30,9 +30,13 @@ murakumo schema entity           # JSON Schema for editors: manifest, model, ent
 
 murakumo import csv dictionary.csv                     # or: excel, database, file, openapi, json
 murakumo import database env:ERP_URL --source erp      # needs murakumo[postgres] or murakumo[duckdb]
+murakumo import database env:ERP_URL --source erp --table sales.orders   # only some tables
 murakumo import                                        # every source with a from: line in murakumo.yaml
-murakumo add column dim_customer email string --pii    # add or remove sources, entities, columns, relationships
+murakumo add column dim_customer email string --pii    # add or remove sources, domains, entities, columns, relationships
 murakumo rename entity lineitem order_line             # relationships, mappings and the file follow
+murakumo move column dim_customer email --after name   # reorder columns
+murakumo add domain finance --owner "Finance team"     # domains become dbt groups
+murakumo lineage fct_trip.trip_id                      # where a column comes from; --down for what uses it
 murakumo canvas                                        # the visual editor, on http://127.0.0.1:8765
 
 murakumo generate                                      # generated/: dbt project and DDL for your warehouse

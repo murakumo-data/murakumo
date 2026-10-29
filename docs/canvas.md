@@ -33,6 +33,10 @@ murakumo canvas path/to/project --port 9000 --no-open
   they came from. Tables with more than six columns get a **Find a column** box, which filters the
   columns and mappings. Drag the inspector's left edge to make it wider. **+ Entity** adds a new
   entity.
+- **Reorder columns.** Drag a column by its **⋮⋮** handle in the inspector, or focus the handle
+  and press Alt+↑ or Alt+↓. Generated tables and dbt models list columns in the new order. Tables
+  that already exist keep theirs, because no warehouse reorders columns in place; the Changes
+  panel says so, and nothing needs a migration.
 - **Add a relationship.** In the inspector's **Relationships** section, click **+ Relationship**
   and pick the column, the table it points to, its column and the cardinality. Or hover over an
   entity to show the handles beside each column, then drag from the foreign key column to the
@@ -41,8 +45,37 @@ murakumo canvas path/to/project --port 9000 --no-open
   zones).
 - **Map columns.** For entities in staging, intermediate, marts and semantic, the inspector lists
   every column with where it comes from: `entity.column` sources (suggested as you type, or
-  ticked in a list with **☰**) and an optional SQL expression, in DuckDB SQL and translated for
-  your warehouse. Columns without a mapping are highlighted.
+  ticked in a list with **☰**) and an optional SQL expression (**ƒx**), in DuckDB SQL and
+  translated for your warehouse. Columns without a mapping are highlighted.
+- **Calculate columns.** **ƒx** opens the expression editor, and **+ Calculated** in the Columns
+  section adds a new column with its expression in one step. The editor highlights the SQL,
+  suggests tables, their columns and functions as you type (type a table name and a dot; Tab or
+  Enter accepts; Ctrl+Space asks), and checks the expression as you go: which columns it reads,
+  whether they all exist, the type it returns (offered as the new column's type) and how it reads
+  in your warehouse's SQL. **Preview** runs it on a dozen made-up rows in DuckDB on your computer,
+  showing the inputs and the result; nothing touches the warehouse. Saving sets the mapping's
+  sources to the columns the expression reads. An expression reads the tables an entity is built
+  from, not the entity's own columns.
+- **Follow lineage.** **⇄** beside a column in the inspector (or **Lineage**, for the whole
+  table) shows where the column comes from and what uses it: those columns are highlighted,
+  linked by moving dashed lines, and everything else fades. Hover a link to see the expression
+  that makes it. The bar at the top lists the columns it comes from and the columns that use it;
+  click one to follow it. `murakumo lineage` shows the same in a terminal.
+- **Group by domain.** **Domains** lists the domains in `murakumo.yaml`: add one, rename one (its
+  tables follow), set its owner, or remove one no table uses; click a domain's table count to show
+  only its tables. **Show domains** colours each table by its domain and shades an area, with the
+  domain's name and owner, behind each domain's tables. An entity's domain is picked from a list
+  in the inspector. Each domain becomes a dbt group; see [generating](generating.md#domains).
+- **Add and import sources.** **Sources** lists the sources, with where each is read from and how
+  many tables it has. **+ Add source** declares a new one in `murakumo.yaml`: a database by the
+  name of an environment variable that holds its connection string (the string itself never goes
+  into a file), Snowflake by its database name (the rest comes from the `SNOWFLAKE_*` variables),
+  or a data dictionary, data file or OpenAPI spec by its path or URL. **Browse tables** connects
+  to a database source and lists its schemas, tables and columns, read from the catalogue, never
+  the rows; tick the tables you want (tables already in the model start ticked), **Preview
+  import** shows what would be added, changed or removed, and **Import into the model** saves it.
+  Other sources have **Re-import**, with the same preview. Connection errors are shown with any
+  password removed.
 - **See the generated code.** The inspector's **Code** tab shows the dbt SQL generated for the
   entity and its table's DDL, updated as you edit.
 - **Write the code.** The toolbar says how many files in `generated/` are out of date with the
@@ -79,7 +112,7 @@ at `/api/docs`. Every change returns the whole new state, validated.
 
 | Method | Path | Does |
 | --- | --- | --- |
-| GET | `/api/state` | The model, layout, diagnostics, revision, and the choices for each field |
+| GET | `/api/state` | The model, layout, sources, domains, diagnostics, revision, and the choices for each field |
 | GET | `/api/revision` | Just the revision, a fingerprint of the model files: cheap to poll |
 | POST | `/api/entities` | Add an entity: `{name, layer, kind, source, domain, description, position}` |
 | PATCH | `/api/entities/{id}` | Change or rename it: any of `name`, `description`, `layer`, `kind`, `source`, `domain`, `owner`, `history`, `load`, `watermark`, `tags` |
@@ -91,6 +124,18 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | PATCH | `/api/relationships/{id}` | Change it: `name`, `cardinality`, `optional`, `role`, `description`, `keys` |
 | DELETE | `/api/relationships/{id}` | Remove it |
 | PUT | `/api/entities/{id}/mappings/{column_id}` | Set a column's mapping: `{sources: ["entity.column"], expression}`; both empty removes it |
+| PUT | `/api/entities/{id}/columns/order` | Put the columns in this order: `{columns: [column_id, ...]}`, every column once |
+| POST | `/api/entities/{id}/calculated` | Add a column worked out by an expression: `{name, expression, type}` (type optional) |
+| POST | `/api/expressions/check` | Check an expression: `{expression, sources, entity}` gives what it reads, problems, its type and its warehouse SQL |
+| POST | `/api/expressions/preview` | Run it on made-up rows in DuckDB: the input columns, the result and a note |
+| GET | `/api/lineage?entity=&column=` | Where a column (or every column of an entity) comes from and what uses it: nodes with their distance, links with their expressions, and the joins between them |
+| POST | `/api/domains` | Add a domain to `project.domains`: `{name, owner, description}` |
+| PATCH | `/api/domains/{name}` | Change its `owner` or `description`, or rename it with `name` (its entities follow) |
+| DELETE | `/api/domains/{name}` | Remove a domain no entity uses |
+| POST | `/api/sources` | Declare a source in `murakumo.yaml`: `{name, kind, location}`; kind is `database` (location: an environment variable's name), `snowflake` (a database name), `csv`, `excel`, `file` or `openapi` (a path or URL) |
+| GET | `/api/sources/{name}/browse` | A database source's schemas, tables and columns, each table marked if it is in the model |
+| POST | `/api/sources/{name}/import/preview` | What importing would change: `{tables: ["schema.table"], prune}`; `tables: null` imports the whole source |
+| POST | `/api/sources/{name}/import` | Import it and save; returns the new state and the reports |
 | PUT | `/api/layout` | Save positions: `{positions: {entity_id: {x, y}}}` |
 | GET | `/api/generated` | What generating would change: each file's status and entities, generate diagnostics, the next migration |
 | GET | `/api/generated/file?path=` | One generated file and its diff against `generated/` |

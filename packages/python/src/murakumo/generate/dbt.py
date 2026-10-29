@@ -58,6 +58,10 @@ def render(plan: Plan) -> dict[str, str]:
             {"version": 2, "models": [_model_yaml(m, plan) for m in models]}
         )
 
+    groups = _groups(plan)
+    if groups:
+        files["models/_groups.yml"] = _yaml({"version": 2, "groups": groups})
+
     if plan.snapshots:
         files["snapshots/_snapshots.yml"] = _yaml(
             {
@@ -124,12 +128,33 @@ def _number(value: str) -> int | float:
     return int(number) if number.is_integer() else number
 
 
+def _groups(plan: Plan) -> list[dict]:
+    """One dbt group per domain that has models, owned by the domain's owner."""
+    used = {(m.entity.domain or "").lower() for m in plan.models}
+    groups = []
+    for domain in plan.project.manifest.project.domains:
+        if domain.name.lower() not in used:
+            continue
+        group: dict[str, Any] = {"name": domain.name, "owner": {"name": domain.owner or f"{domain.name} domain"}}
+        if domain.description:
+            group["description"] = domain.description
+        groups.append(group)
+    return groups
+
+
 def _model_yaml(model: DbtModel, plan: Plan) -> dict:
     data: dict[str, Any] = {"name": model.name}
     if model.description:
         data["description"] = model.description
+    config: dict[str, Any] = {}
+    domain = plan.project.manifest.domain(model.entity.domain) if model.entity.domain else None
+    if domain is not None:
+        config["group"] = domain.name
+        config["meta"] = {"domain": domain.name}
     if model.contract:
-        data["config"] = {"contract": {"enforced": True}}
+        config["contract"] = {"enforced": True}
+    if config:
+        data["config"] = config
     columns = []
     for column in model.columns:
         entry: dict[str, Any] = {"name": column.name}

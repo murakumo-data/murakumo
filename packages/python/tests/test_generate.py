@@ -272,3 +272,14 @@ def test_committed_example_is_up_to_date():
     """examples/commerce/generated is the golden output: regenerate it when templates change."""
     result = runner.invoke(app, ["generate", "-p", str(COMMERCE), "--check"])
     assert result.exit_code == 0, result.output
+
+
+def test_domains_become_dbt_groups(tmp_path):
+    from murakumo.generate import generate
+    from murakumo.scaffold import init_project
+
+    project = init_project(tmp_path / "p")
+    files = generate(project).files
+    assert "name: mobility" in files["dbt/models/_groups.yml"]
+    marts = next(v for k, v in files.items() if k.startswith("dbt/models/marts") and k.endswith("__models.yml"))
+    assert "group: mobility" in marts and "domain: mobility" in marts

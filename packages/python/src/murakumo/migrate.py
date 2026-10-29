@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from murakumo.generate import ddl, generate
@@ -73,6 +73,7 @@ class Pending:
     tables: dict[str, TableState]
     sql: str = ""
     title: str | None = None  # a name given by the person writing it
+    notes: list[str] = field(default_factory=list)  # things a migration cannot do, for people
 
     @property
     def name(self) -> str:
@@ -372,6 +373,27 @@ def diff(
     return changes
 
 
+def order_notes(old: dict[str, TableState] | None, new: dict[str, TableState]) -> list[str]:
+    """Tables whose columns are now in a different order than the warehouse has them.
+
+    Warehouses cannot reorder columns in place, so migrations leave the order alone; this says so.
+    """
+    notes = []
+    for key, after in new.items():
+        before = (old or {}).get(key)
+        if before is None:
+            continue
+        kept = {c.id for c in after.columns}
+        was = [c.id for c in before.columns if c.id in kept]
+        now = [c.id for c in after.columns if c.id in {c.id for c in before.columns}]
+        if was != now:
+            notes.append(
+                f"{after.schema}.{after.name}: new column order. Existing tables keep their order, "
+                "because warehouses cannot reorder columns in place; new environments get the new one."
+            )
+    return notes
+
+
 def render(pending: Pending) -> str:
     lines = [
         f"-- Migration {pending.number:04d} for {pending.warehouse.value}: {pending.name}",
@@ -399,6 +421,7 @@ def plan_migration(project: Project, warehouse: Warehouse | str | None = None) -
     if baseline:  # the first migration only creates landing schemas and tables; dbt creates the rest
         changes = [c for c in changes if not c.slug.startswith("new_")]
     pending = Pending(chosen, _last_number(project.root, chosen) + 1, baseline, changes, tables)
+    pending.notes = order_notes(old, tables)
     pending.sql = render(pending) if changes or baseline else ""
     return pending
 

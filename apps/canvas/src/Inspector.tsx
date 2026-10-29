@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { api, type Diagnostic, type Entity, type Relationship, type State } from './api'
 import { EntityCodeView } from './Code'
+import { ExpressionEditor } from './ExpressionEditor'
 import { Row, SelectField, TextField } from './Field'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
@@ -20,9 +21,19 @@ function Issues({ diagnostics }: { diagnostics: Diagnostic[] }) {
   )
 }
 
-type EntityProps = { state: State; entity: Entity; run: Run; diagnostics: Diagnostic[]; generatedRevision: string }
+type LineageTarget = { entity: string; column: string | null } | null
 
-export function EntityPanel({ state, entity, run, diagnostics, generatedRevision }: EntityProps) {
+type EntityProps = {
+  state: State
+  entity: Entity
+  run: Run
+  diagnostics: Diagnostic[]
+  generatedRevision: string
+  lineageOf: LineageTarget
+  onLineage: (target: LineageTarget) => void
+}
+
+export function EntityPanel({ state, entity, run, diagnostics, generatedRevision, lineageOf, onLineage }: EntityProps) {
   const [tab, setTab] = useState<'model' | 'code'>('model')
   const issues = diagnostics.filter((d) => d.entity_id === entity.id)
   return (
@@ -36,7 +47,7 @@ export function EntityPanel({ state, entity, run, diagnostics, generatedRevision
         </button>
       </div>
       {tab === 'model' ? (
-        <EntityForm state={state} entity={entity} run={run} issues={issues} />
+        <EntityForm state={state} entity={entity} run={run} issues={issues} lineageOf={lineageOf} onLineage={onLineage} />
       ) : (
         <>
           <div className="panel__heading">
@@ -51,7 +62,16 @@ export function EntityPanel({ state, entity, run, diagnostics, generatedRevision
   )
 }
 
-function EntityForm({ state, entity, run, issues }: { state: State; entity: Entity; run: Run; issues: Diagnostic[] }) {
+type FormProps = {
+  state: State
+  entity: Entity
+  run: Run
+  issues: Diagnostic[]
+  lineageOf: LineageTarget
+  onLineage: (target: LineageTarget) => void
+}
+
+function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormProps) {
   const { choices, editable } = state
   const disabled = !editable
   const save = (changes: Record<string, unknown>) => run(() => api.updateEntity(entity.id, changes))
@@ -60,8 +80,28 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
   const [column, setColumn] = useState({ name: '', type: 'string' })
   const [search, setSearch] = useState('')
   const [picking, setPicking] = useState(false)
+  const [calculating, setCalculating] = useState(false)
   const matches = (name: string) => name.toLowerCase().includes(search.trim().toLowerCase())
   const shown = entity.attributes.filter((a) => matches(a.name))
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null)
+  const moving = useRef(false)
+
+  // Columns move by dragging the ⋮⋮ handle, or with Alt+↑/↓ on it. The new order is sent whole.
+  const move = (id: string, target: string, after: boolean) => {
+    const ids = entity.attributes.map((a) => a.id).filter((x) => x !== id)
+    const index = ids.indexOf(target)
+    if (index < 0) return
+    ids.splice(after ? index + 1 : index, 0, id)
+    if (moving.current || ids.join() === entity.attributes.map((a) => a.id).join()) return
+    moving.current = true // a second move before this one is saved would start from the old order
+    run(() => api.orderColumns(entity.id, ids)).finally(() => (moving.current = false))
+  }
+  const step = (id: string, by: -1 | 1) => {
+    const index = entity.attributes.findIndex((a) => a.id === id)
+    const neighbour = entity.attributes[index + by]
+    if (neighbour) move(id, neighbour.id, by === 1)
+  }
 
   const addColumn = async () => {
     if (!column.name.trim()) return
@@ -81,6 +121,16 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
           disabled={disabled}
           onSave={(name) => name && save({ name })}
         />
+        <button
+          className={lineageOf?.entity === entity.name && !lineageOf.column ? 'chip chip--active' : 'chip'}
+          title="Show where this table's columns come from and what uses them"
+          aria-pressed={lineageOf?.entity === entity.name && !lineageOf.column}
+          onClick={() =>
+            onLineage(lineageOf?.entity === entity.name && !lineageOf.column ? null : { entity: entity.name, column: null })
+          }
+        >
+          Lineage
+        </button>
       </div>
       <Issues diagnostics={issues} />
 
@@ -102,7 +152,17 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
           />
         </Row>
         <Row label="Domain">
-          <TextField label="Domain" value={entity.domain} disabled={disabled} placeholder="none" onSave={(domain) => save({ domain })} />
+          <SelectField
+            label="Domain"
+            value={entity.domain}
+            options={[
+              ...state.domains.map((d) => d.name),
+              ...(entity.domain && !state.domains.some((d) => d.name === entity.domain) ? [entity.domain] : []),
+            ]}
+            allowEmpty
+            disabled={disabled}
+            onSave={(domain) => save({ domain })}
+          />
         </Row>
         <Row label="Description">
           <TextField
@@ -125,12 +185,34 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
             </span>
           </h3>
           {editable && (
-            <button className="button button--small" onClick={() => setPicking(!picking)} aria-expanded={picking}>
-              + From another table
-            </button>
+            <div className="section__actions">
+              {entity.layer !== 'raw' && (
+                <button
+                  className="button button--small"
+                  onClick={() => {
+                    setCalculating(!calculating)
+                    setPicking(false)
+                  }}
+                  aria-expanded={calculating}
+                >
+                  + Calculated
+                </button>
+              )}
+              <button
+                className="button button--small"
+                onClick={() => {
+                  setPicking(!picking)
+                  setCalculating(false)
+                }}
+                aria-expanded={picking}
+              >
+                + From another table
+              </button>
+            </div>
           )}
         </div>
         {picking && <CopyColumns state={state} entity={entity} run={run} onDone={() => setPicking(false)} />}
+        {calculating && <CalculatedColumn state={state} entity={entity} run={run} onDone={() => setCalculating(false)} />}
         {entity.attributes.length > 6 && (
           <input
             className="input input--search"
@@ -143,14 +225,59 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
         )}
         <div className="columns">
           <div className="columns__head">
+            <span />
             <span>Name</span>
             <span>Type</span>
             <span title="Primary key">PK</span>
             <span title="Not null">NN</span>
             <span />
+            <span />
           </div>
           {shown.map((a) => (
-            <div key={a.id} className="columns__row">
+            <div
+              key={a.id}
+              className={[
+                'columns__row',
+                dragging === a.id ? 'columns__row--dragging' : '',
+                dropAt?.id === a.id ? (dropAt.after ? 'columns__row--drop-after' : 'columns__row--drop-before') : '',
+              ].join(' ')}
+              onDragOver={(e) => {
+                if (!dragging || dragging === a.id) return
+                e.preventDefault()
+                const box = e.currentTarget.getBoundingClientRect()
+                setDropAt({ id: a.id, after: e.clientY > box.top + box.height / 2 })
+              }}
+              onDragLeave={() => setDropAt((d) => (d?.id === a.id ? null : d))}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragging && dropAt) move(dragging, dropAt.id, dropAt.after)
+                setDragging(null)
+                setDropAt(null)
+              }}
+            >
+              <button
+                className="drag-handle"
+                draggable={!disabled}
+                disabled={disabled}
+                title="Drag to move, or Alt+↑/↓"
+                aria-label={`Move ${a.name}: Alt and arrow keys`}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', a.name)
+                  setDragging(a.id)
+                }}
+                onDragEnd={() => {
+                  setDragging(null)
+                  setDropAt(null)
+                }}
+                onKeyDown={(e) => {
+                  if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+                  e.preventDefault()
+                  step(a.id, e.key === 'ArrowUp' ? -1 : 1)
+                }}
+              >
+                ⋮⋮
+              </button>
               <TextField label={`${a.name} name`} value={a.name} disabled={disabled} onSave={(name) => name && saveColumn(a.id, { name })} />
               <TextField
                 label={`${a.name} type`}
@@ -174,6 +301,25 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
                 onChange={(e) => saveColumn(a.id, { nullable: !e.target.checked })}
               />
               <button
+                className={
+                  lineageOf?.entity === entity.name && lineageOf.column === a.name
+                    ? 'icon-button lineage-button lineage-button--active'
+                    : 'icon-button lineage-button'
+                }
+                title={`Lineage of ${a.name}: where it comes from and what uses it`}
+                aria-label={`Lineage of ${a.name}`}
+                aria-pressed={lineageOf?.entity === entity.name && lineageOf.column === a.name}
+                onClick={() =>
+                  onLineage(
+                    lineageOf?.entity === entity.name && lineageOf.column === a.name
+                      ? null
+                      : { entity: entity.name, column: a.name },
+                  )
+                }
+              >
+                ⇄
+              </button>
+              <button
                 className="icon-button"
                 title={`Remove ${a.name}`}
                 aria-label={`Remove ${a.name}`}
@@ -192,6 +338,7 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
                 addColumn()
               }}
             >
+              <span />
               <input
                 className="input"
                 placeholder="new_column"
@@ -242,9 +389,51 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
 }
 
 /** How each column is derived: `entity.column` sources and an optional SQL expression (DuckDB SQL). */
+/** A new column worked out by an expression: its name, its type (suggested from the expression) and the SQL. */
+function CalculatedColumn({ state, entity, run, onDone }: { state: State; entity: Entity; run: Run; onDone: () => void }) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState('')
+  return (
+    <ExpressionEditor
+      entities={(state.model?.entities ?? []).filter((e) => e.id !== entity.id)}
+      target={entity.name}
+      initial=""
+      saveLabel="Add column"
+      onCancel={onDone}
+      onSave={async (expression, check) => {
+        if (!name.trim() || !expression) return false
+        const ok = await run(() =>
+          api.addCalculatedColumn(entity.id, { name: name.trim(), expression, type: type.trim() || check?.type || null }),
+        )
+        if (ok) onDone()
+        return ok
+      }}
+    >
+      <div className="expression__fields">
+        <input
+          className="input"
+          placeholder="column_name"
+          aria-label="Calculated column name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <input
+          className="input"
+          list="logical-types"
+          placeholder="type (from the expression)"
+          aria-label="Calculated column type"
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+        />
+      </div>
+    </ExpressionEditor>
+  )
+}
+
 function Mappings({ state, entity, run, filter }: { state: State; entity: Entity; run: Run; filter: (name: string) => boolean }) {
   const disabled = !state.editable
   const [picking, setPicking] = useState<string | null>(null) // the column whose sources are being picked
+  const [editing, setEditing] = useState<string | null>(null) // the column whose expression is open
   const others = (state.model?.entities ?? []).filter((e) => e.id !== entity.id)
   const upstream = others.flatMap((e) => e.attributes.map((a) => `${e.name}.${a.name}`))
   const mappingFor = (name: string) => entity.mappings.find((m) => m.target.toLowerCase() === name.toLowerCase())
@@ -291,14 +480,32 @@ function Mappings({ state, entity, run, filter }: { state: State; entity: Entity
                     </button>
                   )}
                 </div>
-                <TextField
-                  label={`${a.name} expression`}
-                  value={expression}
-                  placeholder="expression (optional)"
-                  disabled={disabled}
-                  onSave={(text) => save(a.id, sources, text)}
-                />
+                <button
+                  className={expression ? 'expression-button' : 'expression-button expression-button--empty'}
+                  disabled={disabled && !expression}
+                  aria-expanded={editing === a.id}
+                  aria-label={`${a.name} expression`}
+                  title={expression ?? 'Add an expression to combine or calculate'}
+                  onClick={() => setEditing(editing === a.id ? null : a.id)}
+                >
+                  <span className="expression-button__fx">ƒx</span>
+                  <code>{expression ?? 'expression'}</code>
+                </button>
               </div>
+              {editing === a.id && !disabled && (
+                <ExpressionEditor
+                  entities={others}
+                  target={entity.name}
+                  initial={expression ?? ''}
+                  sources={sources}
+                  onCancel={() => setEditing(null)}
+                  onSave={async (text, check) => {
+                    // The columns an expression reads become the mapping's sources.
+                    const next = text && check?.references.length ? check.references : sources
+                    if (await save(a.id, next, text)) setEditing(null)
+                  }}
+                />
+              )}
               {picking === a.id && (
                 <ColumnPicker
                   entities={others}
