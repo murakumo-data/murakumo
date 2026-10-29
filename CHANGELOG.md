@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.1.1 (unreleased)
+
+Fixes and polish from the first end-to-end test.
+
+- **Build**: `murakumo build` builds the project into its own warehouse (the DuckDB file, or the
+  Snowflake database) and keeps the tables, unlike `verify`, which drops everything afterwards.
+  `--sample N` fills empty raw tables with made-up rows, `--data` loads files, `--env` picks the
+  environment.
+- **Snowflake**: when the database does not exist, `setup --connect` prints the SQL that creates it
+  as a block to paste into a Snowsight worksheet, with where to run it.
+- **`init`**: numbered choices with a description of each; a clearer question about the example
+  model; **Ready.** in green and **Next:** with the `cd` to run; a pointer to `murakumo --help`.
+- **`murakumo config`** changes the warehouse, orchestrator or modelling pattern after `init`,
+  keeping the manifest's comments.
+- **Setup checklist**: a key to the symbols; numbered steps for installing the chosen orchestrator
+  and pointing it at the dbt project, with links to its documentation (and what to set up in the
+  cloud for managed ones); checks for the macOS developer tools and git's name and email; projects
+  inside an existing repository are recognised; plainer explanations in the Project section.
+- **Canvas**:
+  - relationships in crow's-foot notation, with a **Notation & tips** legend; labels show on
+    hover; hovering or selecting a line highlights the joined columns;
+  - lines no longer disappear behind tables dragged one above the other;
+  - Shift+drag selects several tables to move them together;
+  - the inspector can be resized, has a column search, a **+ Relationship** form, and
+    **+ From another table** to add columns by ticking them; mapping sources can be ticked in a
+    list;
+  - one button writes the code, or the migration and the code together, with plainer messages
+    (*Wrote 12 files to generated/*).
+- The manifest template lists storage locations for each cloud and a local folder.
+
 ## 0.1.0 (2026-10-27)
 
 The first release: design a data model, generate a tested dbt project and DDL from it, and keep

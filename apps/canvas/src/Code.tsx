@@ -61,11 +61,15 @@ type ChangesProps = {
   generated: Generated | null
   entityName: (id: string) => string | undefined
   onGenerate: () => void
-  onMigrate: (name: string | null) => void
+  onMigrate: (name: string | null, alsoGenerate: boolean) => void
   busy: boolean
 }
 
-/** What generating now would change in generated/, and the migration the model needs. */
+/**
+ * What saving the model as code would write: the files in generated/, and the migration when the
+ * change alters tables that keep data. Both are written with one button, migration first, so the
+ * code never runs ahead of the tables.
+ */
 export function ChangesPanel({ generated, entityName, onGenerate, onMigrate, busy }: ChangesProps) {
   const [open, setOpen] = useState<string | null>(null)
   const [showSql, setShowSql] = useState(false)
@@ -75,17 +79,92 @@ export function ChangesPanel({ generated, entityName, onGenerate, onMigrate, bus
 
   const changed = generated.files.filter((f) => f.status !== 'unchanged')
   const migration = generated.migration
+  const needsMigration = Boolean(migration && !migration.baseline)
+  const files = `${changed.length} file${changed.length === 1 ? '' : 's'}`
+  const primary = needsMigration
+    ? changed.length
+      ? `Write migration #${migration!.number} and ${files}`
+      : `Write migration #${migration!.number}`
+    : changed.length
+      ? `Write ${files} to generated/`
+      : null
+
   return (
     <div className="changes">
-      <section className="section">
-        <div className="section__head">
-          <h3 className="section__title">
-            generated/ <span className="muted">for {generated.warehouse}</span>
-          </h3>
-          <button className="button button--primary button--small" disabled={busy || changed.length === 0} onClick={onGenerate}>
-            Generate
+      <section className="section changes__summary">
+        {primary ? (
+          <>
+            <p>
+              {needsMigration
+                ? 'Your model change alters tables that already hold data, so it needs a migration (SQL that changes those tables) as well as new code. Both are written together:'
+                : 'Your model has changes that are not written as code yet. Review the files below, then write them:'}
+            </p>
+            {needsMigration && (
+              <ol className="steps">
+                <li>
+                  the migration, <code>{migration!.file}</code>
+                </li>
+                {changed.length > 0 && <li>{files} in generated/</li>}
+              </ol>
+            )}
+            <button
+              className="button button--primary"
+              disabled={busy}
+              onClick={() => (needsMigration ? onMigrate(name.trim() || null, true) : onGenerate())}
+            >
+              {busy ? 'Writing…' : primary}
+            </button>
+          </>
+        ) : (
+          <p className="muted">Everything is written: generated/ and the migrations match the model.</p>
+        )}
+      </section>
+
+      {migration && (
+        <section className="section">
+          <div className="section__head">
+            <h3 className="section__title">
+              Migration <span className="muted">{migration.baseline ? 'baseline' : `#${migration.number}`}</span>
+            </h3>
+            {migration.baseline && (
+              <button className="button button--small" disabled={busy} onClick={() => onMigrate(name.trim() || null, false)}>
+                Write baseline
+              </button>
+            )}
+          </div>
+          <p className="muted">
+            {migration.baseline
+              ? 'Optional for now: no migrations yet. The baseline records the landing tables as they are, so later changes to them get a migration. Write it before those tables hold data you want to keep.'
+              : 'Tables that keep data between runs need these changes:'}
+          </p>
+          {!migration.baseline && (
+            <ul className="migration">
+              {migration.changes.map((c, i) => (
+                <li key={i} className={c.destructive ? 'migration__change migration__change--destructive' : 'migration__change'}>
+                  {c.destructive ? '! ' : ''}
+                  {c.summary}
+                </li>
+              ))}
+            </ul>
+          )}
+          <input
+            className="input"
+            placeholder={migration.file.split('/').pop()}
+            aria-label="Migration name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <button className="link-button" onClick={() => setShowSql(!showSql)} aria-expanded={showSql}>
+            {showSql ? 'Hide SQL' : 'Show SQL'}
           </button>
-        </div>
+          {showSql && <CodeBlock code={migration.sql} />}
+        </section>
+      )}
+
+      <section className="section">
+        <h3 className="section__title">
+          generated/ <span className="muted">for {generated.warehouse}</span>
+        </h3>
         {changed.length === 0 ? (
           <p className="muted">Up to date with the model ({generated.files.length} files).</p>
         ) : (
@@ -109,56 +188,13 @@ export function ChangesPanel({ generated, entityName, onGenerate, onMigrate, bus
                     </span>
                   </button>
                   {file.edited_by_hand && (
-                    <p className="issue issue--warning">Edited by hand: generating overwrites it. Put custom code in custom/.</p>
+                    <p className="issue issue--warning">Edited by hand: writing overwrites it. Put custom code in custom/.</p>
                   )}
                   {open === file.path && <FileDiff path={file.path} />}
                 </li>
               )
             })}
           </ul>
-        )}
-      </section>
-
-      <section className="section">
-        <div className="section__head">
-          <h3 className="section__title">Migration</h3>
-          {migration && (
-            <button className="button button--small" disabled={busy} onClick={() => onMigrate(name.trim() || null)}>
-              Write {migration.baseline ? 'baseline' : `#${migration.number}`}
-            </button>
-          )}
-        </div>
-        {!migration ? (
-          <p className="muted">The tables that keep data match the model; no migration needed.</p>
-        ) : (
-          <>
-            <p className="muted">
-              {migration.baseline
-                ? 'No migrations yet. The first one records the landing tables as they are now.'
-                : 'Tables that keep data between runs need these changes:'}
-            </p>
-            {!migration.baseline && (
-              <ul className="migration">
-                {migration.changes.map((c, i) => (
-                  <li key={i} className={c.destructive ? 'migration__change migration__change--destructive' : 'migration__change'}>
-                    {c.destructive ? '! ' : ''}
-                    {c.summary}
-                  </li>
-                ))}
-              </ul>
-            )}
-            <input
-              className="input"
-              placeholder={migration.file.split('/').pop()}
-              aria-label="Migration name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <button className="link-button" onClick={() => setShowSql(!showSql)} aria-expanded={showSql}>
-              {showSql ? 'Hide SQL' : 'Show SQL'}
-            </button>
-            {showSql && <CodeBlock code={migration.sql} />}
-          </>
         )}
       </section>
     </div>

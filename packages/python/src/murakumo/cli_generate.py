@@ -1,4 +1,4 @@
-"""``murakumo generate``, ``murakumo migrate`` and ``murakumo verify``."""
+"""``murakumo generate``, ``migrate``, ``verify`` and ``build``."""
 
 from __future__ import annotations
 
@@ -107,6 +107,35 @@ def migrate_command(
         console.print("[yellow]Statements that would lose data are commented out; review them.[/yellow]")
 
 
+def _data_files(project, data: list[str] | None) -> dict[str, str]:
+    files: dict[str, str] = {}
+    for item in data or []:
+        table, sep, location = (part.strip() for part in item.partition("="))
+        if not sep or not table or not location:
+            fail(f"cannot read --data {item!r}; write TABLE=PATH")
+            raise typer.Exit(1)
+        entity = project.model.entity(table.rsplit(".", 1)[-1])
+        if entity is None or entity.layer.value != "raw":
+            fail(f"--data {table}: no raw table of that name in the model")
+            raise typer.Exit(1)
+        files[table] = location
+    return files
+
+
+def _report(result, files: dict[str, str]) -> None:
+    for table, count in sorted(result.loaded.items()):
+        source = {k.lower(): v for k, v in files.items()}.get(table.lower())
+        how = f"from {source}" if source else "synthetic"
+        console.print(f"  loaded {table}: {count} rows ({how})")
+    for node in result.nodes:
+        if node.status not in ("success", "pass"):
+            colour = "yellow" if node.status == "warn" else "red"
+            detail = f" ({node.failures} failing rows)" if node.failures else ""
+            console.print(f"  [{colour}]{node.status}[/{colour}] {node.kind} {node.name}{detail}")
+            if node.message and node.status not in ("warn",):
+                console.print(f"      {escape(node.message.strip().splitlines()[0][:300])}")
+
+
 def verify_command(
     project_path: Path = ProjectOption,
     rows: int = typer.Option(200, help="Synthetic rows per raw table."),
@@ -133,17 +162,7 @@ def verify_command(
         print_diagnostics([d for d in problems if d.level is Level.ERROR], project.root)
         fail("the model has errors; fix them before verifying")
         raise typer.Exit(1)
-    files: dict[str, str] = {}
-    for item in data or []:
-        table, sep, location = (part.strip() for part in item.partition("="))
-        if not sep or not table or not location:
-            fail(f"cannot read --data {item!r}; write TABLE=PATH")
-            raise typer.Exit(1)
-        entity = project.model.entity(table.rsplit(".", 1)[-1])
-        if entity is None or entity.layer.value != "raw":
-            fail(f"--data {table}: no raw table of that name in the model")
-            raise typer.Exit(1)
-        files[table] = location
+    files = _data_files(project, data)
 
     with console.status(f"Generating for {warehouse.value}, loading raw tables and running dbt build..."):
         try:
@@ -161,17 +180,7 @@ def verify_command(
             fail(str(exc))
             raise typer.Exit(1) from None
 
-    for table, count in sorted(result.loaded.items()):
-        source = {k.lower(): v for k, v in files.items()}.get(table.lower())
-        how = f"from {source}" if source else "synthetic"
-        console.print(f"  loaded {table}: {count} rows ({how})")
-    for node in result.nodes:
-        if node.status not in ("success", "pass"):
-            colour = "yellow" if node.status == "warn" else "red"
-            detail = f" ({node.failures} failing rows)" if node.failures else ""
-            console.print(f"  [{colour}]{node.status}[/{colour}] {node.kind} {node.name}{detail}")
-            if node.message and node.status not in ("warn",):
-                console.print(f"      {escape(node.message.strip().splitlines()[0][:300])}")
+    _report(result, files)
     if result.error:
         fail(result.error)
         raise typer.Exit(1)
@@ -190,5 +199,70 @@ def verify_command(
         console.print(f"dbt project kept in {keep}.")
     if result.location and (keep_tables or warehouse is Warehouse.DUCKDB):
         console.print(f"Tables kept in {result.location}.")
+    if not result.ok:
+        raise typer.Exit(1)
+
+
+def build_command(
+    project_path: Path = ProjectOption,
+    environment: str | None = typer.Option(
+        None, "--env", help="Environment to build (its schemas and profile). Defaults to the first in murakumo.yaml."
+    ),
+    sample: int = typer.Option(0, help="Load this many synthetic rows into raw tables that are still empty."),
+    data: list[str] = typer.Option(
+        None, "--data", help="Load a real file into a raw table: TABLE=PATH_OR_URL. Repeat for several."
+    ),
+    limit: int | None = typer.Option(None, help="Load at most this many rows from each --data file."),
+    warehouse: Warehouse | None = typer.Option(
+        None, "--warehouse", help="duckdb or snowflake. Defaults to the project's warehouse."
+    ),
+) -> None:
+    """Build the project into the warehouse and keep it: raw tables, then every dbt model and test.
+
+    Unlike `verify`, nothing is dropped afterwards; the tables are there to query.
+    """
+    from murakumo.generate.verify import build
+    from murakumo.importers.database import SourceUnavailable
+
+    project = open_project(project_path)
+    problems = validate_project(project)
+    if any(d.level is Level.ERROR for d in problems):
+        print_diagnostics([d for d in problems if d.level is Level.ERROR], project.root)
+        fail("the model has errors; fix them before building")
+        raise typer.Exit(1)
+    files = _data_files(project, data)
+    if warehouse in (None, project.manifest.targets.warehouse.type) and compare(generate(project), project.root).any:
+        console.print(
+            f"[yellow]![/yellow] {GENERATED_DIR}/ is out of date with the model; building the model as it is now. "
+            "Run [bold]murakumo generate[/bold] to bring the files in line."
+        )
+    if (project.root / MIGRATIONS_DIR).is_dir():
+        pending = plan_migration(project, warehouse)
+        if pending.changes:
+            console.print(
+                f"[yellow]![/yellow] {len(pending.changes)} table change(s) have no migration yet. Existing raw "
+                "tables keep their old shape until you run [bold]murakumo migrate[/bold] and apply the SQL."
+            )
+
+    target = (warehouse or project.manifest.targets.warehouse.type).value
+    with console.status(f"Building on {target}: raw tables, then dbt build..."):
+        try:
+            result = build(project, warehouse, environment, data=files, limit=limit, sample=sample)
+        except SourceUnavailable as exc:
+            fail(str(exc))
+            raise typer.Exit(1) from None
+
+    _report(result, files)
+    if result.skipped:
+        console.print(f"  kept the rows already in {', '.join(sorted(result.skipped))} (no sample added)")
+    if result.error:
+        fail(result.error)
+        raise typer.Exit(1)
+    models = result.count("model") + result.count("snapshot")
+    tests = result.count("test")
+    passed = result.count("test", "pass")
+    summary = f"{models} models and snapshots, {passed}/{tests} tests passed"
+    colour, word = ("green", "built") if result.ok else ("red", "failed")
+    console.print(f"[{colour}]{word}[/{colour}]: {summary}. Tables are in {result.location}.")
     if not result.ok:
         raise typer.Exit(1)

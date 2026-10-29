@@ -8,12 +8,13 @@ export type EntityData = {
   foreignKeys: Set<string> // lower-case column names that hold a foreign key
   errors: number
   warnings: number
+  linked?: Set<string> // column ids joined by the selected or hovered relationship
 }
 
 export type EntityNodeType = Node<EntityData, 'entity'>
 
 export function EntityNode({ data, selected }: NodeProps<EntityNodeType>) {
-  const { entity, foreignKeys, errors, warnings } = data
+  const { entity, foreignKeys, errors, warnings, linked } = data
   return (
     <div className={`entity entity--${entity.layer}${selected ? ' entity--selected' : ''}`}>
       <div className="entity__header">
@@ -35,7 +36,7 @@ export function EntityNode({ data, selected }: NodeProps<EntityNodeType>) {
           const fk = foreignKeys.has(column.name.toLowerCase())
           const pk = column.key === 'primary'
           return (
-            <li key={column.id} className="entity__column">
+            <li key={column.id} className={linked?.has(column.id) ? 'entity__column entity__column--linked' : 'entity__column'}>
               <Handle type="target" position={Position.Left} id={handleId(column.id, 'in')} />
               <span className="entity__key">{pk ? 'PK' : fk ? 'FK' : ''}</span>
               <span className={pk ? 'entity__column-name entity__column-name--key' : 'entity__column-name'}>

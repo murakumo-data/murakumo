@@ -6,6 +6,8 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.markup import escape
+from rich.padding import Padding
+from rich.syntax import Syntax
 from rich.table import Table
 
 from murakumo.diagnostics import Diagnostic, Level
@@ -32,6 +34,8 @@ def fail(message: str) -> None:
     err_console.print(f"[red]error[/red] {escape(message)}")
 
 
+LEGEND = "✓ done   ✗ needed before building   ! worth doing   • for later"
+
 _MARKS = {"ok": "[green]✓[/green]", "todo": "[red]✗[/red]", "warn": "[yellow]![/yellow]", "info": "[blue]•[/blue]"}
 
 
@@ -47,5 +51,16 @@ def print_checks(checks, compact: bool = False) -> None:
         console.print(f"  {_MARKS[check.status.value]} {escape(check.title)}")
         if check.detail:
             console.print(f"    [dim]{escape(check.detail)}[/dim]")
-        for step in check.steps:
-            console.print(f"    [cyan]→[/cyan] {escape(step)}", soft_wrap=True)
+        numbered = len(check.steps) > 1 and check.numbered
+        for number, step in enumerate(check.steps, 1):
+            mark = f"[cyan]{number}.[/cyan]" if numbered else "[cyan]→[/cyan]"
+            console.print(f"    {mark} {escape(step)}", soft_wrap=True)
+        if check.sql:
+            if check.sql_where:
+                console.print(f"    [bold]Run this SQL[/bold] [dim]({escape(check.sql_where)})[/dim]")
+            console.print(
+                Padding(Syntax(check.sql, "sql", theme="ansi_dark", background_color="default"), (0, 0, 0, 6))
+            )
+        for number, link in enumerate(check.docs):
+            label = "Docs:" if number == 0 else "     "
+            console.print(f"    [dim]{label}[/dim] [link={link}]{escape(link)}[/link]", soft_wrap=True)

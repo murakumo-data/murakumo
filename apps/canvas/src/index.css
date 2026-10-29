@@ -487,6 +487,94 @@ textarea.input {
   stroke-dasharray: 5 4;
 }
 
+.markers {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.mk path,
+.mk circle,
+.legend__line {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+}
+
+.mk circle {
+  fill: var(--surface);
+}
+
+.legend__line--dashed {
+  stroke-dasharray: 5 4;
+}
+
+.edge-label {
+  position: absolute;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.edge-label--selected {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.entity__column--linked,
+.entity__column--linked:hover {
+  background: var(--info-bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.entity__column--linked .entity__column-name {
+  font-weight: 600;
+}
+
+.legend__example {
+  vertical-align: middle;
+}
+
+.legend {
+  width: 320px;
+  max-width: calc(100vw - 100px);
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.legend__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.legend__list,
+.legend__keys {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.legend__list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend__keys li {
+  color: var(--text-muted);
+}
+
 .react-flow__edge-textbg {
   fill: var(--surface);
 }
@@ -526,11 +614,29 @@ textarea.input {
 
 .panel {
   right: 12px;
-  width: min(400px, calc(100% - 24px));
+  width: min(var(--panel-width, 400px), calc(100% - 24px));
 }
 
 .panel:has(.panel__body--wide) {
-  width: min(640px, calc(100% - 24px));
+  width: min(max(var(--panel-width, 400px), 640px), calc(100% - 24px));
+}
+
+/* Drag the left edge of the inspector to make it wider or narrower. */
+.panel__resize {
+  position: sticky;
+  top: 0;
+  float: left;
+  width: 8px;
+  height: 100%;
+  margin-left: -1px;
+  margin-bottom: -100%;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.panel__resize:hover,
+.panel__resize:active {
+  background: linear-gradient(to right, var(--accent) 0 3px, transparent 3px);
 }
 
 .panel__close {
@@ -996,4 +1102,107 @@ textarea.input {
   white-space: nowrap;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/* The one button that writes the model as code (and its migration). */
+.changes__summary p {
+  margin: 0 0 8px;
+}
+
+.changes__summary .button {
+  width: 100%;
+}
+
+.steps {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+/* Inspector: finding and picking columns */
+.input--search {
+  width: 100%;
+  margin: 0 0 8px;
+}
+
+.mapping__sources {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mapping__sources .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.picker,
+.copy-columns,
+.relationship-form {
+  margin: 6px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.copy-columns .picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.copy-columns p {
+  margin: 0 0 8px;
+}
+
+.picker__list {
+  max-height: 260px;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+}
+
+.picker__group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.picker__group legend label,
+.picker__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.picker__group legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.picker__item {
+  padding: 2px 0 2px 20px;
+}
+
+.picker__item .muted {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.picker__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.picker__actions .muted {
+  margin-right: auto;
+}
+
+.steps code {
+  word-break: break-all;
 }

@@ -1,4 +1,5 @@
 import type { Entity, Layer, Position, Relationship } from './api'
+import type { End } from './Relationship'
 
 const LAYERS: Layer[] = ['raw', 'staging', 'intermediate', 'marts', 'semantic']
 const COLUMN_WIDTH = 340
@@ -75,4 +76,19 @@ export function placeEntities(
     bottom[column] = y + nodeHeight(entity) + GAP
   }
   return positions
+}
+
+/** The symbols at each end, from the relationship's cardinality and whether a match is optional. */
+export function ends(cardinality: string, optional: boolean): { fromEnd: End; toEnd: End } {
+  const [from, to] = (
+    {
+      many_to_one: ['many', 'one'],
+      one_to_many: ['one', 'many'],
+      one_to_one: ['one', 'one'],
+      many_to_many: ['many', 'many'],
+    } as Record<string, [string, string]>
+  )[cardinality] ?? ['many', 'one']
+  // Optional: a row at the `from` end may have no match at the `to` end.
+  const toEnd = (optional ? `zero-${to}` : to) as End
+  return { fromEnd: from as End, toEnd }
 }

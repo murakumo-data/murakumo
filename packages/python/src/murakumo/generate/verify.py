@@ -94,12 +94,13 @@ def _workspace(keep: Path | None) -> Iterator[Path]:
 class DuckDBBackend:
     warehouse = Warehouse.DUCKDB
     prefix = ""
+    batch = "verify"
 
-    def __init__(self, project: Project, folder: Path):
+    def __init__(self, project: Project, folder: Path, path: Path | None = None):
         import duckdb
 
         self.duckdb = duckdb
-        self.path = folder / "verify.duckdb"
+        self.path = path or folder / "verify.duckdb"
         self.connection = duckdb.connect(str(self.path))
 
     def table(self, schema: str, entity: Entity) -> str:
@@ -114,7 +115,7 @@ class DuckDBBackend:
         placeholders = ", ".join("?" for _ in columns)
         self.connection.executemany(
             f"insert into {self.table(schema, entity)} ({names}, _ingested_at, _batch_id) "
-            f"values ({placeholders}, now(), 'verify')",
+            f"values ({placeholders}, now(), '{self.batch}')",
             [[row.get(c) for c in columns] for row in rows],
         )
         return len(rows)
@@ -129,10 +130,13 @@ class DuckDBBackend:
         table = self.table(schema, entity)
         self.connection.execute(
             f"insert into {table} ({columns}, _ingested_at, _batch_id) "
-            f"select {columns}, now(), 'verify' from {reader}(?){limit_sql}",
+            f"select {columns}, now(), '{self.batch}' from {reader}(?){limit_sql}",
             [location],
         )
         return self.connection.execute(f"select count(*) from {table}").fetchone()[0]
+
+    def rows_in(self, schema: str, entity: Entity) -> int:
+        return self.connection.execute(f"select count(*) from {self.table(schema, entity)}").fetchone()[0]
 
     def finish_loading(self) -> None:
         self.connection.close()
@@ -159,13 +163,14 @@ class SnowflakeBackend:
 
     warehouse = Warehouse.SNOWFLAKE
     cleanup_failed = False
+    batch = "verify"
 
-    def __init__(self, project: Project, folder: Path):
+    def __init__(self, project: Project, folder: Path, prefix: str | None = None):
         from murakumo.generate.dbt import warehouse_database
         from murakumo.importers import snowflake
 
         self.folder = folder
-        self.prefix = datetime.now().strftime("verify_%Y%m%d_%H%M%S_")
+        self.prefix = datetime.now().strftime("verify_%Y%m%d_%H%M%S_") if prefix is None else prefix
         self.database = os.environ.get("SNOWFLAKE_DATABASE") or warehouse_database(project.manifest)
         try:
             self.connection = snowflake.connect("snowflake://", database=self.database)
@@ -211,7 +216,10 @@ class SnowflakeBackend:
                 f"copy into {table} from {stage} file_format = ({file_format}) "
                 "match_by_column_name = case_insensitive purge = true"
             )
-            cursor.execute(f"update {table} set _ingested_at = current_timestamp(), _batch_id = 'verify'")
+            cursor.execute(
+                f"update {table} set _ingested_at = current_timestamp(), _batch_id = '{self.batch}' "
+                "where _batch_id is null"
+            )
             return cursor.execute(f"select count(*) from {table}").fetchone()[0]
         finally:
             cursor.close()
@@ -239,7 +247,7 @@ class SnowflakeBackend:
             try:
                 cursor.execute(
                     f"insert into {table} ({columns}, _ingested_at, _batch_id) "
-                    f"select {columns}, current_timestamp(), 'verify' from {source}{limit_sql}"
+                    f"select {columns}, current_timestamp(), '{self.batch}' from {source}{limit_sql}"
                 )
                 return cursor.execute(f"select count(*) from {table}").fetchone()[0]
             finally:
@@ -268,17 +276,25 @@ class SnowflakeBackend:
             connection.close()
         return target
 
+    def rows_in(self, schema: str, entity: Entity) -> int:
+        cursor = self.connection.cursor()
+        try:
+            return cursor.execute(f"select count(*) from {self.table(schema, entity)}").fetchone()[0]
+        finally:
+            cursor.close()
+
     def finish_loading(self) -> None:
         pass
 
     def dbt_environment(self) -> dict[str, str]:
-        return {
-            "SNOWFLAKE_DATABASE": self.database,
-            "MURAKUMO_SCHEMA_PREFIX": self.prefix,
-            "MURAKUMO_SCHEMA": f"{self.prefix}default",
-        }
+        variables = {"SNOWFLAKE_DATABASE": self.database, "MURAKUMO_SCHEMA_PREFIX": self.prefix}
+        if self.prefix:
+            variables["MURAKUMO_SCHEMA"] = f"{self.prefix}default"
+        return variables
 
     def describe(self) -> str:
+        if not self.prefix:
+            return f"Snowflake database {self.database}"
         return f"{self.database}.{self.prefix.upper()}* schemas"
 
     def cleanup(self) -> None:
@@ -385,6 +401,20 @@ def _run_dbt(project_dir: Path, environment: str, variables: dict[str, str], rer
     return run
 
 
+def _collect(run, result: VerifyResult) -> None:
+    for node_result in getattr(run.result, "results", None) or []:
+        node = node_result.node
+        result.nodes.append(
+            NodeResult(
+                name=getattr(node, "name", node.unique_id),
+                kind=node.resource_type.value if hasattr(node.resource_type, "value") else str(node.resource_type),
+                status=str(getattr(node_result.status, "value", node_result.status)),
+                message=node_result.message,
+                failures=node_result.failures,
+            )
+        )
+
+
 def verify(
     project: Project,
     rows: int = 200,
@@ -461,17 +491,119 @@ def verify(
         if run.exception is not None:
             result.error = f"dbt could not run: {run.exception}"
             return result
-        for node_result in getattr(run.result, "results", None) or []:
-            node = node_result.node
-            result.nodes.append(
-                NodeResult(
-                    name=getattr(node, "name", node.unique_id),
-                    kind=node.resource_type.value if hasattr(node.resource_type, "value") else str(node.resource_type),
-                    status=str(getattr(node_result.status, "value", node_result.status)),
-                    message=node_result.message,
-                    failures=node_result.failures,
-                )
-            )
+        _collect(run, result)
         if not result.nodes and not run.success:
             result.error = "dbt build failed before running any node; run with --keep to inspect the project"
+    return result
+
+
+# build ----------------------------------------------------------------------------------------
+
+
+@dataclass
+class BuildResult(VerifyResult):
+    skipped: list[str] = field(default_factory=list)  # raw tables that already had rows, so got no sample
+
+
+def _build_backend(project: Project, warehouse: Warehouse, folder: Path, prefix: str):
+    if warehouse is Warehouse.SNOWFLAKE:
+        backend = SnowflakeBackend(project, folder, prefix=prefix)
+    else:
+        configured = project.manifest.targets.warehouse.database or ""
+        name = configured if configured.endswith((".duckdb", ".db")) else f"{project.manifest.project.name}.duckdb"
+        backend = DuckDBBackend(project, folder, path=(project.root / name).resolve())
+        backend.prefix = prefix
+    backend.batch = datetime.now().strftime("build_%Y%m%d_%H%M%S")
+    return backend
+
+
+def build(
+    project: Project,
+    warehouse: Warehouse | str | None = None,
+    environment: str | None = None,
+    data: dict[str, str] | None = None,
+    limit: int | None = None,
+    sample: int = 0,
+    schema_prefix: str = "",
+) -> BuildResult:
+    """Build the project into its real warehouse and keep everything: the raw landing tables
+    (created if missing), and every dbt model, snapshot and test in the environment's schemas.
+
+    Raw tables are loaded only when asked: ``data`` from files or tables, or ``sample`` synthetic
+    rows into tables that are still empty. Otherwise dbt builds on whatever ingestion has landed.
+    ``schema_prefix`` puts every schema beside the usual ones (for tests), as verify does.
+    """
+    warehouse = Warehouse(warehouse or project.manifest.targets.warehouse.type)
+    if warehouse not in SUPPORTED:
+        raise SourceUnavailable(
+            f"build runs on {' or '.join(w.value for w in SUPPORTED)} for now; for {warehouse.value}, "
+            "run `dbt build` in generated/dbt"
+        )
+    try:
+        import dbt.cli.main  # noqa: F401
+
+        if warehouse is Warehouse.DUCKDB:
+            import dbt.adapters.duckdb  # noqa: F401
+        else:
+            import dbt.adapters.snowflake  # noqa: F401
+    except ImportError:
+        package = "'murakumo[verify]'" if warehouse is Warehouse.DUCKDB else "dbt-snowflake"
+        raise SourceUnavailable(f"build needs dbt for {warehouse.value}: pip install {package}") from None
+
+    environments = project.manifest.targets.environments or ["dev"]
+    environment = environment or environments[0]
+    if environment not in environments:
+        raise SourceUnavailable(f"no environment {environment!r} in murakumo.yaml; it has {', '.join(environments)}")
+
+    output = generate(project, warehouse)
+    result = BuildResult(warehouse=warehouse.value)
+    data = {k.lower(): v for k, v in (data or {}).items()}
+
+    with _workspace(None) as folder:
+        for path, content in output.files.items():
+            target = folder / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+
+        backend = _build_backend(project, warehouse, folder, schema_prefix)
+        try:
+            try:
+                backend.run_ddl(DDL(output.plan, schema_prefix=schema_prefix).raw())
+                raw = [e for e in project.model.entities if e.layer is Layer.RAW]
+                synthetic = sample_rows(project.model, raw, rows=sample) if sample else {}
+                planned = {t.entity.name: g.schema for g in output.plan.sources for t in g.tables}
+                for entity in raw:
+                    schema = schema_prefix + planned[entity.name]
+                    key = entity.name.lower()
+                    location = data.get(key) or data.get(f"{(entity.source or '').lower()}.{key}")
+                    if location:
+                        result.loaded[entity.name] = backend.load_location(schema, entity, location, limit)
+                    elif sample and backend.rows_in(schema, entity) == 0:
+                        result.loaded[entity.name] = backend.load_rows(schema, entity, synthetic[entity.name])
+                    elif sample:
+                        result.skipped.append(entity.name)
+            except LoadError as exc:
+                result.error = str(exc)
+                return result
+            except Exception as exc:  # noqa: BLE001 - any driver error while loading
+                result.error = "loading raw tables failed: " + " ".join(str(exc).split())
+                return result
+            finally:
+                backend.finish_loading()
+            variables = backend.dbt_environment()
+            if warehouse is Warehouse.DUCKDB:
+                variables.pop("MURAKUMO_SCHEMA")  # the environment's own schema, as in profiles.yml
+                variables["MURAKUMO_SCHEMA_PREFIX"] = schema_prefix
+            run = _run_dbt(folder / "dbt", environment, variables, False, result)
+        finally:
+            result.location = backend.describe()
+            if warehouse is Warehouse.SNOWFLAKE:
+                backend.connection.close()
+
+        if run.exception is not None:
+            result.error = f"dbt could not run: {run.exception}"
+            return result
+        _collect(run, result)
+        if not result.nodes and not run.success:
+            result.error = "dbt build failed before running any node"
     return result

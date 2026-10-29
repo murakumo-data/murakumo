@@ -2,26 +2,37 @@ import {
   Background,
   ConnectionMode,
   Controls,
-  MarkerType,
   MiniMap,
   Panel,
   ReactFlow,
   ReactFlowProvider,
+  SelectionMode,
   useNodesState,
   useReactFlow,
   type Connection,
-  type Edge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { api, ApiError, type Entity, type Generated, type Layer, type Position, type State } from './api'
 import { ChangesPanel } from './Code'
 import { EntityNode, type EntityNodeType } from './EntityNode'
 import { EntityPanel, RelationshipPanel } from './Inspector'
-import { handleId, nodeHeight, placeEntities } from './layout'
+import { ends, handleId, nodeHeight, placeEntities } from './layout'
+import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
 const nodeTypes = { entity: EntityNode }
+const edgeTypes = { relationship: RelationshipEdge }
+const NODE_WIDTH = 280 // until React Flow has measured a node
+const PANEL_WIDTH = { min: 320, default: 400 }
+
+function savedPanelWidth(): number {
+  try {
+    return Number(window.localStorage.getItem('murakumo.panelWidth')) || PANEL_WIDTH.default
+  } catch {
+    return PANEL_WIDTH.default
+  }
+}
 const POLL_MS = 2000
 
 const CARDINALITY: Record<string, string> = {
@@ -48,6 +59,9 @@ function Canvas() {
   const [generating, setGenerating] = useState(false)
   const [adding, setAdding] = useState<{ name: string; layer: Layer; source: string } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [hovered, setHovered] = useState<string | null>(null)
+  const [legend, setLegend] = useState(false)
+  const [panelWidth, setPanelWidth] = useState(savedPanelWidth)
   const [nodes, setNodes, onNodesChange] = useNodesState<EntityNodeType>([])
   const busy = useRef(0)
   const generatedRevision = useRef<string | undefined>(undefined)
@@ -139,16 +153,17 @@ function Canvas() {
     const issues = (id: string, level: 'error' | 'warning') =>
       diagnostics.filter((d) => d.entity_id === id && d.level === level).length
     setNodes((previous) => {
-      // Keep measured sizes, so React Flow does not have to measure every node again.
-      const measured = new Map(previous.map((n) => [n.id, n.measured]))
+      // Keep measured sizes, so React Flow does not have to measure every node again, and which
+      // nodes are selected: several can be, to move them together.
+      const before = new Map(previous.map((n) => [n.id, n]))
       return entities
         .filter((e) => !hidden.has(e.layer))
         .map((entity) => ({
           id: entity.id,
           type: 'entity' as const,
           position: placed[entity.id],
-          measured: measured.get(entity.id),
-          selected: selection?.kind === 'entity' && selection.id === entity.id,
+          measured: before.get(entity.id)?.measured,
+          selected: before.get(entity.id)?.selected ?? false,
           data: {
             entity,
             foreignKeys: new Set(
@@ -161,10 +176,15 @@ function Canvas() {
           },
         }))
     })
-  }, [state, entities, relationships, diagnostics, hidden, selection, setNodes])
+  }, [state, entities, relationships, diagnostics, hidden, setNodes])
 
-  const edges = useMemo<Edge[]>(() => {
+  const edges = useMemo<RelationshipEdgeType[]>(() => {
     const shown = new Map(nodes.map((n) => [n.id, n]))
+    const box = (id: string) => {
+      const node = shown.get(id)!
+      const width = node.measured?.width ?? NODE_WIDTH
+      return { left: node.position.x, right: node.position.x + width }
+    }
     return relationships.flatMap((r) => {
       const from = byName(entities, r.from)
       const to = byName(entities, r.to)
@@ -172,8 +192,13 @@ function Canvas() {
       const fromColumn = column(from, r.keys[0].from)
       const toColumn = column(to, r.keys[0].to)
       if (!fromColumn || !toColumn) return []
-      // Leave from the side that faces the other table.
-      const rightwards = shown.get(from.id)!.position.x <= shown.get(to.id)!.position.x
+      // Leave from the side that faces the other table. When the tables overlap side to side (one
+      // dragged above or below the other), both ends use the right-hand side, so the line goes
+      // round the tables instead of underneath them.
+      const a = box(from.id)
+      const b = box(to.id)
+      const [fromSide, toSide]: ['in' | 'out', 'in' | 'out'] =
+        a.right + 40 <= b.left ? ['out', 'in'] : b.right + 40 <= a.left ? ['in', 'out'] : ['out', 'out']
       const label = [r.role, CARDINALITY[r.cardinality], r.keys.length > 1 ? `${r.keys.length} keys` : null]
         .filter(Boolean)
         .join(' · ')
@@ -183,17 +208,33 @@ function Canvas() {
           id: r.id,
           source: from.id,
           target: to.id,
-          sourceHandle: handleId(fromColumn.id, rightwards ? 'out' : 'in'),
-          targetHandle: handleId(toColumn.id, rightwards ? 'in' : 'out'),
-          label,
-          type: 'smoothstep',
+          sourceHandle: handleId(fromColumn.id, fromSide),
+          targetHandle: handleId(toColumn.id, toSide),
+          type: 'relationship' as const,
           selected,
           className: r.optional ? 'edge--optional' : undefined,
-          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+          data: { ...ends(r.cardinality, r.optional), label, showLabel: selected || hovered === r.id },
         },
       ]
     })
-  }, [nodes, entities, relationships, selection])
+  }, [nodes, entities, relationships, selection, hovered])
+
+  // The joined columns of the selected (or hovered) relationship, highlighted in both tables.
+  const linkedNodes = useMemo(() => {
+    const id = selection?.kind === 'relationship' ? selection.id : hovered
+    const r = relationships.find((rel) => rel.id === id)
+    const from = r && byName(entities, r.from)
+    const to = r && byName(entities, r.to)
+    if (!r || !from || !to) return nodes
+    const ids = (entity: Entity, names: string[]) =>
+      new Set(names.map((n) => column(entity, n)?.id).filter((c): c is string => Boolean(c)))
+    const linked = new Map<string, Set<string>>([
+      [from.id, ids(from, r.keys.map((k) => k.from))],
+      [to.id, ids(to, r.keys.map((k) => k.to))],
+    ])
+    if (from.id === to.id) linked.set(from.id, new Set([...ids(from, r.keys.map((k) => k.from)), ...ids(to, r.keys.map((k) => k.to))]))
+    return nodes.map((n) => (linked.has(n.id) ? { ...n, data: { ...n.data, linked: linked.get(n.id) } } : n))
+  }, [nodes, relationships, entities, selection, hovered])
 
   const connect = useCallback(
     (connection: Connection) => {
@@ -247,6 +288,7 @@ function Canvas() {
 
   const focus = (entity: Entity) => {
     setSelection({ kind: 'entity', id: entity.id })
+    setNodes((all) => all.map((n) => ({ ...n, selected: n.id === entity.id })))
     const position = positions.current[entity.id]
     if (!position) return
     if (hidden.has(entity.layer)) {
@@ -257,16 +299,20 @@ function Canvas() {
     // Centre it in the part of the canvas the side panels do not cover (at zoom 1, a pixel is a unit).
     const width = window.innerWidth
     const left = side ? Math.min(432, width / 3) : 0
-    const right = Math.min(412, width / 3)
+    const right = Math.min(panelWidth + 12, width / 3)
     const offset = width / 2 - (left + (width - left - right) / 2)
     flow.setCenter(position.x + 140 + offset, position.y + nodeHeight(entity) / 2, { zoom: 1, duration: 400 })
   }
 
+  const filesToWrite = () => generated?.files.filter((f) => f.status !== 'unchanged').length ?? 0
+  const written = (n: number) => `${n} file${n === 1 ? '' : 's'} to generated/`
+
   const generateNow = async () => {
+    const count = filesToWrite()
     setGenerating(true)
     try {
       setGenerated(await api.generate())
-      setMessage({ text: 'Wrote generated/.', tone: 'info' })
+      setMessage({ text: `Wrote ${written(count)}. Review them (git diff), then commit them with the model.`, tone: 'info' })
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : String(e), tone: 'error' })
     } finally {
@@ -274,17 +320,51 @@ function Canvas() {
     }
   }
 
-  const migrateNow = async (name: string | null) => {
-    const file = generated?.migration?.file
+  // A model change that alters tables holding data needs its migration and its code together:
+  // the migration first, so the code never expects columns the tables do not have yet.
+  const migrateNow = async (name: string | null, alsoGenerate: boolean) => {
+    const count = filesToWrite()
     setGenerating(true)
     try {
-      setGenerated(await api.writeMigration(name))
-      setMessage({ text: `Wrote ${name ? 'the migration' : file}. Review it and commit it with the model.`, tone: 'info' })
+      const afterMigration = await api.writeMigration(name)
+      const file = afterMigration.migration ? null : (generated?.migration?.file ?? 'the migration')
+      const parts = [`Wrote the migration${file ? ` to ${file}` : ''}`]
+      setGenerated(afterMigration)
+      if (alsoGenerate && count) {
+        setGenerated(await api.generate())
+        parts.push(written(count))
+      }
+      setMessage({
+        text: `${parts.join(' and ')}. Review them, run the migration on the warehouse, then commit everything with the model.`,
+        tone: 'info',
+      })
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : String(e), tone: 'error' })
     } finally {
       setGenerating(false)
     }
+  }
+
+  const resizePanel = (event: ReactPointerEvent) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = panelWidth
+    let latest = startWidth
+    const move = (e: PointerEvent) => {
+      latest = Math.max(PANEL_WIDTH.min, Math.min(window.innerWidth - 80, startWidth + startX - e.clientX))
+      setPanelWidth(latest)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      try {
+        window.localStorage.setItem('murakumo.panelWidth', String(Math.round(latest)))
+      } catch {
+        // Only a convenience.
+      }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
   }
 
   if (!state) {
@@ -319,8 +399,8 @@ function Canvas() {
     : generated.blocked
       ? 'Cannot generate'
       : pendingFiles
-        ? `${pendingFiles} file${pendingFiles === 1 ? '' : 's'} to generate`
-        : 'Generated'
+        ? `${pendingFiles} file${pendingFiles === 1 ? '' : 's'} to write`
+        : 'Code up to date'
   const selectedEntity = selection?.kind === 'entity' ? entities.find((e) => e.id === selection.id) : undefined
   const selectedRelationship =
     selection?.kind === 'relationship' ? relationships.find((r) => r.id === selection.id) : undefined
@@ -402,16 +482,24 @@ function Canvas() {
       )}
 
       <main className="stage">
+        <Markers />
         <ReactFlow
-          nodes={nodes}
+          nodes={linkedNodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onNodeDragStop={savePositions}
           onConnect={state.editable ? connect : undefined}
           onNodeClick={(_, node) => setSelection({ kind: 'entity', id: node.id })}
-          onEdgeClick={(_, edge) => setSelection({ kind: 'relationship', id: edge.id })}
+          onEdgeClick={(_, edge) => {
+            setSelection({ kind: 'relationship', id: edge.id })
+            setNodes((all) => all.map((n) => (n.selected ? { ...n, selected: false } : n)))
+          }}
+          onEdgeMouseEnter={(_, edge) => setHovered(edge.id)}
+          onEdgeMouseLeave={() => setHovered(null)}
           onPaneClick={() => setSelection(null)}
+          selectionMode={SelectionMode.Partial}
           nodesConnectable={state.editable}
           connectionMode={ConnectionMode.Loose}
           deleteKeyCode={null}
@@ -423,6 +511,15 @@ function Canvas() {
           <Background gap={24} />
           <Controls />
           <MiniMap pannable zoomable />
+          <Panel position="bottom-left" className="legend-panel">
+            {legend ? (
+              <Legend onClose={() => setLegend(false)} />
+            ) : (
+              <button className="chip" onClick={() => setLegend(true)} aria-expanded={false}>
+                Notation &amp; tips
+              </button>
+            )}
+          </Panel>
           {entities.length === 0 && (
             <Panel position="top-center" className="empty">
               No entities yet. Add one with <strong>+ Entity</strong>, or run <code>murakumo import</code>.
@@ -430,7 +527,8 @@ function Canvas() {
           )}
           {state.editable && entities.length > 1 && relationships.length === 0 && (
             <Panel position="bottom-center" className="hint">
-              Drag from a column to a column of another entity to add a relationship.
+              Drag from a column to a column of another entity to add a relationship, or select an entity and use
+              <strong> + Relationship</strong>.
             </Panel>
           )}
         </ReactFlow>
@@ -487,7 +585,15 @@ function Canvas() {
         )}
 
         {(selectedEntity || selectedRelationship) && (
-          <aside className="panel" aria-label="Inspector">
+          <aside className="panel" aria-label="Inspector" style={{ '--panel-width': `${panelWidth}px` } as CSSProperties}>
+            <div
+              className="panel__resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Drag to resize the panel"
+              title="Drag to resize"
+              onPointerDown={resizePanel}
+            />
             <button className="icon-button panel__close" aria-label="Close" onClick={() => setSelection(null)}>
               ×
             </button>

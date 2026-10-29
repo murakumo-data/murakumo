@@ -47,6 +47,10 @@ class Check:
     status: Status
     detail: str | None = None
     steps: list[str] = field(default_factory=list)  # commands or instructions, in order
+    sql: str | None = None  # SQL to paste into the warehouse, shown as its own block
+    sql_where: str | None = None  # where and as whom to run it
+    docs: list[str] = field(default_factory=list)  # links to read more
+    numbered: bool = False  # steps are done in order, one after the other
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +59,9 @@ class Check:
             "status": self.status.value,
             "detail": self.detail,
             "steps": self.steps,
+            "sql": self.sql,
+            "sql_where": self.sql_where,
+            "docs": self.docs,
         }
 
 
@@ -268,10 +275,16 @@ def _connect_snowflake(area: str, database: str) -> list[Check]:
                 Status.TODO,
                 "dbt builds into it; the raw landing tables go there too.",
                 [
-                    f"In a Snowsight worksheet, as ACCOUNTADMIN: create database if not exists {database};",
-                    f"grant usage, create schema on database {database} to role {role};",
-                    "Or point the project at an existing one: export SNOWFLAKE_DATABASE=...",
+                    "Create it with the SQL below, then run `murakumo setup --connect` again.",
+                    "Or build in a database you already have: export SNOWFLAKE_DATABASE=<its name>",
                 ],
+                sql=(
+                    "use role accountadmin;\n"
+                    f"create database if not exists {database};\n"
+                    f"grant usage, create schema on database {database} to role {role};"
+                ),
+                sql_where="In Snowsight: Projects → Worksheets → + → SQL Worksheet. Paste, select all, then Run.",
+                docs=[f"{DOCS}/snowflake.md"],
             )
         )
     elif database:
@@ -389,22 +402,91 @@ def _connect_source(area: str, url: str) -> Check:
 
 # Orchestrator -------------------------------------------------------------------------------------
 
-_ORCHESTRATORS: dict[Orchestrator, tuple[str | None, list[str]]] = {
-    Orchestrator.AIRFLOW: (
-        "airflow",
-        [
-            "Easiest locally: the Astro CLI, which runs Airflow in Docker. Install Docker Desktop, then:",
-            "brew install astro && astro dev init && astro dev start   # http://localhost:8080",
-            "Or with pip, in its own virtual environment, using Airflow's constraints file. Set AIRFLOW_VERSION "
-            "to the latest release from https://airflow.apache.org/docs/apache-airflow/stable/installation/, then:",
-            'pip install "apache-airflow==$AIRFLOW_VERSION" --constraint "https://raw.githubusercontent.com/apache/'
-            f'airflow/constraints-$AIRFLOW_VERSION/constraints-{sys.version_info.major}.{sys.version_info.minor}.txt"',
-            "To run the generated dbt project from Airflow today: pip install astronomer-cosmos",
-            "Managed Airflow (Amazon MWAA, Google Cloud Composer, Astronomer) runs dbt the same way.",
-        ],
-    ),
-    Orchestrator.DAGSTER: ("dagster", ["pip install dagster dagster-webserver dagster-dbt", "dagster dev"]),
-    Orchestrator.PREFECT: ("prefect", ["pip install prefect prefect-dbt", "prefect server start"]),
+
+def _local_orchestrator(orchestrator: Orchestrator, root: Path, adapter: str) -> list[str]:
+    """Step by step, to run the orchestrator on this machine and point it at the generated dbt project."""
+    dbt_dir = root / "generated" / "dbt"
+    venv = f"python3 -m venv ~/{orchestrator.value}-env && source ~/{orchestrator.value}-env/bin/activate"
+    if orchestrator is Orchestrator.AIRFLOW:
+        return [
+            "Install Docker Desktop and open it once, so it is running (the Astro CLI runs Airflow in Docker).",
+            "brew install astro",
+            "mkdir -p ~/airflow-local && cd ~/airflow-local && astro dev init",
+            f"echo astronomer-cosmos >> requirements.txt && echo {adapter} >> requirements.txt",
+            "astro dev start   # Airflow opens at http://localhost:8080",
+            f"Copy {dbt_dir} into ~/airflow-local/dags/dbt and run it with a Cosmos DbtDag (see the Cosmos docs).",
+        ]
+    if orchestrator is Orchestrator.DAGSTER:
+        return [
+            f"{venv}   # Dagster in its own environment",
+            f"pip install dagster dagster-webserver dagster-dbt {adapter}",
+            f"cd ~ && dagster-dbt project scaffold --project-name orchestration --dbt-project-dir {dbt_dir}",
+            "cd ~/orchestration && dagster dev   # Dagster opens at http://localhost:3000",
+        ]
+    return [
+        f"{venv}   # Prefect in its own environment",
+        f"pip install prefect prefect-dbt {adapter}",
+        "prefect server start   # Prefect opens at http://localhost:4200; leave it running",
+        f"In a new terminal, write a flow that runs `dbt build` in {dbt_dir} with prefect-dbt (see its docs).",
+    ]
+
+
+_ORCHESTRATOR_DOCS: dict[Orchestrator, list[str]] = {
+    Orchestrator.AIRFLOW: [
+        "https://www.astronomer.io/docs/astro/cli/install-cli",
+        "https://astronomer.github.io/astronomer-cosmos/",
+        "https://airflow.apache.org/docs/apache-airflow/stable/installation/index.html",
+        "https://docs.docker.com/desktop/",
+    ],
+    Orchestrator.DAGSTER: [
+        "https://docs.dagster.io/getting-started/installation",
+        "https://docs.dagster.io/integrations/libraries/dbt",
+    ],
+    Orchestrator.PREFECT: [
+        "https://docs.prefect.io/v3/get-started/install",
+        "https://docs.prefect.io/integrations/prefect-dbt",
+    ],
+    Orchestrator.DATABRICKS_WORKFLOWS: ["https://docs.databricks.com/aws/en/jobs/dbt"],
+    Orchestrator.SNOWFLAKE_TASKS: [
+        "https://docs.snowflake.com/en/user-guide/data-engineering/dbt-projects-on-snowflake",
+        "https://docs.snowflake.com/en/user-guide/tasks-intro",
+    ],
+    Orchestrator.AWS_GLUE: ["https://docs.aws.amazon.com/glue/latest/dg/what-is-glue.html"],
+    Orchestrator.AWS_STEP_FUNCTIONS: ["https://docs.aws.amazon.com/step-functions/latest/dg/welcome.html"],
+    Orchestrator.GCP_COMPOSER: ["https://cloud.google.com/composer/docs"],
+    Orchestrator.GCP_WORKFLOWS: ["https://cloud.google.com/workflows/docs"],
+    Orchestrator.AZURE_DATA_FACTORY: ["https://learn.microsoft.com/en-us/azure/data-factory/"],
+}
+
+_CLOUD_ORCHESTRATORS: dict[Orchestrator, list[str]] = {
+    Orchestrator.DATABRICKS_WORKFLOWS: [
+        "In your Databricks workspace: Workflows → Create job → add a task of type dbt.",
+        "Point the task at the generated/dbt folder of this project's git repository.",
+    ],
+    Orchestrator.SNOWFLAKE_TASKS: [
+        "In Snowsight: Projects → dbt Projects → create one from this project's git repository (generated/dbt).",
+        "Schedule it with a task: create task ... schedule = 'USING CRON 0 6 * * * UTC' as execute dbt project ...",
+    ],
+    Orchestrator.AWS_GLUE: [
+        "In the AWS console: Glue → ETL jobs → a Python shell job that installs dbt and runs `dbt build`.",
+        "Give its IAM role read access to the repository or the S3 copy of generated/dbt.",
+    ],
+    Orchestrator.AWS_STEP_FUNCTIONS: [
+        "Run `dbt build` in a container task (ECS or Fargate) built from generated/dbt.",
+        "In Step Functions, create a state machine that starts that task on a schedule (EventBridge).",
+    ],
+    Orchestrator.GCP_COMPOSER: [
+        "In Google Cloud: Composer → Create environment (managed Airflow).",
+        "Add astronomer-cosmos to its PyPI packages, and copy generated/dbt into its dags/ bucket.",
+    ],
+    Orchestrator.GCP_WORKFLOWS: [
+        "Run `dbt build` as a Cloud Run job built from generated/dbt.",
+        "In Workflows, create a workflow that runs the job; schedule it with Cloud Scheduler.",
+    ],
+    Orchestrator.AZURE_DATA_FACTORY: [
+        "Run `dbt build` in an Azure Container Apps job built from generated/dbt.",
+        "In Data Factory, create a pipeline that starts the job on a schedule trigger.",
+    ],
 }
 
 
@@ -412,15 +494,41 @@ def orchestrator_checks(project: Project) -> list[Check]:
     orchestrator = project.manifest.generation.orchestrator
     area = f"Orchestrator: {orchestrator.value}"
     note = (
-        "Murakumo does not generate pipelines for it yet; that comes in a later release. Until then, "
-        "schedule `dbt build` in generated/dbt (after applying new migrations) with what you have."
+        "Not needed to build: `murakumo build` runs the project by hand. An orchestrator runs it on a "
+        "schedule. Murakumo does not generate its pipelines yet; until then, schedule `dbt build` in "
+        "generated/dbt with the steps below."
     )
-    command, steps = _ORCHESTRATORS.get(orchestrator, (None, []))
-    if command is None:
-        return [Check(area, f"{orchestrator.value} runs in the cloud: nothing to install here", Status.INFO, note)]
+    docs = _ORCHESTRATOR_DOCS.get(orchestrator, [])
+    if orchestrator in _CLOUD_ORCHESTRATORS:
+        return [
+            Check(
+                area,
+                f"{orchestrator.value} runs in the cloud: nothing to install on this machine",
+                Status.INFO,
+                note,
+                _CLOUD_ORCHESTRATORS[orchestrator],
+                docs=docs,
+                numbered=True,
+            )
+        ]
+    command = {Orchestrator.AIRFLOW: "airflow", Orchestrator.DAGSTER: "dagster", Orchestrator.PREFECT: "prefect"}[
+        orchestrator
+    ]
     if shutil.which(command) or (command == "airflow" and shutil.which("astro")):
-        return [Check(area, f"{orchestrator.value} is installed", Status.OK, note)]
-    return [Check(area, f"{orchestrator.value} is not installed (not needed yet)", Status.INFO, note, steps)]
+        return [Check(area, f"{orchestrator.value} is installed", Status.OK, note, docs=docs)]
+    adapter = target_for(project.manifest.targets.warehouse.type).adapter
+    steps = _local_orchestrator(orchestrator, project.root, adapter)
+    return [
+        Check(
+            area,
+            f"{orchestrator.value} is not installed (not needed yet)",
+            Status.INFO,
+            note,
+            steps,
+            docs=docs,
+            numbered=True,
+        )
+    ]
 
 
 # Everything else ----------------------------------------------------------------------------------
@@ -460,18 +568,66 @@ def tool_checks(project: Project) -> list[Check]:
         checks.append(
             Check(area, "Install the canvas to model visually", Status.WARN, None, [install_command(["canvas"], [])])
         )
-    if shutil.which("git") is None:
-        checks.append(
-            Check(area, "Install git to version the project", Status.WARN, None, ["https://git-scm.com/downloads"])
-        )
+    checks += git_checks()
     return checks
+
+
+def _run(*command: str) -> str | None:
+    """A command's output, or None when it is missing or fails."""
+    import subprocess
+
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def git_checks() -> list[Check]:
+    area = "Tools"
+    # On a Mac, /usr/bin/git exists before the developer tools do, and only offers to install them.
+    if sys.platform == "darwin" and _run("xcode-select", "-p") is None:
+        return [
+            Check(
+                area,
+                "Install the macOS command line developer tools (git comes with them)",
+                Status.WARN,
+                "Git keeps the history of the model, generated code and migrations.",
+                [
+                    "xcode-select --install",
+                    "A window opens: click Install, accept, and wait for it to finish (a few minutes).",
+                    "Then run `murakumo setup` again.",
+                ],
+                numbered=True,
+            )
+        ]
+    if shutil.which("git") is None:
+        return [
+            Check(area, "Install git to version the project", Status.WARN, None, docs=["https://git-scm.com/downloads"])
+        ]
+    if not _run("git", "config", "user.name") or not _run("git", "config", "user.email"):
+        return [
+            Check(
+                area,
+                "Tell git who you are",
+                Status.WARN,
+                "Git puts your name and email on every commit, and refuses to commit without them.",
+                [
+                    'git config --global user.name "Your Name"',
+                    'git config --global user.email "you@example.com"',
+                ],
+                numbered=True,
+            )
+        ]
+    return [Check(area, "git is installed and knows who you are", Status.OK)]
 
 
 def project_checks(project: Project) -> list[Check]:
     area = "Project"
     root = project.root
     checks: list[Check] = []
-    if not any((folder / ".git").exists() for folder in (root, *root.parents)):
+    repository = next((folder for folder in (root, *root.parents) if (folder / ".git").exists()), None)
+    if repository is None:
         checks.append(
             Check(
                 area,
@@ -481,8 +637,17 @@ def project_checks(project: Project) -> list[Check]:
                 [f"cd {root} && git init && git add . && git commit -m 'Start {project.manifest.project.name}'"],
             )
         )
-    else:
+    elif repository == root:
         checks.append(Check(area, "In a git repository", Status.OK))
+    else:
+        checks.append(
+            Check(
+                area,
+                f"Inside your existing git repository ({repository})",
+                Status.OK,
+                "Commit the project there, with your usual branches and pull requests; no separate repository needed.",
+            )
+        )
 
     if not project.model.entities:
         checks.append(
@@ -504,7 +669,14 @@ def project_checks(project: Project) -> list[Check]:
             changes = None
         if changes is not None and changes.any:
             checks.append(
-                Check(area, "generated/ is out of date with the model", Status.INFO, None, ["murakumo generate"])
+                Check(
+                    area,
+                    "generated/ is out of date with the model",
+                    Status.INFO,
+                    "generated/ holds the code written from the model (dbt and SQL). Normal for a new project, "
+                    "and after every model change: write it again, then review the diff.",
+                    ["murakumo generate"],
+                )
             )
         elif changes is not None:
             checks.append(Check(area, "generated/ is up to date", Status.OK))
@@ -514,7 +686,8 @@ def project_checks(project: Project) -> list[Check]:
                 area,
                 "Migrations not started",
                 Status.INFO,
-                "Start them before the landing tables hold data you want to keep.",
+                "Migrations are the SQL that changes tables already holding data. Start them before the raw "
+                "tables hold data you want to keep; not needed while you are trying things out.",
                 ["murakumo migrate"],
             )
         )

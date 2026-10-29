@@ -18,28 +18,41 @@ murakumo canvas path/to/project --port 9000 --no-open
   so `lineitem → orders → customer → nation → region` reads left to right. Drag boxes to
   arrange them; positions are saved to `model/layout.yaml`, keyed by entity id, so a rename
   keeps its place. Commit the file to share the layout. The layer chips in the toolbar show and
-  hide layers.
+  hide layers. **Shift**+drag on the background selects several tables (⌘/Ctrl+click adds one),
+  and dragging any of them moves them all.
+- **Read the relationships.** Lines use crow's-foot notation: at each end, ‖ exactly one,
+  ○| zero or one, a crow's foot for many (with ○ when it may be none); a dashed line is optional.
+  Hover over a line to see its role and cardinality (`pickup · N:1`) and the joined columns
+  highlighted in both tables; click it to keep them highlighted and edit it. **Notation & tips**,
+  at the bottom left, explains the symbols. When two tables are dragged one above the other, the
+  line goes round them rather than behind them.
 - **Edit an entity.** Click it to open the inspector: rename it, change its layer, kind, source,
   domain and description, and add, rename, retype or remove columns and set primary keys and
-  NOT NULL. **+ Entity** adds a new one.
-- **Add a relationship.** Hover over an entity to show the handles beside each column, then
-  drag from the foreign key column to the column it points at, on another entity. The new
-  relationship is many-to-one; click the line to change the cardinality, make it optional, or
+  NOT NULL. **+ From another table** adds columns copied from other tables: tick them in a
+  searchable list; they keep their names and types and, outside the raw layer, are mapped to where
+  they came from. Tables with more than six columns get a **Find a column** box, which filters the
+  columns and mappings. Drag the inspector's left edge to make it wider. **+ Entity** adds a new
+  entity.
+- **Add a relationship.** In the inspector's **Relationships** section, click **+ Relationship**
+  and pick the column, the table it points to, its column and the cardinality. Or hover over an
+  entity to show the handles beside each column, then drag from the foreign key column to the
+  column it points at, on another entity. A dragged relationship is many-to-one; click the line to change the cardinality, make it optional, or
   give it a role (needed when two relationships join the same tables, like pickup and drop-off
   zones).
 - **Map columns.** For entities in staging, intermediate, marts and semantic, the inspector lists
-  every column with where it comes from: `entity.column` sources (suggested as you type) and an
-  optional SQL expression, in DuckDB SQL and translated for your warehouse. Columns without a
-  mapping are highlighted.
+  every column with where it comes from: `entity.column` sources (suggested as you type, or
+  ticked in a list with **☰**) and an optional SQL expression, in DuckDB SQL and translated for
+  your warehouse. Columns without a mapping are highlighted.
 - **See the generated code.** The inspector's **Code** tab shows the dbt SQL generated for the
   entity and its table's DDL, updated as you edit.
-- **Generate.** The toolbar says how many files in `generated/` are out of date with the model.
-  Click it for the **Changes** panel: every file that would change, each with its diff, and a
-  **Generate** button that writes them, as `murakumo generate` does.
+- **Write the code.** The toolbar says how many files in `generated/` are out of date with the
+  model. Click it for the **Changes** panel: every file that would change, each with its diff,
+  and one button, **Write N files to generated/**, that writes them, as `murakumo generate` does.
 - **Write migrations.** When a change affects a table that keeps data (a landing table, an
-  incremental model or a snapshot), the Changes panel shows the migration it needs, with its
-  SQL, and writes it to `migrations/`, as `murakumo migrate` does. See
-  [migrations](generating.md#migrations).
+  incremental model or a snapshot), the Changes panel explains that it needs a migration too,
+  shows it with its SQL, and the button becomes **Write migration #N and M files**: it writes the
+  migration to `migrations/` first, then the code, so the two never get out of step. See
+  [migrations](generating.md#migrations). The first migration, the baseline, has its own button.
 - **Fix problems.** The toolbar shows the problems `murakumo validate` and `murakumo generate`
   report, such as a column with no mapping (MK503). Click it for the list; click an item to go to
   its entity. Entities with problems carry a badge, and the inspector shows their messages.

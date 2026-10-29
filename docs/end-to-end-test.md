@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.1.0
+# End-to-end test: Murakumo 0.1.1
 
-A step-by-step test of Murakumo 0.1.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 0.1.1 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -11,9 +11,9 @@ should see.
 | 2-4 | Creating a project folder with the guided setup, and going into it | 10 min |
 | 5-9 | The canvas: viewing, editing, mapping, generating, migrations | 35 min |
 | 10-11 | Importing a data dictionary; editing YAML by hand alongside the canvas | 10 min |
-| 12-14 | Building and testing on DuckDB, with made-up data and then real data | 15 min |
+| 12-14 | Building and testing on DuckDB, with made-up data and then real data, and keeping the tables | 20 min |
 | 15 | The checks a CI pipeline would run | 5 min |
-| 16 | Optional: the same project on Snowflake | 15 min |
+| 16 | Optional: the same project on Snowflake, built and kept | 20 min |
 | 17 | Cleaning up | 2 min |
 
 ## How to use this script
@@ -119,10 +119,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.1.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 0.1.1`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.1.0.
+☐ Version 0.1.1.
 
 ---
 
@@ -138,31 +138,40 @@ mkdir -p ~/murakumo-e2e
 cd ~/murakumo-e2e
 ```
 
-**2.2** Create the project. Murakumo asks a few questions; press **Enter** to accept each default
-(shown in square brackets):
+**2.2** Create the project. Murakumo asks a few questions. Each list is numbered: type the number
+of your choice, or press **Enter** to accept the suggestion in square brackets:
 
 ```bash
 murakumo init taxi_platform
 ```
 
-| Question | Answer |
-| --- | --- |
-| `Project name [taxi_platform]` | Enter |
-| `Warehouse (duckdb runs on this computer, no account needed) (...) [duckdb]` | Enter |
-| `Orchestrator (...) [airflow]` | Enter |
-| `Modelling pattern (...) [kimball]` | Enter |
-| `Start with the NYC taxi example model? [Y/n]` | Enter |
+| Question | What you see | Answer |
+| --- | --- | --- |
+| Project name | `Project name [taxi_platform]` | Enter |
+| Warehouse | a list from `1 duckdb  on this computer, no account needed` to `8 postgres`, then `Choose 1-8 [1]` | Enter (1, duckdb) |
+| Orchestrator | a list from `1 airflow` to `10 azure_data_factory`, then `Choose 1-10 [1]` | Enter (1, airflow) |
+| Modelling pattern | a list from `1 kimball  star schema: facts and dimensions` to `5 mixed`, then `Choose 1-5 [1]` | Enter (1, kimball) |
+| Example model | `Add a small example model (NYC taxi trips) to explore? You can delete it later [Y/n]` | Enter |
+
+The example model gives you four tables to explore straight away; a real project starts without
+it (answer `n`) and imports its own.
 
 You should see:
 
 - `Created project taxi_platform in /Users/<you>/murakumo-e2e/taxi_platform`
 - `Example model: 4 entities, 4 relationships, 1 metric.`
-- **What this project needs on this machine**, with sections:
-  - **Orchestrator: airflow**: *airflow is not installed (not needed yet)*, with how to install it
-    and a note that Murakumo does not generate Airflow pipelines yet.
-  - **Project**: *Not a git repository yet*, *generated/ is out of date*, *Migrations not started*,
-    each with the command to fix it.
-- It ends with `Ready. Next: murakumo canvas or murakumo generate.`
+- `Change these answers later with murakumo config.`
+- **What this project needs on this machine**, with a key to the symbols (✓ done, ✗ needed before
+  building, ! worth doing, • for later), then only what is not done yet:
+  - **Tools** (only if needed): the macOS developer tools or git's name and email; Part 4 does
+    these.
+  - **Orchestrator: airflow**: *airflow is not installed (not needed yet)*, with numbered steps to
+    install it (Docker Desktop, the Astro CLI, ...) and links to Astronomer's, Cosmos's, Airflow's
+    and Docker's documentation. You do not need it for this test.
+  - **Project**: *Not a git repository yet*, *generated/ is out of date with the model* and
+    *Migrations not started*, each with what it means and the command for it.
+- **Ready.** in bold green, then **Next:** in blue: `cd taxi_platform, then murakumo canvas ...`.
+- Last, `Every command, with what it does: murakumo --help`.
 
 ☐ The project is created and the checklist has no red ✗.
 
@@ -197,6 +206,34 @@ your answers.
 
 ☐ The manifest matches your answers.
 
+**3.2 Change an answer.** Say you picked the wrong modelling pattern. Change it, look, and change it
+back:
+
+```bash
+murakumo config --pattern datavault
+grep pattern murakumo.yaml
+murakumo config --pattern kimball
+```
+
+You should see `✓ modelling pattern: kimball → datavault`, then the line
+`pattern: datavault           # kimball | datavault | ...` (the comment listing the options is
+kept), then `✓ modelling pattern: datavault → kimball`. Run `murakumo config` on its own to be
+asked all three questions again, with your current answers as the suggestions.
+
+☐ The answer changed and changed back.
+
+**3.3 Every command.**
+
+```bash
+murakumo --help
+```
+
+You should see a list of commands, each with a one-line description: `init`, `config`, `setup`,
+`validate`, `import`, `add`, `rename`, `generate`, `migrate`, `verify`, `build`, `canvas` and more.
+Any command takes `--help` too, for example `murakumo build --help`.
+
+☐ The command list shows.
+
 ---
 
 ## Part 4: The setup checklist
@@ -216,15 +253,21 @@ and **Project**, ending with `Ready to build.`
 
 ☐ `Ready to build.`
 
-**4.2** Do what the **Project** section says about git. If macOS asks to install the *command
-line developer tools*, click **Install** and wait for it to finish (git comes with them). If git
-asks who you are, run the two
-`git config` lines first, with your own name and email:
+**4.2** Set up git, which keeps the history of your model. Look at the **Tools** section:
 
-```bash
-git config --global user.name "Your Name"
-git config --global user.email "you@example.com"
-```
+- *Install the macOS command line developer tools (git comes with them)*: run
+  `xcode-select --install`, click **Install** in the window that opens, accept, and wait for it to
+  finish (a few minutes). Then run `murakumo setup` again.
+- *Tell git who you are*: run the two lines it shows, with your own name and email:
+
+  ```bash
+  git config --global user.name "Your Name"
+  git config --global user.email "you@example.com"
+  ```
+
+- ✓ *git is installed and knows who you are*: nothing to do.
+
+Then do what the **Project** section says about git:
 
 ```bash
 git init
@@ -235,6 +278,10 @@ murakumo setup
 
 You should see `[main (root-commit) ...] Start taxi_platform`, and **Project** now shows
 ✓ *In a git repository*.
+
+> Already have a repository for your data work? Create the project inside it instead
+> (`cd your-repo && murakumo init analytics`) and skip `git init`: **Project** then shows
+> ✓ *Inside your existing git repository*, and you commit the project there as usual.
 
 ☐ The git warning is gone.
 
@@ -275,15 +322,25 @@ commands.
 **5.2** Look around. You should see:
 
 - the toolbar: **taxi_platform**, `4 entities · 4 relationships`, layer chips **raw 2** and
-  **marts 2**, a blue chip like **15 files to generate**, a green **Valid** chip, and **+ Entity**;
+  **marts 2**, a blue chip like **15 files to write**, a green **Valid** chip, and **+ Entity**;
 - two grey-topped raw tables on the left (`yellow_tripdata`, `taxi_zone_lookup`) and two
-  blue-topped marts on the right (`fct_trip`, `dim_taxi_zone`), joined by lines labelled
-  `pickup · N:1` and `dropoff · N:1`.
+  blue-topped marts on the right (`fct_trip`, `dim_taxi_zone`), joined by dashed lines. Each line
+  has a crow's foot (three prongs) at the many end, and a circle and bar (*zero or one*) at the
+  other end.
 
 Zoom with the scroll wheel or the **+/−** buttons at the bottom left; drag the background to move
 around.
 
 ☐ Four tables and four lines.
+
+**5.2a Read the lines.** Click **Notation & tips** at the bottom left. A panel explains each
+symbol: ‖ exactly one, ○| zero or one, a crow's foot for many, and a dashed line for optional.
+Close it with ×. Now hover over the line between `fct_trip` and `dim_taxi_zone`: a label
+`pickup · N:1` appears, and the joined columns (`pickup_zone_id` and `zone_id`) are highlighted
+in both tables. Click the line: they stay highlighted while it is selected. Click the empty
+background to clear it.
+
+☐ The legend opens; hovering or clicking a line highlights its columns.
 
 **5.3** Click the **marts** chip in the toolbar. The two marts disappear; click it again to bring
 them back.
@@ -301,6 +358,16 @@ You should see `positions:` with an id and `x`/`y` numbers.
 
 ☐ The position is saved.
 
+**5.5 Move several tables at once.** Hold **Shift** and drag a box on the empty background around
+`fct_trip` and `dim_taxi_zone`: both get a blue outline. Drag one of them: both move together.
+(**⌘**+click also adds a table to the selection.)
+
+**5.6** Drag `dim_taxi_zone` straight above `fct_trip`, so one sits over the other. The lines between
+them go round the right-hand side of the tables instead of disappearing behind them. Put it back
+where it was.
+
+☐ Several tables move together, and lines stay visible wherever the tables are.
+
 ---
 
 ## Part 6: Edit the model on the canvas
@@ -308,9 +375,17 @@ You should see `positions:` with an id and `x`/`y` numbers.
 **6.1 Look at an entity.** Click `fct_trip`. A panel opens on the right with two tabs, **Model**
 and **Code**. **Model** shows its layer, kind, domain and description, its columns (name, type,
 **PK**, **NN** = not null) and **Mappings**: where each column comes from, such as
-`yellow_tripdata.tpep_pickup_datetime`.
+`yellow_tripdata.tpep_pickup_datetime`, and **Relationships**: the two that join it to
+`dim_taxi_zone`.
 
-☐ The inspector shows columns and mappings.
+Make the panel wider: point at its left edge (the pointer becomes ↔) and drag left. It keeps that
+width next time.
+
+Above the columns there is a **Find a column** box (it appears once a table has more than six
+columns). Type `zone`: only `pickup_zone_id` and `dropoff_zone_id` are left, in **Columns** and in
+**Mappings**. Clear the box.
+
+☐ The inspector shows columns, mappings and relationships; it resizes, and the search filters.
 
 **6.2 See its code.** Click the **Code** tab. You should see the dbt SQL generated for `fct_trip`
 (`select ... from yellow_tripdata left join ...`) and its `CREATE TABLE` statement. Click
@@ -339,14 +414,14 @@ still has no mapping for `trip_minutes`. Click in the box and press **Esc** to c
 
 ☐ The bad expression is refused.
 
-**6.5 Map it properly.** In the middle box (*sources*) of the `trip_minutes` row, type the
-following and press **Enter** (suggestions appear as you type; you can pick from them):
+**6.5 Map it properly.** In the `trip_minutes` row, click **☰** next to the middle box
+(*sources*). A list of every other table's columns opens, with tick boxes and a search box. Type
+`yellow_tripdata.tpep` in the search box, tick `tpep_pickup_datetime` and
+`tpep_dropoff_datetime`, and click **Use these**. (You can also type sources straight into the
+box, separated by commas; suggestions appear as you type.)
 
-```text
-yellow_tripdata.tpep_pickup_datetime, yellow_tripdata.tpep_dropoff_datetime
-```
-
-The chip turns red for a moment: **1 error**, *MK502 fct_trip.trip_minutes maps 2 columns; combine
+The middle box now reads
+`yellow_tripdata.tpep_pickup_datetime, yellow_tripdata.tpep_dropoff_datetime`, and the chip turns red for a moment: **1 error**, *MK502 fct_trip.trip_minutes maps 2 columns; combine
 them with an expression*. That is right: two columns need an expression saying how to combine them.
 In the *expression* box type this and press **Enter**:
 
@@ -370,25 +445,37 @@ A new box appears and is selected. Add three columns, one at a time, as in 6.3:
 | `pickup_datetime` | `timestamp` |
 | `pickup_location_id` | `integer` |
 
-☐ `fhv_tripdata` has three columns.
+Now copy a column from a table that already has it. Click **+ From another table** (next to
+**Columns**). Type `trip_distance` in the search box, tick `trip_distance` under
+`yellow_tripdata`, and click **Add columns**. `fhv_tripdata` gets `trip_distance` with the same
+type, `decimal(10,2)`. (On a staging or marts table, copied columns are also mapped to where they
+came from.)
 
-**6.7 Draw a relationship.** Close the inspector (× at its top right) so you can see both tables.
-Move `fhv_tripdata` near `taxi_zone_lookup`. Hover over `fhv_tripdata`: small round handles
-appear at both ends of each column row. Press on the handle at the end of the
-`pickup_location_id` row, drag to the `LocationID` row of `taxi_zone_lookup`, and let go on its
-handle.
+☐ `fhv_tripdata` has four columns.
 
-You should see a new line `N:1` between them, and the toolbar says **5 relationships**. In the
-`fhv_tripdata` box, `pickup_location_id` is now marked **FK**.
+**6.7 Add a relationship.** With `fhv_tripdata` still selected, scroll down the inspector to
+**Relationships** and click **+ Relationship**. Choose:
 
-Tip: zoom in first (scroll up) so the handles are bigger. If the line does not appear, try again,
-letting go exactly on the small circle.
+| Field | Choose |
+| --- | --- |
+| This column | `pickup_location_id` |
+| Points to table | `taxi_zone_lookup` |
+| Its column | `LocationID (PK)` |
+| Cardinality | `many_to_one` |
 
-☐ The relationship is drawn.
+Click **Add relationship**. You should see a new line from `fhv_tripdata` to `taxi_zone_lookup`
+(a crow's foot at the `fhv_tripdata` end, ‖ at the other), the toolbar says
+**5 relationships**, and in the `fhv_tripdata` box `pickup_location_id` is now marked **FK**.
+
+You can also draw one: hover over a table and small round handles appear at both ends of each
+column; drag from one to a column of another table. The form is easier with many tables.
+
+☐ The relationship is added.
 
 **6.8 Edit the relationship.** Click the new line. The inspector shows
-`fhv_tripdata → taxi_zone_lookup` with the join. Type `pickup` in **Role** and press **Enter**;
-the line's label becomes `pickup · N:1`.
+`fhv_tripdata → taxi_zone_lookup` with the join, and both joined columns are highlighted on the
+canvas. Type `pickup` in **Role** and press **Enter**; hover over the line and its label reads
+`pickup · N:1`.
 
 ☐ The role is saved.
 
@@ -409,27 +496,30 @@ You should see `model/entities/nyc_tlc/fhv_tripdata.yaml` as new, `fct_trip.yaml
 
 ## Part 7: Generate from the canvas
 
-**7.1** Click the blue **N files to generate** chip. The **Changes** panel opens on the left: under
-**generated/ for duckdb**, every file is marked **NEW** (nothing has been generated yet).
+**7.1** Click the blue **N files to write** chip. The **Changes** panel opens on the left. At the top
+it says your model has changes not written as code yet, with one blue button,
+**Write N files to generated/**. Under **generated/ for duckdb**, every file is marked **NEW**
+(nothing has been written yet). Click a file to see what it will contain.
 
 ☐ The Changes panel lists new files.
 
-**7.2** Click **Generate**. A banner says `Wrote generated/.`; the panel says *Up to date with the
-model* and the chip says **Generated**.
+**7.2** Click **Write N files to generated/**. A banner says
+`Wrote N files to generated/. Review them (git diff), then commit them with the model.`; the panel
+says *Everything is written* and the chip says **Code up to date**.
 
 ☐ Generated.
 
 **7.3** Make a change to see a diff. Click `dim_taxi_zone`, and change its **Description** to
-`Taxi zones, one row per zone.`, then click elsewhere. The chip shows **2 files to generate**:
+`Taxi zones, one row per zone.`, then click elsewhere. The chip shows **2 files to write**:
 `_mobility__models.yml` (dbt's documentation of the model) and `marts.sql` (the table comment).
 Open the Changes panel and click `_mobility__models.yml`: a diff appears, with the old description
 in red and the new one in green.
 
 ☐ The diff shows exactly your change.
 
-**7.4** Click **Generate** again.
+**7.4** Click **Write 2 files to generated/**.
 
-☐ Back to **Generated**.
+☐ Back to **Code up to date**.
 
 ---
 
@@ -438,16 +528,19 @@ in red and the new one in green.
 Tables that keep data between runs (raw landing tables, incremental models, snapshots) need their
 structure changed in place when the model changes. That is what migrations are.
 
-**8.1** In the **Changes** panel, the **Migration** section says *No migrations yet*. Click
-**Write baseline**. A banner names `migrations/duckdb/0001_initial.sql`.
+**8.1** In the **Changes** panel, the **Migration baseline** section says *Optional for now: no
+migrations yet*. Click **Write baseline**. A banner says
+`Wrote the migration to migrations/duckdb/0001_initial.sql`.
 
 ☐ The baseline is written.
 
 **8.2** Rename a raw column: click `fhv_tripdata`, and in its columns change
 `dispatching_base_num` to `base_number` (click the name, edit, press **Enter**).
 
-The toolbar chip now says **... files to generate · migration**. Open the Changes panel. Under
-**Migration** you should see *fhv_tripdata: rename dispatching_base_num to base_number*. Click
+The toolbar chip now says **... files to write · migration**. Open the Changes panel. At the top it
+explains that the change alters a table that already holds data, so it needs a migration as well
+as new code, lists both, and offers one button: **Write migration #2 and N files**. Under
+**Migration #2** you should see *fhv_tripdata: rename dispatching_base_num to base_number*. Click
 **Show SQL**:
 
 ```sql
@@ -458,7 +551,10 @@ A rename, so the column's data would be kept, not dropped.
 
 ☐ The migration preview is a RENAME.
 
-**8.3** Click **Write #2**, then **Generate**.
+**8.3** Click **Write migration #2 and N files**. The banner says it wrote the migration to
+`migrations/duckdb/0002_...sql` and N files to generated/, and to review them, run the migration on
+the warehouse and commit everything together. (Writing both at once, migration first, means the
+code never expects a column the tables do not have yet.)
 
 ```bash
 ls migrations/duckdb
@@ -500,7 +596,7 @@ murakumo generate
 ```
 
 You should see `Wrote migrations/duckdb/0003_rename_fhv_tripdata_pickup_location_id.sql`, then the
-generated files updated. The canvas chip shows **Generated** again.
+generated files updated. The canvas chip shows **Code up to date** again.
 
 ☐ Migration 0003 written.
 
@@ -621,7 +717,7 @@ Wait about 10 seconds. You should see `loaded taxi_zone_lookup: 265 rows`,
 
 > While preparing this release, this exact step found two real problems in Murakumo's own example
 > model (a taxi vendor code added in 2024, and fare corrections that look like duplicate trips).
-> Both are fixed in 0.1.0, which is why it should pass now.
+> Both were fixed in 0.1.0, which is why it should pass now.
 
 ☐ All tests pass on 2,964,624 real trips.
 
@@ -646,6 +742,33 @@ You should see four `applied migrations/duckdb/000N_...sql` lines, then a list t
 `base_number` and `pickup_zone_id`, and not the old names.
 
 ☐ Migrations apply in order; the rename took.
+
+**13.4 Build for real, and keep the tables.** `verify` builds in a throwaway database and deletes
+it. `murakumo build` builds into the project's own warehouse (here `taxi_platform.duckdb`, which
+the migrations above just brought up to date) and keeps everything:
+
+```bash
+murakumo build --data yellow_tripdata=$HOME/murakumo-e2e/data/yellow_tripdata_2024-01.parquet --data taxi_zone_lookup=$HOME/murakumo-e2e/data/taxi_zone_lookup.csv
+```
+
+You should see the two `loaded ...` lines, then
+`built: ... models and snapshots, N/N tests passed. Tables are in .../taxi_platform.duckdb.`
+Look inside (routes A and C: start with `uv run --with duckdb `, as in 13.3):
+
+```bash
+python -c "
+import duckdb
+con = duckdb.connect('taxi_platform.duckdb', read_only=True)
+print(con.sql('select table_schema, table_name from information_schema.tables order by 1, 2'))
+print(con.sql('select count(*) from marts.fct_trip'))
+"
+```
+
+You should see schemas `raw_nyc_tlc`, `raw_open_meteo`, `staging` and `marts` with their tables,
+and about 2.9 million rows in `fct_trip`. Running `build` again without `--data` rebuilds the
+models on the rows already landed; it never deletes them.
+
+☐ The tables are there to query.
 
 ---
 
@@ -763,30 +886,71 @@ murakumo setup --connect
 ```
 
 You should see ✓ *Connected to Snowflake as MURAKUMO_DBT* (role TRANSFORMER, warehouse
-TRANSFORMING), then a red ✗ *Database SNOW_TEST does not exist*, with the SQL to create it.
-That is expected: the project is named `snow_test`, and your account has a `COMMERCE` database.
-Point the project at it instead:
+TRANSFORMING), then a red ✗ *Database SNOW_TEST does not exist, or TRANSFORMER cannot see it*.
+That is expected: the database is named after the project, and nobody has created it yet. Under it
+is a **Run this SQL** block:
+
+```sql
+use role accountadmin;
+create database if not exists SNOW_TEST;
+grant usage, create schema on database SNOW_TEST to role TRANSFORMER;
+```
+
+**16.4** Create the database. In Snowsight (<https://app.snowflake.com>, signed in as yourself):
+**Projects → Worksheets → +** (top right) **→ SQL Worksheet**. Paste the three lines, select them
+all (Cmd+A) and click **Run** (▶, top right). You should see
+`Statement executed successfully.` Back in Terminal:
 
 ```bash
-export SNOWFLAKE_DATABASE=COMMERCE
 murakumo setup --connect
 ```
 
-✓ *Database COMMERCE is there* and `Ready to build.`
+✓ *Database SNOW_TEST is there* and `Ready to build.`
+
+> Rather use a database you already have? `export SNOWFLAKE_DATABASE=COMMERCE` builds there
+> instead, and step 16.7 then drops schemas rather than the whole database.
 
 ☐ Connected, and the database check passes.
 
-**16.4** Build and test on Snowflake:
+**16.5** Test on Snowflake:
 
 ```bash
 murakumo verify --warehouse snowflake
 ```
 
 About 20-30 seconds. You should see `verified: 4 models and snapshots built, 16/16 tests passed,
-incremental rebuild passed on snowflake.` The run uses its own temporary schemas and drops them
-afterwards; in Snowsight, under **COMMERCE**, no `VERIFY_...` schemas are left.
+incremental rebuild passed on snowflake.` `verify` works in temporary `VERIFY_...` schemas and
+drops them at the end, so **this leaves nothing behind in Snowflake**: that is on purpose.
 
 ☐ 16/16 on Snowflake.
+
+**16.6** Build for real, and keep the tables:
+
+```bash
+murakumo build --sample 200
+```
+
+`--sample 200` puts 200 made-up rows in each raw table that is still empty (in real use, ingestion
+fills them, or `--data` loads a file). You should see two `loaded ...: 200 rows (synthetic)` lines
+and `built: 4 models and snapshots, 16/16 tests passed. Tables are in Snowflake database SNOW_TEST.`
+
+In Snowsight, open **Data → Databases → SNOW_TEST** (refresh with ⟳ if it was open). You should
+see the schemas **RAW_NYC_TLC**, **STAGING** and **MARTS**. Open **MARTS → Tables → FCT_TRIP →
+Data Preview** to see rows.
+
+☐ The tables are in Snowflake.
+
+**16.7** Clean up, so the trial does not keep the test data. In a Snowsight worksheet:
+
+```sql
+use role accountadmin;
+drop database if exists SNOW_TEST;
+```
+
+(If you built in `COMMERCE` instead: `drop schema if exists COMMERCE.RAW_NYC_TLC;` and the same
+for `STAGING` and `MARTS`, only if they hold nothing else of yours.)
+
+☐ Cleaned up.
 
 ---
 
