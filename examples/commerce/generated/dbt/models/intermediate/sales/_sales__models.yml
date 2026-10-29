@@ -9,16 +9,32 @@ models:
         domain: sales
     columns:
       - name: customer_id
+        meta:
+          lineage:
+            - customer.c_custkey
         data_tests:
           - unique
       - name: customer_name
         meta:
           pii: true
           classification: restricted
+          lineage:
+            - customer.c_name
       - name: phone
         meta:
           pii: true
           classification: restricted
+          lineage:
+            - customer.c_phone
       - name: nation_name
+        meta:
+          lineage:
+            - nation.n_name
       - name: market_segment
+        meta:
+          lineage:
+            - customer.c_mktsegment
       - name: account_balance
+        meta:
+          lineage:
+            - customer.c_acctbal

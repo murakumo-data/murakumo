@@ -116,6 +116,16 @@ export type ExpressionPreview = {
   error?: string
 }
 
+export type LineageNode = { entity: string; column: string; layer: Layer; depth: number }
+
+export type LineageResult = {
+  entity: string
+  column: string | null
+  nodes: LineageNode[]
+  links: { source: { entity: string; column: string }; target: { entity: string; column: string }; expression: string | null }[]
+  joins: { relationship: string; left: { entity: string; column: string }; right: { entity: string; column: string } }[]
+}
+
 export type EntityCode = {
   blocked: string | null
   files: { path: string; status: FileStatus; content: string }[]
@@ -203,6 +213,14 @@ export const api = {
     request<ExpressionPreview>('POST', '/expressions/preview', { expression, sources, entity }, false),
   addCalculatedColumn: (entityId: string, body: { name: string; expression: string; type?: string | null }) =>
     request<State>('POST', `/entities/${entityId}/calculated`, body),
+
+  lineage: (entity: string, column: string | null) =>
+    request<LineageResult>(
+      'GET',
+      `/lineage?entity=${encodeURIComponent(entity)}${column ? `&column=${encodeURIComponent(column)}` : ''}`,
+      undefined,
+      false,
+    ),
 
   generated: () => request<Generated>('GET', '/generated', undefined, false),
   generatedFile: (path: string) =>

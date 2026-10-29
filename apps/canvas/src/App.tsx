@@ -14,16 +14,17 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 
-import { api, ApiError, type Entity, type Generated, type Layer, type Position, type State } from './api'
+import { api, ApiError, type Entity, type Generated, type Layer, type LineageResult, type Position, type State } from './api'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
 import { EntityNode, type EntityNodeType } from './EntityNode'
 import { EntityPanel, RelationshipPanel } from './Inspector'
 import { domainColour, ends, handleId, nodeHeight, placeEntities } from './layout'
+import { LineageBar, LineageEdge, type LineageEdgeType } from './Lineage'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
 const nodeTypes = { entity: EntityNode, domain: DomainArea }
-const edgeTypes = { relationship: RelationshipEdge }
+const edgeTypes = { relationship: RelationshipEdge, lineage: LineageEdge }
 const NODE_WIDTH = 280 // until React Flow has measured a node
 const PANEL_WIDTH = { min: 320, default: 400 }
 
@@ -76,6 +77,8 @@ function Canvas() {
   const [side, setSide] = useState<'issues' | 'changes' | 'domains' | null>(null)
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
   const [domainFilter, setDomainFilter] = useState<string | null>(null)
+  const [lineageOf, setLineageOf] = useState<{ entity: string; column: string | null } | null>(null)
+  const [lineage, setLineage] = useState<LineageResult | null>(null)
   const [generated, setGenerated] = useState<Generated | null>(null)
   const [generating, setGenerating] = useState(false)
   const [adding, setAdding] = useState<{ name: string; layer: Layer; source: string } | null>(null)
@@ -166,6 +169,28 @@ function Canvas() {
     return () => window.clearInterval(timer)
   }, [load, loadGenerated])
 
+  // The lineage being shown, fetched again whenever the model changes.
+  const revision = state?.revision
+  useEffect(() => {
+    if (!lineageOf) {
+      setLineage(null)
+      return
+    }
+    let current = true
+    api
+      .lineage(lineageOf.entity, lineageOf.column)
+      .then((result) => current && setLineage(result))
+      .catch((e) => {
+        if (!current) return
+        setLineage(null)
+        setLineageOf(null)
+        setMessage({ text: e instanceof Error ? e.message : String(e), tone: 'error' })
+      })
+    return () => {
+      current = false
+    }
+  }, [lineageOf, revision])
+
   // Rebuild the nodes from the model, keeping positions the user has dragged to.
   useEffect(() => {
     if (!state) return
@@ -202,14 +227,14 @@ function Canvas() {
     })
   }, [state, entities, relationships, diagnostics, hidden, domainFilter, showDomains, setNodes])
 
-  const edges = useMemo<RelationshipEdgeType[]>(() => {
+  const edges = useMemo<(RelationshipEdgeType | LineageEdgeType)[]>(() => {
     const shown = new Map(nodes.map((n) => [n.id, n]))
     const box = (id: string) => {
       const node = shown.get(id)!
       const width = node.measured?.width ?? NODE_WIDTH
       return { left: node.position.x, right: node.position.x + width }
     }
-    return relationships.flatMap((r) => {
+    const relationshipEdges = relationships.flatMap((r) => {
       const from = byName(entities, r.from)
       const to = byName(entities, r.to)
       if (!from || !to || !shown.has(from.id) || !shown.has(to.id) || r.keys.length === 0) return []
@@ -236,12 +261,52 @@ function Canvas() {
           targetHandle: handleId(toColumn.id, toSide),
           type: 'relationship' as const,
           selected,
-          className: r.optional ? 'edge--optional' : undefined,
+          className: [r.optional ? 'edge--optional' : '', lineage ? 'edge--faded' : ''].join(' ').trim() || undefined,
           data: { ...ends(r.cardinality, r.optional), label, showLabel: selected || hovered === r.id },
         },
       ]
     })
-  }, [nodes, entities, relationships, selection, hovered])
+    if (!lineage) return relationshipEdges
+    // Lineage links: from each column to the column made from it.
+    const columnId = (ref: { entity: string; column: string }) => {
+      const entity = byName(entities, ref.entity)
+      const attribute = entity && column(entity, ref.column)
+      return entity && attribute && shown.has(entity.id) ? { entity: entity.id, column: attribute.id } : null
+    }
+    const lineageEdges = lineage.links.flatMap((link, i) => {
+      const from = columnId(link.source)
+      const to = columnId(link.target)
+      if (!from || !to || from.entity === to.entity) return []
+      const id = `lineage:${i}`
+      return [
+        {
+          id,
+          source: from.entity,
+          target: to.entity,
+          sourceHandle: handleId(from.column, 'out'),
+          targetHandle: handleId(to.column, 'in'),
+          type: 'lineage' as const,
+          zIndex: 1,
+          data: { expression: link.expression, hovered: hovered === id },
+        },
+      ]
+    })
+    return [...relationshipEdges, ...lineageEdges]
+  }, [nodes, entities, relationships, selection, hovered, lineage])
+
+  // While lineage is shown: which columns are in it (and how), and which tables fade.
+  const lineageNodes = useMemo(() => {
+    if (!lineage) return null
+    const kinds = new Map<string, Map<string, 'focus' | 'up' | 'down'>>()
+    for (const n of lineage.nodes) {
+      const entity = byName(entities, n.entity)
+      const attribute = entity && column(entity, n.column)
+      if (!entity || !attribute) continue
+      if (!kinds.has(entity.id)) kinds.set(entity.id, new Map())
+      kinds.get(entity.id)!.set(attribute.id, n.depth === 0 ? 'focus' : n.depth < 0 ? 'up' : 'down')
+    }
+    return kinds
+  }, [lineage, entities])
 
   // The joined columns of the selected (or hovered) relationship, highlighted in both tables.
   const linkedNodes = useMemo(() => {
@@ -249,6 +314,12 @@ function Canvas() {
     const r = relationships.find((rel) => rel.id === id)
     const from = r && byName(entities, r.from)
     const to = r && byName(entities, r.to)
+    if (lineageNodes) {
+      return nodes.map((n) => ({
+        ...n,
+        data: { ...n.data, lineage: lineageNodes.get(n.id), faded: !lineageNodes.has(n.id) },
+      }))
+    }
     if (!r || !from || !to) return nodes
     const ids = (entity: Entity, names: string[]) =>
       new Set(names.map((n) => column(entity, n)?.id).filter((c): c is string => Boolean(c)))
@@ -258,7 +329,7 @@ function Canvas() {
     ])
     if (from.id === to.id) linked.set(from.id, new Set([...ids(from, r.keys.map((k) => k.from)), ...ids(to, r.keys.map((k) => k.to))]))
     return nodes.map((n) => (linked.has(n.id) ? { ...n, data: { ...n.data, linked: linked.get(n.id) } } : n))
-  }, [nodes, relationships, entities, selection, hovered])
+  }, [nodes, relationships, entities, selection, hovered, lineageNodes])
 
   // A shaded area behind each domain's tables, drawn from where the tables are now.
   const domainAreas = useMemo<DomainAreaType[]>(() => {
@@ -584,6 +655,7 @@ function Canvas() {
           onConnect={state.editable ? connect : undefined}
           onNodeClick={(_, node) => node.type === 'entity' && setSelection({ kind: 'entity', id: node.id })}
           onEdgeClick={(_, edge) => {
+            if (edge.type === 'lineage') return
             setSelection({ kind: 'relationship', id: edge.id })
             setNodes((all) => all.map((n) => (n.selected ? { ...n, selected: false } : n)))
           }}
@@ -611,6 +683,19 @@ function Canvas() {
               </button>
             )}
           </Panel>
+          {lineage && (
+            <Panel position="top-center">
+              <LineageBar
+                lineage={lineage}
+                onClose={() => setLineageOf(null)}
+                onPick={(ref) => {
+                  setLineageOf(ref)
+                  const entity = byName(entities, ref.entity)
+                  if (entity) focus(entity)
+                }}
+              />
+            </Panel>
+          )}
           {entities.length === 0 && (
             <Panel position="top-center" className="empty">
               No entities yet. Add one with <strong>+ Entity</strong>, or run <code>murakumo import</code>.
@@ -708,6 +793,8 @@ function Canvas() {
                 run={run}
                 diagnostics={diagnostics}
                 generatedRevision={generated?.revision ?? ''}
+                lineageOf={lineageOf}
+                onLineage={setLineageOf}
               />
             )}
             {selectedRelationship && (

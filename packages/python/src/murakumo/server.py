@@ -36,6 +36,7 @@ from murakumo.expressions import check_expression, preview_expression
 from murakumo.generate import GENERATED_DIR, INDEX_FILE, compare, generate, write
 from murakumo.ir.model import Cardinality, Classification, EntityKind, Layer
 from murakumo.ir.types import TypeName
+from murakumo.lineage import resolve_ref, trace
 from murakumo.manifest import MANIFEST_FILE, Warehouse
 from murakumo.migrate import MIGRATIONS_DIR, Pending, plan_migration, write_migration
 from murakumo.project import MODEL_DIR, Project, load_layout, load_project, save_layout, save_model
@@ -495,6 +496,18 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.delete("/api/relationships/{relationship_id}")
     def remove_relationship(relationship_id: UUID, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_relationship(p, relationship_id), rev)
+
+    @app.get("/api/lineage")
+    def get_lineage(entity: str, column: str | None = None) -> dict[str, Any]:
+        """Where a column (or every column of an entity) comes from, and what uses it."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        try:
+            name, attribute = resolve_ref(project, f"{entity}.{column}" if column else entity)
+        except ValueError as exc:
+            raise HTTPException(404, {"message": str(exc)}) from None
+        return trace(project, name, attribute)
 
     @app.post("/api/expressions/check")
     def post_expression_check(body: ExpressionBody) -> dict[str, Any]:

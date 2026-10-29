@@ -12,15 +12,27 @@ models:
     columns:
       - name: part_id
         data_type: BIGINT
+        meta:
+          lineage:
+            - part.p_partkey
         data_tests:
           - unique
           - not_null
       - name: part_name
         data_type: VARCHAR
+        meta:
+          lineage:
+            - part.p_name
       - name: brand
         data_type: VARCHAR
+        meta:
+          lineage:
+            - part.p_brand
       - name: retail_price
         data_type: DECIMAL(18,4)
+        meta:
+          lineage:
+            - part.p_retailprice
         data_tests:
           - murakumo_range:
               arguments:

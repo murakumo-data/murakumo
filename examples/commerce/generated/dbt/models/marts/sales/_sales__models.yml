@@ -12,6 +12,9 @@ models:
     columns:
       - name: customer_id
         data_type: BIGINT
+        meta:
+          lineage:
+            - customer.c_custkey
         data_tests:
           - not_null
       - name: customer_name
@@ -19,15 +22,25 @@ models:
         meta:
           pii: true
           classification: restricted
+          lineage:
+            - customer.c_name
       - name: phone
         data_type: VARCHAR
         meta:
           pii: true
           classification: restricted
+          lineage:
+            - customer.c_phone
       - name: nation_name
         data_type: VARCHAR
+        meta:
+          lineage:
+            - nation.n_name
       - name: market_segment
         data_type: VARCHAR
+        meta:
+          lineage:
+            - customer.c_mktsegment
         data_tests:
           - accepted_values:
               arguments:
@@ -39,6 +52,9 @@ models:
                   - MACHINERY
       - name: account_balance
         data_type: DECIMAL(18,4)
+        meta:
+          lineage:
+            - customer.c_acctbal
       - name: valid_from
         description: When this version began.
         data_type: TIMESTAMP
@@ -67,14 +83,23 @@ models:
     columns:
       - name: order_id
         data_type: BIGINT
+        meta:
+          lineage:
+            - lineitem.l_orderkey
         data_tests:
           - not_null
       - name: line_number
         data_type: INTEGER
+        meta:
+          lineage:
+            - lineitem.l_linenumber
         data_tests:
           - not_null
       - name: customer_id
         data_type: BIGINT
+        meta:
+          lineage:
+            - orders.o_custkey
         data_tests:
           - not_null
           - relationships:
@@ -83,6 +108,9 @@ models:
                 field: customer_id
       - name: part_id
         data_type: BIGINT
+        meta:
+          lineage:
+            - lineitem.l_partkey
         data_tests:
           - not_null
           - relationships:
@@ -91,10 +119,16 @@ models:
                 field: part_id
       - name: ordered_on
         data_type: DATE
+        meta:
+          lineage:
+            - orders.o_orderdate
         data_tests:
           - not_null
       - name: order_status
         data_type: VARCHAR
+        meta:
+          lineage:
+            - orders.o_orderstatus
         data_tests:
           - accepted_values:
               arguments:
@@ -104,9 +138,16 @@ models:
                   - P
       - name: quantity
         data_type: DECIMAL(15,2)
+        meta:
+          lineage:
+            - lineitem.l_quantity
       - name: net_amount
         description: Extended price after discount, before tax.
         data_type: DECIMAL(18,4)
+        meta:
+          lineage:
+            - lineitem.l_extendedprice
+            - lineitem.l_discount
         data_tests:
           - murakumo_range:
               arguments:

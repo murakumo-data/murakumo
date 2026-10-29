@@ -21,9 +21,19 @@ function Issues({ diagnostics }: { diagnostics: Diagnostic[] }) {
   )
 }
 
-type EntityProps = { state: State; entity: Entity; run: Run; diagnostics: Diagnostic[]; generatedRevision: string }
+type LineageTarget = { entity: string; column: string | null } | null
 
-export function EntityPanel({ state, entity, run, diagnostics, generatedRevision }: EntityProps) {
+type EntityProps = {
+  state: State
+  entity: Entity
+  run: Run
+  diagnostics: Diagnostic[]
+  generatedRevision: string
+  lineageOf: LineageTarget
+  onLineage: (target: LineageTarget) => void
+}
+
+export function EntityPanel({ state, entity, run, diagnostics, generatedRevision, lineageOf, onLineage }: EntityProps) {
   const [tab, setTab] = useState<'model' | 'code'>('model')
   const issues = diagnostics.filter((d) => d.entity_id === entity.id)
   return (
@@ -37,7 +47,7 @@ export function EntityPanel({ state, entity, run, diagnostics, generatedRevision
         </button>
       </div>
       {tab === 'model' ? (
-        <EntityForm state={state} entity={entity} run={run} issues={issues} />
+        <EntityForm state={state} entity={entity} run={run} issues={issues} lineageOf={lineageOf} onLineage={onLineage} />
       ) : (
         <>
           <div className="panel__heading">
@@ -52,7 +62,16 @@ export function EntityPanel({ state, entity, run, diagnostics, generatedRevision
   )
 }
 
-function EntityForm({ state, entity, run, issues }: { state: State; entity: Entity; run: Run; issues: Diagnostic[] }) {
+type FormProps = {
+  state: State
+  entity: Entity
+  run: Run
+  issues: Diagnostic[]
+  lineageOf: LineageTarget
+  onLineage: (target: LineageTarget) => void
+}
+
+function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormProps) {
   const { choices, editable } = state
   const disabled = !editable
   const save = (changes: Record<string, unknown>) => run(() => api.updateEntity(entity.id, changes))
@@ -102,6 +121,16 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
           disabled={disabled}
           onSave={(name) => name && save({ name })}
         />
+        <button
+          className={lineageOf?.entity === entity.name && !lineageOf.column ? 'chip chip--active' : 'chip'}
+          title="Show where this table's columns come from and what uses them"
+          aria-pressed={lineageOf?.entity === entity.name && !lineageOf.column}
+          onClick={() =>
+            onLineage(lineageOf?.entity === entity.name && !lineageOf.column ? null : { entity: entity.name, column: null })
+          }
+        >
+          Lineage
+        </button>
       </div>
       <Issues diagnostics={issues} />
 
@@ -202,6 +231,7 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
             <span title="Primary key">PK</span>
             <span title="Not null">NN</span>
             <span />
+            <span />
           </div>
           {shown.map((a) => (
             <div
@@ -270,6 +300,25 @@ function EntityForm({ state, entity, run, issues }: { state: State; entity: Enti
                 disabled={disabled}
                 onChange={(e) => saveColumn(a.id, { nullable: !e.target.checked })}
               />
+              <button
+                className={
+                  lineageOf?.entity === entity.name && lineageOf.column === a.name
+                    ? 'icon-button lineage-button lineage-button--active'
+                    : 'icon-button lineage-button'
+                }
+                title={`Lineage of ${a.name}: where it comes from and what uses it`}
+                aria-label={`Lineage of ${a.name}`}
+                aria-pressed={lineageOf?.entity === entity.name && lineageOf.column === a.name}
+                onClick={() =>
+                  onLineage(
+                    lineageOf?.entity === entity.name && lineageOf.column === a.name
+                      ? null
+                      : { entity: entity.name, column: a.name },
+                  )
+                }
+              >
+                ⇄
+              </button>
               <button
                 className="icon-button"
                 title={`Remove ${a.name}`}

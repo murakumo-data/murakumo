@@ -285,3 +285,9 @@ def test_expressions(client):
         "sources": ["taxi_zone_lookup.Zone"],
         "expression": "upper(taxi_zone_lookup.Zone)",
     } in entity["mappings"]
+
+
+def test_lineage(client):
+    result = client.get("/api/lineage", params={"entity": "dim_taxi_zone", "column": "borough"}).json()
+    assert {"entity": "taxi_zone_lookup", "column": "Borough", "layer": "raw", "depth": -1} in result["nodes"]
+    assert client.get("/api/lineage", params={"entity": "nope"}).status_code == 404

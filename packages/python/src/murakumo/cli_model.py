@@ -408,3 +408,58 @@ def move_column(
         return f"{moved.name}: {', '.join(a.name for a in moved.attributes)}"
 
     _edit(project_path, change)
+
+
+def lineage_command(
+    target: str = typer.Argument(..., metavar="ENTITY[.COLUMN]", help="A column, or a whole entity."),
+    down: bool = typer.Option(False, "--down", help="Show what the column feeds instead of where it comes from."),
+    output: str = typer.Option("tree", "--format", help="tree or json."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Show where a column comes from (or, with --down, what uses it), column by column."""
+    import json
+
+    from rich.tree import Tree
+
+    from murakumo.lineage import build_lineage, resolve_ref, trace
+
+    project = open_project(project_path)
+    try:
+        entity, column = resolve_ref(project, target)
+    except ValueError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    lineage = build_lineage(project)
+    if output == "json":
+        typer.echo(json.dumps(trace(project, entity, column, lineage), indent=2))
+        return
+
+    links = lineage.downstream if down else lineage.upstream
+
+    def label(ref: tuple[str, str], expression: str | None = None) -> str:
+        layer = lineage.layers.get(ref[0], "")
+        text = f"[bold]{escape(ref[0])}[/bold].{escape(ref[1])} [dim]{layer}[/dim]"
+        return text + (f"  [cyan]{escape(expression)}[/cyan]" if expression else "")
+
+    def grow(tree: Tree, ref: tuple[str, str], path: set) -> None:
+        for flow in links.get(ref, []):
+            nxt = flow.target if down else flow.source
+            # The expression belongs to the column it calculates: the target of the flow.
+            shown = flow.expression if (down and flow.expression) else None
+            branch = tree.add(label(nxt, shown))
+            if nxt in path:
+                branch.add("[dim](loops back)[/dim]")
+                continue
+            grow(branch, nxt, path | {nxt})
+
+    columns = [column] if column else lineage.columns.get(entity, [])
+    for name in columns:
+        ref = (entity, name)
+        expression = None if down else next((f.expression for f in links.get(ref, []) if f.expression), None)
+        tree = Tree(label(ref, expression))
+        grow(tree, ref, {ref})
+        if not tree.children:
+            tree.add(
+                "[dim]" + ("nothing uses it" if down else "no mapping: a source column, or not mapped yet") + "[/dim]"
+            )
+        console.print(tree)

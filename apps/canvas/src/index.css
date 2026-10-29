@@ -711,7 +711,7 @@ textarea.input {
 .columns__head,
 .columns__row {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1.3fr) minmax(0, 1fr) 24px 24px 24px;
+  grid-template-columns: 14px minmax(0, 1.3fr) minmax(0, 1fr) 24px 24px 22px 24px;
   gap: 6px;
   align-items: center;
 }
@@ -1554,4 +1554,131 @@ textarea.input {
 
 .expression__spacer {
   flex: 1;
+}
+
+/* Lineage ------------------------------------------------------------------------------------- */
+
+.entity--faded {
+  opacity: 0.28;
+}
+
+.entity__column--faded {
+  opacity: 0.4;
+}
+
+.entity__column--lineage {
+  background: var(--info-bg);
+}
+
+.entity__column--focus {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.entity__column--focus .entity__column-name {
+  font-weight: 700;
+}
+
+.entity__column--up {
+  box-shadow: inset 3px 0 0 var(--staging);
+}
+
+.entity__column--down {
+  box-shadow: inset 3px 0 0 var(--semantic);
+}
+
+.edge--faded .react-flow__edge-path {
+  opacity: 0.15;
+}
+
+.lineage-edge {
+  stroke: var(--accent) !important;
+  stroke-width: 1.75 !important;
+  stroke-dasharray: 6 4;
+  animation: lineage-flow 1.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lineage-edge {
+    animation: none;
+  }
+}
+
+@keyframes lineage-flow {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.lineage-label {
+  position: absolute;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 11px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.lineage-bar {
+  display: grid;
+  gap: 6px;
+  width: min(560px, 70vw);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 12.5px;
+}
+
+.lineage-bar__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+}
+
+.lineage-bar__row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.lineage-bar__label {
+  color: var(--text-muted);
+}
+
+.lineage-bar__refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 84px;
+  overflow-y: auto;
+}
+
+.lineage-bar__ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lineage-button {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.lineage-button--active,
+.chip--active {
+  color: var(--accent);
+  border-color: var(--accent);
 }

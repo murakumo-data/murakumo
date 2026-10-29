@@ -71,7 +71,7 @@ def _parse(expression: str, check: Check) -> exp.Expression | None:
     return tree
 
 
-def _resolve(
+def resolve_columns(
     project: Project, tree: exp.Expression, sources: list[str], check: Check
 ) -> dict[int, tuple[Entity, Attribute]]:
     """Each column node's entity and attribute, keyed by node id. Unresolved ones go to problems."""
@@ -124,7 +124,7 @@ def check_expression(
     tree = _parse(expression, check)
     if tree is None:
         return check
-    resolved = _resolve(project, tree, sources or [], check)
+    resolved = resolve_columns(project, tree, sources or [], check)
     if target:
         own = {f"{e.name}.{a.name}" for e, a in resolved.values() if e.name.lower() == target.lower()}
         for ref in sorted(own):
@@ -194,7 +194,7 @@ def preview_expression(
     from murakumo.generate.sample import sample_rows
 
     tree = _parse(expression, Check())
-    resolved = _resolve(project, tree, sources or [], Check())
+    resolved = resolve_columns(project, tree, sources or [], Check())
     entities: dict[str, Entity] = {}
     inputs: dict[str, tuple[Entity, Attribute]] = {}
     for entity, attribute in resolved.values():
@@ -258,4 +258,4 @@ def preview_expression(
     }
 
 
-__all__ = ["Check", "check_expression", "preview_expression"]
+__all__ = ["Check", "check_expression", "preview_expression", "resolve_columns"]
