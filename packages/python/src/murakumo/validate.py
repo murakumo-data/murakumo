@@ -144,6 +144,14 @@ def validate_project(project: Project) -> list[Diagnostic]:
                     )
                 )
 
+    # Schedules ----------------------------------------------------------------------------------
+
+    from murakumo.schedules import problems as schedule_problems
+
+    manifest_file = root / "murakumo.yaml"
+    for code, level, message in schedule_problems(project):
+        out.append((error if level == "error" else warning)(code, message, manifest_file, "orchestration"))
+
     # Metrics ------------------------------------------------------------------------------------
 
     for metric in model.metrics:

@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+Running the project: schedules, pipelines for the orchestrator, plain SQL, pipeline docs and CI.
+
+- **Schedules**: `orchestration.schedules` in `murakumo.yaml` says when each part of the project is
+  refreshed, as cron times in a chosen time zone, selecting tables by `domain:`, `layer:`,
+  `source:` or name (with `+` for upstream or downstream); one schedule can refresh the rest.
+  Each becomes a dbt selector. `murakumo add/rename/remove schedule`, `murakumo schedules`,
+  `murakumo build --schedule`, checks MK601-MK604, and a Schedules panel in the canvas that says
+  each time in words with its next run and highlights its tables.
+- **Pipelines**: `generate` writes a pipeline per schedule for the project's orchestrator to
+  `generated/orchestration/<orchestrator>/`: Airflow and Cloud Composer DAGs (Cosmos), Dagster
+  definitions (dagster-dbt), Prefect flows and deployments, a Databricks asset bundle, Snowflake
+  tasks, and a run script with steps for AWS Glue, Step Functions, GCP Workflows and Azure Data
+  Factory; each with a README. The Airflow, Dagster and Prefect ones were run on DuckDB.
+  `murakumo setup` points at them.
+- **Plain SQL**: `murakumo export sql` writes the project as ordered scripts that need only the
+  warehouse, with incremental models and SCD2 snapshots written out as statements and every test
+  as a query; they build the same tables as dbt. `generation.plain_sql: true` keeps them in
+  `generated/sql/`.
+- **Pipeline docs**: `generate` writes `generated/docs/index.html`, a self-contained page of
+  domains, schedules, sources and every table's columns, lineage and tests, and a Markdown page per
+  table. `murakumo docs` and **Docs** in the canvas open it.
+- **CI**: `murakumo ci` writes a GitHub Actions or GitLab workflow at the repository root that runs
+  `validate --strict`, `generate --check`, `migrate --check` and `verify` on every change, with an
+  optional production build after approval; it never overwrites a file changed by hand without
+  `--force`. A CI panel in the canvas writes it and runs the same checks locally.
+- `python -m murakumo` runs the CLI.
+
 ## 0.2.0 (2026-10-29)
 
 Working on the model in the canvas: sources, calculated columns, column order, domains and lineage.

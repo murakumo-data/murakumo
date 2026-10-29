@@ -15,12 +15,14 @@ import '@xyflow/react/dist/style.css'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { api, ApiError, type Entity, type Generated, type Layer, type LineageResult, type Position, type State } from './api'
+import { CIPanel } from './CI'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
 import { EntityNode, type EntityNodeType } from './EntityNode'
 import { EntityPanel, RelationshipPanel } from './Inspector'
 import { domainColour, ends, handleId, nodeHeight, placeEntities } from './layout'
 import { LineageBar, LineageEdge, type LineageEdgeType } from './Lineage'
+import { SchedulesPanel } from './Schedules'
 import { SourcesPanel } from './Sources'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
@@ -75,7 +77,9 @@ function Canvas() {
   const [message, setMessage] = useState<{ text: string; tone: 'error' | 'info' } | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [hidden, setHidden] = useState<Set<Layer>>(new Set())
-  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | 'sources' | null>(null)
+  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | null>(null)
+  const [scheduleShown, setScheduleShown] = useState<{ name: string; entities: string[] } | null>(null)
+  const shownSchedule = side === 'schedules' ? scheduleShown : null // only while its panel is open
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
   const [domainFilter, setDomainFilter] = useState<string | null>(null)
   const [lineageOf, setLineageOf] = useState<{ entity: string; column: string | null } | null>(null)
@@ -89,6 +93,7 @@ function Canvas() {
   const [panelWidth, setPanelWidth] = useState(savedPanelWidth)
   const [nodes, setNodes, onNodesChange] = useNodesState<EntityNodeType>([])
   const busy = useRef(0)
+  const showMessage = useCallback((text: string, tone: 'info' | 'error') => setMessage({ text, tone }), [])
   const generatedRevision = useRef<string | undefined>(undefined)
   const positions = useRef<Record<string, Position>>({})
   const refreshTimer = useRef<number | undefined>(undefined)
@@ -315,6 +320,13 @@ function Canvas() {
     const r = relationships.find((rel) => rel.id === id)
     const from = r && byName(entities, r.from)
     const to = r && byName(entities, r.to)
+    if (shownSchedule && !lineageNodes) {
+      const names = new Set(shownSchedule.entities.map((n) => n.toLowerCase()))
+      return nodes.map((n) => ({
+        ...n,
+        data: { ...n.data, faded: !names.has(n.data.entity.name.toLowerCase()) },
+      }))
+    }
     if (lineageNodes) {
       return nodes.map((n) => ({
         ...n,
@@ -330,7 +342,7 @@ function Canvas() {
     ])
     if (from.id === to.id) linked.set(from.id, new Set([...ids(from, r.keys.map((k) => k.from)), ...ids(to, r.keys.map((k) => k.to))]))
     return nodes.map((n) => (linked.has(n.id) ? { ...n, data: { ...n.data, linked: linked.get(n.id) } } : n))
-  }, [nodes, relationships, entities, selection, hovered, lineageNodes])
+  }, [nodes, relationships, entities, selection, hovered, lineageNodes, shownSchedule])
 
   // A shaded area behind each domain's tables, drawn from where the tables are now.
   const domainAreas = useMemo<DomainAreaType[]>(() => {
@@ -599,6 +611,13 @@ function Canvas() {
           </button>
           <button
             className="chip"
+            onClick={() => setSide(side === 'schedules' ? null : 'schedules')}
+            aria-expanded={side === 'schedules'}
+          >
+            Schedules <span className="muted">{state.orchestration?.implicit ? 'daily' : state.orchestration?.schedules.length}</span>
+          </button>
+          <button
+            className="chip"
             onClick={() => setSide(side === 'domains' ? null : 'domains')}
             aria-expanded={side === 'domains'}
           >
@@ -611,6 +630,12 @@ function Canvas() {
           )}
         </div>
         <div className="toolbar__actions">
+          <button className="chip" onClick={() => setSide(side === 'ci' ? null : 'ci')} aria-expanded={side === 'ci'}>
+            CI
+          </button>
+          <a className="chip" href="/api/pipeline-docs" target="_blank" rel="noreferrer" title="Pipeline docs: tables, columns, lineage and schedules">
+            Docs
+          </a>
           <span className="status" aria-live="polite">
             {saving ? 'Saving…' : 'Saved to model/'}
           </span>
@@ -744,6 +769,42 @@ function Canvas() {
               </button>
             </div>
             <SourcesPanel state={state} run={run} onMessage={(text) => setMessage({ text, tone: 'info' })} />
+          </aside>
+        )}
+
+        {side === 'ci' && (
+          <aside className="issues-panel" aria-label="CI">
+            <div className="issues-panel__head">
+              <strong>CI</strong>
+              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
+                ×
+              </button>
+            </div>
+            <CIPanel onMessage={showMessage} />
+          </aside>
+        )}
+
+        {side === 'schedules' && (
+          <aside className="issues-panel" aria-label="Schedules">
+            <div className="issues-panel__head">
+              <strong>Schedules</strong>
+              <button
+                className="icon-button"
+                aria-label="Close"
+                onClick={() => {
+                  setSide(null)
+                  setScheduleShown(null)
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <SchedulesPanel
+              state={state}
+              run={run}
+              highlighted={scheduleShown?.name ?? null}
+              onHighlight={(s) => setScheduleShown(s ? { name: s.name, entities: s.entities } : null)}
+            />
           </aside>
         )}
 

@@ -1,5 +1,5 @@
 {
-  "generated_by": "murakumo 0.1.1",
+  "generated_by": "murakumo 0.2.0",
   "files": {
     "dbt/README.md": "2c2c1a1fc3a489edab38a69be953d7702fa971056de4055a0113852ef9cf554a",
     "dbt/dbt_project.yml": "37fffc611271dcedabc8f3aad7051bd2775bcf79ae4c05ec169ec79bc68ebb54",
@@ -33,8 +33,30 @@
     "dbt/models/staging/tpch_erp/stg_tpch_erp__region.sql": "6229db5f2045b9e2916e82d6398c3320e73974fd7f31dc6029b5b4dfccf650c4",
     "dbt/models/staging/tpch_erp/stg_tpch_erp__supplier.sql": "f88ed906c4066750a0855b7d5d0ca7e506a08482a6505ef0dd20e0fc817131ee",
     "dbt/profiles.yml": "e091b5de762503583cc12d623e32f9e36da8bedfbabcf1c9cd924856cd6095d2",
+    "dbt/selectors.yml": "227c56397532361d71d6d0fae25cbde1a11fdebae8d24b5a8e710b93570f483a",
     "dbt/snapshots/_snapshots.yml": "83530ee4b688b7e3c8a1defa83a8061eb56580d3b221cbaa27e5c96bf61fa0d2",
     "ddl/duckdb/marts.sql": "57c85f12f3fe887d50497559fda3be0307c4441cb90671cb9036014f7e3cbf78",
-    "ddl/duckdb/raw.sql": "e96d6fb1ceea593f549b6b6ad4bf1439eff1c242051cf30dafac866eed755c62"
+    "ddl/duckdb/raw.sql": "e96d6fb1ceea593f549b6b6ad4bf1439eff1c242051cf30dafac866eed755c62",
+    "docs/README.md": "67aa260b51158bddbce2dcecd3a08d8992fac7c25dc70f88016c37889f8bdac9",
+    "docs/customer.md": "00cd03223c084360a3964f4158cf3dd92fbb9d4a1d3e23be8729bd6748d30f8f",
+    "docs/dim_customer.md": "a5d0e8d9179520faf6c7d89cc88be24729e96dc7b09eb7b680ca2f33c032bcbe",
+    "docs/dim_part.md": "ebae40ef37758c53c4ffee9615d524f5c0a790ec95320cd1498cccb0e20aed3e",
+    "docs/fct_order_line.md": "5658336e5972edce7bc6bb006e93b37ac54c8f7842e953f5b8f52424cb3bdf48",
+    "docs/index.html": "53db7d00e6661ed9048d3f9cafab54132d6bdc458d51bc4da0b8e87fe5a2f443",
+    "docs/lineitem.md": "6d0724cedad02e365f9173b2dbb825f1688c168558a603b8f7cfec01e8e9847d",
+    "docs/nation.md": "08d8fb83d177aa4dad461d970a2a4a2f2214281619210bf73583a22038519de6",
+    "docs/orders.md": "2283ffe65ace93f64561db3350ffeea63d3ced12f75da6dd48e7a73064bdb235",
+    "docs/part.md": "3848fdf2d1679640dedae96620abd1b6674f1afd44f8b401e7c5295859c44e14",
+    "docs/partsupp.md": "43d8491ec7285fdfdd6a13570f3bbdf1b1ccc9c0a165b58744916500e2366908",
+    "docs/region.md": "670abe07475bd4fab504e1a62a28e8b5cfd4b0a184497af12c43620af43224bd",
+    "docs/supplier.md": "d00e6a1f3c1a57e675f360ec32f3f41a68f622fd3a3a9905819d85cd2a3c0806",
+    "docs/taxi_zone_lookup.md": "db66edec9bf50461b1694fed9db5f3a25b7a082ea07df916a6298a8811ed1401",
+    "docs/weather_daily.md": "011a21d70bd60c3519acf5c02d4cf9a49cb7c144bd83027a09f676b17a7727ff",
+    "docs/weather_hourly.md": "f2b8ca480d92bc97aa31fca10989d506861f5e97714a8ad45282043dda5c2972",
+    "docs/yellow_tripdata.md": "5f8e410b7cb4d726960573b836a16701793294b609c29df36894889168da0edc",
+    "orchestration/airflow/README.md": "c708cb2a315c251bb97b51b4c4ba5fa63ec194541dcf842fb8c8362e9a4a1358",
+    "orchestration/airflow/dags/commerce__hourly_sales.py": "70b1a791758b6d63b3d52cbd69509706f056c2066bf36642fc82abd42507cf86",
+    "orchestration/airflow/dags/commerce__nightly.py": "0662b85d19ef665a1043712775453a05aac24c15d00762a0915a034d2ae53d7b",
+    "orchestration/airflow/requirements.txt": "cb14c1eb178e6ed33374b710eb5b1a5586934f3dc143f076ee5a67e2dae58f05"
   }
 }

@@ -8,6 +8,9 @@ murakumo migrate                         # write the next migration for tables t
 murakumo migrate --check                 # CI: fail if the model changed without a migration
 murakumo verify                          # build it on DuckDB and run every test, twice
 murakumo build                           # build it in the project's warehouse, and keep the tables
+murakumo build --schedule nightly        # only what one schedule refreshes
+murakumo export sql                      # the project as plain SQL scripts, without dbt
+murakumo docs                            # open the pipeline docs
 ```
 
 `generate` refuses to run while `murakumo validate` reports errors. Everything it writes goes under
@@ -30,10 +33,17 @@ generated/
     models/marts/<domain>/              dimensions and facts, with contracts and tests
     snapshots/_snapshots.yml            SCD2 history
     macros/murakumo/                    the record hash, schema names and extra generic tests
+    selectors.yml                       one selector per schedule
   ddl/<warehouse>/
     raw.sql                             landing schemas and tables for ingestion to write into
     marts.sql                           reference DDL for the modelled tables, with keys
+  orchestration/<orchestrator>/         a pipeline per schedule, and how to deploy them
+  docs/
+    index.html, <table>.md              pipeline docs: tables, columns, lineage, schedules, sources
+  sql/<warehouse>/                      the project as plain SQL, with `plain_sql: true`
 ```
+
+Schedules, pipelines, plain SQL and CI are described in [orchestration.md](orchestration.md).
 
 ### Staging
 

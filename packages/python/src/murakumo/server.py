@@ -26,11 +26,12 @@ from uuid import UUID
 
 from fastapi import Body, FastAPI, Header, HTTPException
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from murakumo import __version__, edit
+from murakumo import schedules as schedules_module
 from murakumo import sources as sources_module
 from murakumo.diagnostics import Diagnostic, Level
 from murakumo.expressions import check_expression, preview_expression
@@ -133,6 +134,23 @@ class SourceImportBody(BaseModel):
     prune: bool = False
 
 
+class NewSchedule(BaseModel):
+    name: str
+    cron: str
+    select: list[str] = Field(default_factory=list)
+    description: str | None = None
+
+
+class TimezoneBody(BaseModel):
+    timezone: str
+
+
+class CIBody(BaseModel):
+    provider: str = "github"
+    deploy: bool = False
+    force: bool = False
+
+
 class NewDomain(BaseModel):
     name: str
     owner: str | None = None
@@ -198,6 +216,7 @@ def state(root: Path) -> dict[str, Any]:
         "model": project.model.model_dump(mode="json", by_alias=True) if project else None,
         "layout": {str(k): {"x": x, "y": y} for k, (x, y) in layout.items()},
         "sources": sources_module.list_sources(project) if project else [],
+        "orchestration": schedules_module.summary(project) if project else None,
         "domains": [
             {**d.model_dump(), "entities": len(edit.domain_usage(project, d.name))}
             for d in (project.manifest.project.domains if project else [])
@@ -510,6 +529,55 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     def remove_relationship(relationship_id: UUID, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_relationship(p, relationship_id), rev)
 
+    from murakumo import ci as ci_module
+
+    checks = ci_module.Runner(root)
+
+    @app.get("/api/ci")
+    def get_ci(provider: str = "github", deploy: bool = False) -> dict[str, Any]:
+        """The CI file: there, as Murakumo would write it, or changed; and the last local run of its checks."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        try:
+            return {**ci_module.status(project, provider, deploy), "run": checks.run.as_dict()}
+        except ci_module.CIError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/ci")
+    def post_ci(body: CIBody) -> dict[str, Any]:
+        """Write the CI file at the repository root. A file with changes of its own needs force."""
+        with lock:
+            project, _ = _blocked(root)
+            if project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            try:
+                return {**ci_module.write(project, body.provider, body.deploy, body.force), "run": checks.run.as_dict()}
+            except ci_module.CIError as exc:
+                raise HTTPException(409, {"message": str(exc)}) from None
+
+    @app.post("/api/ci/run")
+    def run_ci() -> dict[str, Any]:
+        """Run the CI's checks on this machine, in the background; GET /api/ci/run follows them."""
+        return checks.start().as_dict()
+
+    @app.get("/api/ci/run")
+    def get_ci_run() -> dict[str, Any]:
+        return checks.run.as_dict()
+
+    @app.get("/api/pipeline-docs", response_class=HTMLResponse)
+    def get_docs() -> HTMLResponse:
+        """The pipeline docs page, as `murakumo generate` writes it to generated/docs/index.html."""
+        from murakumo.generate import docs
+        from murakumo.generate.plan import build_plan
+        from murakumo.generate.targets import target_for
+
+        project, blocked = _blocked(root)
+        if project is None or blocked:
+            raise HTTPException(409, {"message": blocked or "the project did not load"})
+        plan = build_plan(project, target_for(project.manifest.targets.warehouse.type))
+        return HTMLResponse(docs.html(project, plan))
+
     @app.get("/api/lineage")
     def get_lineage(entity: str, column: str | None = None) -> dict[str, Any]:
         """Where a column (or every column of an entity) comes from, and what uses it."""
@@ -606,6 +674,36 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
         new_state = change(action, rev, prune=body.prune)
         return {**new_state, "reports": reports}
+
+    def schedule_change(action: Callable[[Project], Any]) -> Callable[[Project], Any]:
+        def guarded(project: Project) -> Any:
+            try:
+                return action(project)
+            except schedules_module.ScheduleError as exc:
+                raise edit.EditError(str(exc)) from None
+
+        return guarded
+
+    @app.post("/api/schedules")
+    def add_schedule(body: NewSchedule, rev: Revision = None) -> dict[str, Any]:
+        return change(
+            schedule_change(
+                lambda p: schedules_module.add_schedule(p, body.name, body.cron, body.select, body.description)
+            ),
+            rev,
+        )
+
+    @app.patch("/api/schedules/{name}")
+    def update_schedule(name: str, body: Changes, rev: Revision = None) -> dict[str, Any]:
+        return change(schedule_change(lambda p: schedules_module.update_schedule(p, name, body)), rev)
+
+    @app.delete("/api/schedules/{name}")
+    def remove_schedule(name: str, rev: Revision = None) -> dict[str, Any]:
+        return change(schedule_change(lambda p: schedules_module.remove_schedule(p, name)), rev)
+
+    @app.put("/api/orchestration/timezone")
+    def put_timezone(body: TimezoneBody, rev: Revision = None) -> dict[str, Any]:
+        return change(schedule_change(lambda p: schedules_module.set_timezone(p, body.timezone)), rev)
 
     @app.post("/api/domains")
     def add_domain(body: NewDomain, rev: Revision = None) -> dict[str, Any]:

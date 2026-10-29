@@ -42,6 +42,11 @@ murakumo canvas                                        # the visual editor, on h
 murakumo generate                                      # generated/: dbt project and DDL for your warehouse
 murakumo generate --check                              # fail CI if generated/ is out of date
 murakumo migrate                                       # ALTER statements for tables that keep data
+murakumo add schedule nightly --cron "0 6 * * *"       # schedules become pipelines for your orchestrator
+murakumo schedules                                     # when each runs, and what it refreshes
+murakumo export sql                                    # the project as plain SQL, without dbt
+murakumo docs                                          # pipeline docs: tables, columns, lineage, schedules
+murakumo ci                                            # a GitHub Actions (or GitLab) workflow for every push
 murakumo verify                                        # build and test it all on DuckDB, twice
 murakumo verify --warehouse snowflake                  # or on Snowflake, in throwaway schemas
 murakumo build --sample 200                            # build into the project's warehouse and keep the tables
@@ -57,7 +62,8 @@ Docs: [starting a project and setting up](https://github.com/murakumo-data/murak
 [importing metadata](https://github.com/murakumo-data/murakumo/blob/main/docs/importing.md),
 [generating and verifying](https://github.com/murakumo-data/murakumo/blob/main/docs/generating.md),
 [Snowflake](https://github.com/murakumo-data/murakumo/blob/main/docs/snowflake.md),
-[the canvas](https://github.com/murakumo-data/murakumo/blob/main/docs/canvas.md).
+[the canvas](https://github.com/murakumo-data/murakumo/blob/main/docs/canvas.md),
+[schedules, pipelines and CI](https://github.com/murakumo-data/murakumo/blob/main/docs/orchestration.md).
 
 ## Development
 

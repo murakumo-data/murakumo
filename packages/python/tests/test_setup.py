@@ -155,7 +155,7 @@ def test_orchestrator_is_guidance_only(tmp_path, monkeypatch):
     check = next(c for c in run_checks(project) if c.area == "Orchestrator: airflow")
     assert check.status is Status.INFO  # not needed to build yet
     assert any("astro dev start" in step for step in check.steps)
-    assert "does not generate its pipelines yet" in check.detail
+    assert "generated/orchestration/airflow/" in check.detail
     assert check.numbered and any("astronomer.io" in link for link in check.docs)
 
 

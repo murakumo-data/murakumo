@@ -86,6 +86,18 @@ murakumo canvas path/to/project --port 9000 --no-open
   shows it with its SQL, and the button becomes **Write migration #N and M files**: it writes the
   migration to `migrations/` first, then the code, so the two never get out of step. See
   [migrations](generating.md#migrations). The first migration, the baseline, has its own button.
+- **Schedule refreshes.** **Schedules** lists when each part of the project is refreshed, each time
+  in words with its next run: add one with a preset or a cron time, choose what it refreshes
+  (`domain:`, `layer:`, `source:` or a table, suggested as you type), set the time zone, and
+  click a schedule's table count to highlight its tables. The inspector says which schedule
+  refreshes the selected table. Each schedule becomes a pipeline for your orchestrator; see
+  [orchestration](orchestration.md).
+- **Read the docs.** **Docs** opens the pipeline docs for the model as it is now: domains,
+  schedules, sources, and every table's columns, lineage and tests, on one page.
+- **Set up CI.** **CI** shows whether the repository has a Murakumo workflow for GitHub Actions or
+  GitLab, writes one (optionally with an approved production build), shows the difference when the
+  file was changed by hand instead of overwriting it, and **Run checks now** runs the same four
+  checks on your computer, each shown as it passes or fails.
 - **Fix problems.** The toolbar shows the problems `murakumo validate` and `murakumo generate`
   report, such as a column with no mapping (MK503). Click it for the list; click an item to go to
   its entity. Entities with problems carry a badge, and the inspector shows their messages.
@@ -112,7 +124,7 @@ at `/api/docs`. Every change returns the whole new state, validated.
 
 | Method | Path | Does |
 | --- | --- | --- |
-| GET | `/api/state` | The model, layout, sources, domains, diagnostics, revision, and the choices for each field |
+| GET | `/api/state` | The model, layout, sources, domains, schedules, diagnostics, revision, and the choices for each field |
 | GET | `/api/revision` | Just the revision, a fingerprint of the model files: cheap to poll |
 | POST | `/api/entities` | Add an entity: `{name, layer, kind, source, domain, description, position}` |
 | PATCH | `/api/entities/{id}` | Change or rename it: any of `name`, `description`, `layer`, `kind`, `source`, `domain`, `owner`, `history`, `load`, `watermark`, `tags` |
@@ -136,6 +148,14 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | GET | `/api/sources/{name}/browse` | A database source's schemas, tables and columns, each table marked if it is in the model |
 | POST | `/api/sources/{name}/import/preview` | What importing would change: `{tables: ["schema.table"], prune}`; `tables: null` imports the whole source |
 | POST | `/api/sources/{name}/import` | Import it and save; returns the new state and the reports |
+| POST | `/api/schedules` | Add a schedule: `{name, cron, select, description}` |
+| PATCH | `/api/schedules/{name}` | Change its `name`, `cron`, `select` or `description` |
+| DELETE | `/api/schedules/{name}` | Remove it |
+| PUT | `/api/orchestration/timezone` | Set the time zone schedules run in: `{timezone}` |
+| GET | `/api/pipeline-docs` | The pipeline docs page, as HTML |
+| GET | `/api/ci?provider=&deploy=` | The CI file: missing, current or changed, with its content or difference, and the last local run |
+| POST | `/api/ci` | Write it: `{provider, deploy, force}`; a file changed by hand needs `force` |
+| POST, GET | `/api/ci/run` | Start the checks here in the background; follow them |
 | PUT | `/api/layout` | Save positions: `{positions: {entity_id: {x, y}}}` |
 | GET | `/api/generated` | What generating would change: each file's status and entities, generate diagnostics, the next migration |
 | GET | `/api/generated/file?path=` | One generated file and its diff against `generated/` |

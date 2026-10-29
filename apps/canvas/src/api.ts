@@ -88,6 +88,25 @@ export type ImportReport = {
   has_changes: boolean
 }
 
+export type ScheduleInfo = {
+  name: string
+  cron: string
+  select: string[]
+  description: string | null
+  when: string // the cron time in words
+  next_runs: string[] // ISO times, in the schedule's time zone
+  entities: string[] // the entities it refreshes
+  rest: boolean // it refreshes whatever no other schedule selects
+}
+
+export type Orchestration = {
+  timezone: string
+  implicit: boolean
+  schedules: ScheduleInfo[]
+  orchestrator: string
+  pipelines: string // where `murakumo generate` writes the orchestrator's pipelines
+}
+
 export type Domain = { name: string; owner: string | null; description: string | null; entities: number }
 
 export type State = {
@@ -99,6 +118,7 @@ export type State = {
   layout: Record<string, Position>
   domains: Domain[]
   sources: SourceInfo[]
+  orchestration: Orchestration | null
   diagnostics: Diagnostic[]
   choices: {
     sources: string[]
@@ -160,6 +180,23 @@ export type LineageResult = {
   nodes: LineageNode[]
   links: { source: { entity: string; column: string }; target: { entity: string; column: string }; expression: string | null }[]
   joins: { relationship: string; left: { entity: string; column: string }; right: { entity: string; column: string } }[]
+}
+
+export type CIStep = { name: string; command: string; state: string; output: string }
+export type CIRun = { running: boolean; steps: CIStep[] }
+
+export type CIInfo = {
+  provider: 'github' | 'gitlab'
+  file: string
+  path: string
+  repository: string
+  in_git: boolean
+  state: 'missing' | 'current' | 'differs'
+  content: string
+  diff: string
+  found: Record<string, boolean>
+  deploy_possible: boolean
+  run: CIRun
 }
 
 export type EntityCode = {
@@ -240,6 +277,13 @@ export const api = {
   importSource: (name: string, tables: string[] | null) =>
     request<State>('POST', `/sources/${encodeURIComponent(name)}/import`, { tables }),
 
+  addSchedule: (body: { name: string; cron: string; select: string[]; description?: string | null }) =>
+    request<State>('POST', '/schedules', body),
+  updateSchedule: (name: string, changes: Record<string, unknown>) =>
+    request<State>('PATCH', `/schedules/${encodeURIComponent(name)}`, changes),
+  removeSchedule: (name: string) => request<State>('DELETE', `/schedules/${encodeURIComponent(name)}`),
+  setTimezone: (timezone: string) => request<State>('PUT', '/orchestration/timezone', { timezone }),
+
   addDomain: (body: { name: string; owner?: string | null; description?: string | null }) =>
     request<State>('POST', '/domains', body),
   updateDomain: (name: string, changes: Record<string, unknown>) =>
@@ -266,6 +310,13 @@ export const api = {
       undefined,
       false,
     ),
+
+  ci: (provider: string, deploy: boolean) =>
+    request<CIInfo>('GET', `/ci?provider=${provider}&deploy=${deploy}`, undefined, false),
+  writeCI: (provider: string, deploy: boolean, force: boolean) =>
+    request<CIInfo>('POST', '/ci', { provider, deploy, force }, false),
+  startCIRun: () => request<CIRun>('POST', '/ci/run', undefined, false),
+  ciRun: () => request<CIRun>('GET', '/ci/run', undefined, false),
 
   generated: () => request<Generated>('GET', '/generated', undefined, false),
   generatedFile: (path: string) =>

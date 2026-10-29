@@ -287,6 +287,44 @@ def add_domain(
     _edit(project_path, lambda p: f"Added domain {edit.add_domain(p, name, owner, description).name}.")
 
 
+def _schedule_edit(project_path: Path, change: Callable[[Project], str]) -> None:
+    from murakumo.schedules import ScheduleError
+
+    def guarded(project: Project) -> str:
+        try:
+            return change(project)
+        except ScheduleError as exc:
+            raise edit.EditError(str(exc)) from None
+
+    _edit(project_path, guarded)
+
+
+@add_app.command("schedule")
+def add_schedule(
+    name: str,
+    cron: str = typer.Option(..., "--cron", help="When it runs, as a cron time: '0 6 * * *' is every day at 06:00."),
+    select: list[str] = typer.Option(
+        None,
+        "--select",
+        help="What it refreshes: domain:NAME, layer:NAME, source:NAME or an entity, with + for upstream (+x) or "
+        "downstream (x+). Repeat for several. Leave out to refresh everything other schedules do not.",
+    ),
+    description: str | None = typer.Option(None),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Add a schedule to murakumo.yaml: when part of the project is refreshed."""
+    from murakumo.cron import describe
+    from murakumo.schedules import add_schedule as add
+
+    def change(project: Project) -> str:
+        schedule = add(project, name, cron, select or [], description)
+        what = ", ".join(schedule.select) if schedule.select else "everything other schedules do not"
+        when = describe(schedule.cron, project.manifest.orchestration.timezone)
+        return f"Added schedule {schedule.name}: {what}, {when}."
+
+    _schedule_edit(project_path, change)
+
+
 @add_app.command("entity")
 def add_entity(
     name: str,
@@ -379,10 +417,28 @@ def remove_source(name: str, project_path: Path = ProjectOption) -> None:
     _edit(project_path, change, prune=True)
 
 
+@remove_app.command("schedule")
+def remove_schedule(name: str, project_path: Path = ProjectOption) -> None:
+    """Remove a schedule from murakumo.yaml."""
+    from murakumo.schedules import remove_schedule as remove
+
+    _schedule_edit(project_path, lambda p: f"Removed schedule {remove(p, name).name}.")
+
+
 @remove_app.command("domain")
 def remove_domain(name: str, project_path: Path = ProjectOption) -> None:
     """Remove a domain that no entity uses."""
     _edit(project_path, lambda p: f"Removed domain {edit.remove_domain(p, name).name}.")
+
+
+@rename_app.command("schedule")
+def rename_schedule(name: str, new_name: str, project_path: Path = ProjectOption) -> None:
+    """Rename a schedule (and its dbt selector and pipelines, on the next generate)."""
+    from murakumo.schedules import update_schedule
+
+    _schedule_edit(
+        project_path, lambda p: f"Renamed schedule {name} to {update_schedule(p, name, {'name': new_name}).name}."
+    )
 
 
 @rename_app.command("domain")
@@ -486,3 +542,35 @@ def lineage_command(
                 "[dim]" + ("nothing uses it" if down else "no mapping: a source column, or not mapped yet") + "[/dim]"
             )
         console.print(tree)
+
+
+def schedules_command(
+    project_path: Path = ProjectOption,
+    timezone: str | None = typer.Option(None, "--timezone", help="Set the time zone schedules run in, such as UTC."),
+) -> None:
+    """List the schedules: when each runs, its next runs, and what it refreshes."""
+    from rich.table import Table
+
+    from murakumo.schedules import ScheduleError, set_timezone, summary
+
+    project = open_project(project_path)
+    if timezone:
+        try:
+            set_timezone(project, timezone)
+        except ScheduleError as exc:
+            fail(str(exc))
+            raise typer.Exit(1) from None
+        console.print(f"Schedules now run in {timezone}.")
+    info = summary(project)
+    if info["implicit"]:
+        console.print("No schedules in murakumo.yaml, so everything is refreshed once a day:")
+    table = Table(box=None, pad_edge=False)
+    for column in ("Schedule", "When", "Next run", "Refreshes"):
+        table.add_column(column)
+    for row in info["schedules"]:
+        names = row["entities"]
+        tables = f"{len(names)}: " + ", ".join(names[:3]) + (", ..." if len(names) > 3 else "") if names else "nothing"
+        next_run = row["next_runs"][0][:16].replace("T", " ") if row["next_runs"] else ""
+        table.add_row(row["name"], row["when"], next_run, tables)
+    console.print(table)
+    console.print("[dim]Add one with `murakumo add schedule NAME --cron '0 6 * * *' --select domain:sales`.[/dim]")

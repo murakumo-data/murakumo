@@ -70,7 +70,7 @@ murakumo setup --format json
 | Tools | Python 3.11+; the canvas is installed; on macOS, the command line developer tools (they bring git); git is installed and knows your name and email |
 | Warehouse | dbt and the warehouse's adapter (`dbt-snowflake`, `dbt-databricks`...) and driver are installed; every environment variable the generated `profiles.yml` reads is set, with the optional ones and their defaults; on Snowflake, the private key file exists and only you can read it. With `--connect`: signs in, and checks the database exists and the role can see it |
 | Sources | For each source in the manifest with a `from:` line: the dictionary or file exists; for databases, the `env:` variable holding the connection string is set and the driver is installed. With `--connect`: connects and counts the tables it can see |
-| Orchestrator | Whether it is installed and, if not, numbered steps to install it and point it at `generated/dbt` (Airflow through the Astro CLI and Cosmos, Dagster with dagster-dbt, Prefect with prefect-dbt), with links to their documentation; for managed services (Databricks Workflows, Snowflake tasks, AWS, Google Cloud, Azure), what to set up in the cloud console |
+| Orchestrator | Whether it is installed and, if not, numbered steps to install it and run the pipelines Murakumo generates (Airflow through the Astro CLI, Dagster, Prefect), with links to their documentation; for managed services (Databricks Workflows, Snowflake tasks, AWS, Google Cloud, Azure), how to deploy them |
 | Project | A git repository (its own, or one you already had); `generated/` up to date with the model; migrations started; lakehouse settings not used yet |
 
 Each item is ✓ done, ✗ needed before the project can build, ! worth fixing, or • for your
@@ -83,10 +83,10 @@ commands match how Murakumo itself was installed: `pip install ...`, `uv pip ins
 
 `setup` only looks: it never installs anything, writes a file, or changes a setting.
 
-Orchestration is guidance only in this release: Murakumo does not generate Airflow, Dagster or
-Prefect pipelines yet, so until it does, run `dbt build` in `generated/dbt` from your scheduler
-(for Airflow, [Cosmos](https://github.com/astronomer/astronomer-cosmos) runs a dbt project as tasks),
-after applying new migrations. To build by hand meanwhile, use `murakumo build`
+`murakumo generate` writes a pipeline per schedule for your orchestrator to
+`generated/orchestration/<orchestrator>/`; the orchestrator check's steps get it running with
+them. See [orchestration.md](orchestration.md) for schedules, pipelines and CI. Apply new
+migrations before the pipelines run; to build by hand, use `murakumo build`
 ([generating.md](generating.md#build)).
 
 ## Warehouse guides

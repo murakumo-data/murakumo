@@ -218,6 +218,9 @@ def build_command(
     warehouse: Warehouse | None = typer.Option(
         None, "--warehouse", help="duckdb or snowflake. Defaults to the project's warehouse."
     ),
+    schedule: str | None = typer.Option(
+        None, "--schedule", help="Build only what this schedule refreshes, as its orchestrator would."
+    ),
 ) -> None:
     """Build the project into the warehouse and keep it: raw tables, then every dbt model and test.
 
@@ -249,7 +252,7 @@ def build_command(
     target = (warehouse or project.manifest.targets.warehouse.type).value
     with console.status(f"Building on {target}: raw tables, then dbt build..."):
         try:
-            result = build(project, warehouse, environment, data=files, limit=limit, sample=sample)
+            result = build(project, warehouse, environment, data=files, limit=limit, sample=sample, schedule=schedule)
         except SourceUnavailable as exc:
             fail(str(exc))
             raise typer.Exit(1) from None
@@ -268,3 +271,126 @@ def build_command(
     console.print(f"[{colour}]{word}[/{colour}]: {summary}. Tables are in {result.location}.")
     if not result.ok:
         raise typer.Exit(1)
+
+
+def export_command(
+    what: str = typer.Argument("sql", help="What to export: sql, the project as plain SQL scripts."),
+    project_path: Path = ProjectOption,
+    warehouse: Warehouse | None = WarehouseOption,
+    out: Path | None = typer.Option(None, "--out", help="Folder to write to. Default: export/sql/<warehouse>."),
+) -> None:
+    """Export the project as plain SQL: scripts that build it without dbt, in order, with tests as queries.
+
+    Set `plain_sql: true` under generation in murakumo.yaml to keep them in generated/sql/ instead,
+    written (and checked) with everything else.
+    """
+    from murakumo.generate import export_sql
+
+    if what != "sql":
+        fail(f"cannot export {what!r}; `murakumo export sql` is the one there is")
+        raise typer.Exit(1)
+    project = open_project(project_path)
+    problems = validate_project(project)
+    if any(d.level is Level.ERROR for d in problems):
+        print_diagnostics([d for d in problems if d.level is Level.ERROR], project.root)
+        fail("the model has errors; fix them before exporting")
+        raise typer.Exit(1)
+    output = generate(project, warehouse)
+    files = export_sql(output.plan, output.files)
+    folder = out or project.root / "export" / "sql" / output.plan.target.warehouse.value
+    folder.mkdir(parents=True, exist_ok=True)
+    for stale in folder.rglob("*.sql"):
+        stale.unlink()
+    for path, content in files.items():
+        target = folder / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    scripts = sum(1 for p in files if p.endswith(".sql") and "/" not in p)
+    tests = sum(1 for p in files if p.startswith("tests/"))
+    shown = folder.relative_to(project.root) if folder.is_relative_to(project.root) else folder
+    console.print(f"Wrote {scripts} scripts and {tests} test files to {shown}/. README.md there says how to run them.")
+
+
+def docs_command(
+    project_path: Path = ProjectOption,
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the page in the browser."),
+) -> None:
+    """Show the pipeline docs: tables, columns, lineage, schedules and sources, on one page.
+
+    `murakumo generate` keeps the same page in generated/docs/index.html, for committing; this
+    shows it as the model is now, without writing anything to the project.
+    """
+    import tempfile
+    import webbrowser
+
+    from murakumo.generate import docs
+    from murakumo.generate.plan import build_plan
+    from murakumo.generate.targets import target_for
+
+    project = open_project(project_path)
+    plan = build_plan(project, target_for(project.manifest.targets.warehouse.type))
+    folder = Path(tempfile.gettempdir()) / "murakumo-docs" / project.manifest.project.name
+    folder.mkdir(parents=True, exist_ok=True)
+    page = folder / "index.html"
+    page.write_text(docs.html(project, plan), encoding="utf-8")
+    console.print(f"Docs: {page}")
+    if open_browser:
+        webbrowser.open(page.as_uri())
+
+
+def ci_command(
+    project_path: Path = ProjectOption,
+    provider: str = typer.Option("github", "--provider", help="github (GitHub Actions) or gitlab."),
+    deploy: bool = typer.Option(
+        False, "--deploy", help="Also build production on pushes to main, after approval, with the CI's secrets."
+    ),
+    force: bool = typer.Option(False, "--force", help="Replace a CI file that has changes of its own."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the file instead of writing it."),
+    run: bool = typer.Option(False, "--run", help="Run the CI's checks here instead, one after another."),
+) -> None:
+    """Write a CI workflow that checks every change: validate, generate --check, migrate --check, verify.
+
+    The file goes at the root of the git repository. Once written it is yours: Murakumo will not
+    overwrite changes you make to it without --force, and shows the difference instead.
+    """
+    from murakumo import ci
+
+    project = open_project(project_path)
+    if run:
+        result = ci.run_checks(project.root, ci.Run())
+        for step in result.steps:
+            mark = "[green]✓[/green]" if step.state == "passed" else "[red]✗[/red]"
+            console.print(f"{mark} {step.name}  [dim]{step.command}[/dim]")
+            if step.state == "failed":
+                console.print(escape(step.output))
+        if any(s.state == "failed" for s in result.steps):
+            raise typer.Exit(1)
+        return
+    try:
+        info = ci.status(project, provider, deploy)
+    except ci.CIError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    if dry_run:
+        typer.echo(info["content"], nl=False)
+        return
+    if deploy and not info["deploy_possible"]:
+        console.print(
+            "[yellow]![/yellow] The project builds into a DuckDB file, so there is no production to deploy to."
+        )
+    if info["state"] == "differs" and not force:
+        typer.echo(info["diff"], nl=False)
+        fail(f"{info['file']} has changes of its own (above); keep them, or replace it with --force")
+        raise typer.Exit(1)
+    if info["state"] == "current":
+        console.print(f"{info['file']} is up to date.")
+        return
+    ci.write(project, provider, deploy, force=True)
+    console.print(f"Wrote {info['file']} in {info['repository']}. Commit it, and the checks run on every push.")
+    if deploy and info["deploy_possible"]:
+        where = "Settings → Secrets and variables → Actions" if provider == "github" else "Settings → CI/CD → Variables"
+        console.print(
+            f"Add the warehouse credentials as secrets ({where}), and reviewers to the production environment."
+        )
+    if not info["in_git"]:
+        console.print("[yellow]![/yellow] The project is not in a git repository yet: run `git init` first.")
