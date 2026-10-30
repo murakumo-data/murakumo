@@ -415,6 +415,8 @@ def _run_dbt(
     rerun: bool,
     result: VerifyResult,
     selector: str | None = None,
+    select: str | None = None,
+    dbt_vars: dict[str, str] | None = None,
 ):
     from dbt.cli.main import dbtRunner
 
@@ -432,6 +434,8 @@ def _run_dbt(
         "--quiet",
         "--no-use-colors",
         *(["--selector", selector] if selector else []),
+        *(["--select", select] if select else []),
+        *(["--vars", json.dumps(dbt_vars)] if dbt_vars else []),
     ]
     try:
         run = dbtRunner().invoke(arguments)
@@ -587,6 +591,8 @@ def build(
     sample: int = 0,
     schema_prefix: str = "",
     schedule: str | None = None,
+    select: str | None = None,
+    dbt_vars: dict[str, str] | None = None,
 ) -> BuildResult:
     """Build the project into its real warehouse and keep everything: the raw landing tables
     (created if missing), and every dbt model, snapshot and test in the environment's schemas.
@@ -672,7 +678,16 @@ def build(
                 variables.pop("MURAKUMO_SCHEMA")  # the environment's own schema, as in profiles.yml
                 variables["MURAKUMO_SCHEMA_PREFIX"] = schema_prefix
             variables["MURAKUMO_SCHEDULE"] = schedule or ""  # recorded in audit.run_log
-            run = _run_dbt(folder / "dbt", environment, variables, False, result, selector=schedule)
+            run = _run_dbt(
+                folder / "dbt",
+                environment,
+                variables,
+                False,
+                result,
+                selector=schedule,
+                select=select,
+                dbt_vars=dbt_vars,
+            )
         finally:
             result.location = backend.describe()
             if warehouse is Warehouse.SNOWFLAKE:

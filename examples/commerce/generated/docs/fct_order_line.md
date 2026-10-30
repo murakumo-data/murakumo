@@ -6,7 +6,7 @@ One row per order line, with its net amount after discount.
 
 **Layer:** marts · **Kind:** fact · **Domain:** sales · **Refreshed:** hourly_sales: every hour, on the hour
 
-[lineitem](lineitem.md), [orders](orders.md) → **fct_order_line** → nothing yet
+[lineitem](lineitem.md), [orders](orders.md) → **fct_order_line** → [customer_order_activity](customer_order_activity.md)
 
 | Column | Type | About | Comes from |
 | --- | --- | --- | --- |

@@ -5,6 +5,9 @@ selectors:
     definition:
       union:
         - method: fqn
+          value: customer_order_activity
+          indirect_selection: cautious
+        - method: fqn
           value: dim_customer
           indirect_selection: cautious
         - method: fqn

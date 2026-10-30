@@ -56,6 +56,7 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 <li data-name="yellow_tripdata"><a href="#t-yellow_tripdata">yellow_tripdata</a></li>
 </ul>
 <h2>marts</h2><ul>
+<li data-name="customer_order_activity"><a href="#t-customer_order_activity">customer_order_activity</a></li>
 <li data-name="dim_customer"><a href="#t-dim_customer">dim_customer</a></li>
 <li data-name="dim_part"><a href="#t-dim_part">dim_part</a></li>
 <li data-name="fct_order_line"><a href="#t-fct_order_line">fct_order_line</a></li>
@@ -63,9 +64,9 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 </nav>
 <main>
 <section id="overview"><h1>commerce</h1>
-<p class="muted">15 tables (12 raw, 3 marts) on duckdb, run by airflow, modelled as kimball.</p>
+<p class="muted">16 tables (12 raw, 4 marts) on duckdb, run by airflow, modelled as kimball.</p>
 <h2>Domains</h2><table><tr><th>Domain</th><th>Owner</th><th>Tables</th></tr>
-<tr><td><strong>sales</strong></td><td></td><td><a href="#t-dim_customer"><code>dim_customer</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a></td></tr>
+<tr><td><strong>sales</strong></td><td></td><td><a href="#t-customer_order_activity"><code>customer_order_activity</code></a> <a href="#t-dim_customer"><code>dim_customer</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a></td></tr>
 <tr><td><strong>product</strong></td><td></td><td><a href="#t-dim_part"><code>dim_part</code></a></td></tr>
 <tr><td><strong>mobility</strong></td><td></td><td></td></tr>
 <tr><td><strong>weather</strong></td><td></td><td></td></tr>
@@ -73,7 +74,7 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 </section>
 <section id="schedules"><h2>Schedules</h2>
 <table><tr><th>Schedule</th><th>When</th><th>Refreshes</th></tr>
-<tr><td><strong>hourly_sales</strong><div class="muted">Order lines and customers, every hour</div></td><td>every hour, on the hour<div class="mono muted">0 * * * *</div></td><td><a href="#t-customer"><code>customer</code></a> <a href="#t-dim_customer"><code>dim_customer</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a> <a href="#t-lineitem"><code>lineitem</code></a> <a href="#t-nation"><code>nation</code></a> <a href="#t-orders"><code>orders</code></a></td></tr>
+<tr><td><strong>hourly_sales</strong><div class="muted">Order lines and customers, every hour</div></td><td>every hour, on the hour<div class="mono muted">0 * * * *</div></td><td><a href="#t-customer"><code>customer</code></a> <a href="#t-customer_order_activity"><code>customer_order_activity</code></a> <a href="#t-dim_customer"><code>dim_customer</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a> <a href="#t-lineitem"><code>lineitem</code></a> <a href="#t-nation"><code>nation</code></a> <a href="#t-orders"><code>orders</code></a></td></tr>
 <tr><td><strong>nightly</strong></td><td>every day at 06:00 UTC<div class="mono muted">0 6 * * *</div></td><td><a href="#t-dim_part"><code>dim_part</code></a> <a href="#t-part"><code>part</code></a> <a href="#t-partsupp"><code>partsupp</code></a> <a href="#t-region"><code>region</code></a> <a href="#t-supplier"><code>supplier</code></a> <a href="#t-taxi_zone_lookup"><code>taxi_zone_lookup</code></a> <a href="#t-weather_daily"><code>weather_daily</code></a> <a href="#t-weather_hourly"><code>weather_hourly</code></a> <a href="#t-yellow_tripdata"><code>yellow_tripdata</code></a></td></tr>
 </table>
 </section>
@@ -293,6 +294,15 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 </div>
 </section>
 <section><h2>Marts</h2>
+<div class="card" id="t-customer_order_activity" data-name="customer_order_activity">
+<h3><span class="layer" style="background:var(--marts)" title="marts"></span><code>customer_order_activity</code><span class="chip">marts</span><span class="chip">cumulative</span><span class="chip">sales</span></h3>
+<p>Each customer&#x27;s whole order history, one row per customer per day.</p>
+<dl class="meta"><dt>Grain</dt><dd><code>customer_id</code></dd><dt>Refreshed</dt><dd>hourly_sales: every hour, on the hour</dd><dt>dbt</dt><dd><code>customer_order_activity</code></dd></dl>
+<div class="flow"><a href="#t-fct_order_line"><code>fct_order_line</code></a> → <strong><code>customer_order_activity</code></strong> → <span class="muted">nothing yet</span></div>
+<table><tr><th>Column</th><th>Type</th><th>About</th><th>Comes from</th><th>Used by</th></tr>
+<tr><td><code>customer_id</code></td><td><code>bigint</code></td><td> <span class="chip">not null</span></td><td><code>fct_order_line.customer_id</code></td><td></td></tr>
+</table>
+</div>
 <div class="card" id="t-dim_customer" data-name="dim_customer">
 <h3><span class="layer" style="background:var(--marts)" title="marts"></span><code>dim_customer</code><span class="chip">marts</span><span class="chip">dimension</span><span class="chip">sales</span></h3>
 <p>Customers, with every change to their segment, balance or country kept as a new version.</p>
@@ -325,11 +335,11 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 <h3><span class="layer" style="background:var(--marts)" title="marts"></span><code>fct_order_line</code><span class="chip">marts</span><span class="chip">fact</span><span class="chip">sales</span></h3>
 <p>One row per order line, with its net amount after discount.</p>
 <dl class="meta"><dt>Grain</dt><dd><code>order_id</code>, <code>line_number</code></dd><dt>Load</dt><dd>incremental on <code>ordered_on</code></dd><dt>Refreshed</dt><dd>hourly_sales: every hour, on the hour</dd><dt>dbt</dt><dd><code>fct_order_line</code></dd></dl>
-<div class="flow"><a href="#t-lineitem"><code>lineitem</code></a> <a href="#t-orders"><code>orders</code></a> → <strong><code>fct_order_line</code></strong> → <span class="muted">nothing yet</span></div>
+<div class="flow"><a href="#t-lineitem"><code>lineitem</code></a> <a href="#t-orders"><code>orders</code></a> → <strong><code>fct_order_line</code></strong> → <a href="#t-customer_order_activity"><code>customer_order_activity</code></a></div>
 <table><tr><th>Column</th><th>Type</th><th>About</th><th>Comes from</th><th>Used by</th></tr>
 <tr><td><code>order_id</code></td><td><code>bigint</code></td><td> <span class="chip">not null</span></td><td><code>lineitem.l_orderkey</code></td><td></td></tr>
 <tr><td><code>line_number</code></td><td><code>integer</code></td><td> <span class="chip">not null</span></td><td><code>lineitem.l_linenumber</code></td><td></td></tr>
-<tr><td><code>customer_id</code></td><td><code>bigint</code></td><td> <span class="chip">not null</span></td><td><code>orders.o_custkey</code></td><td></td></tr>
+<tr><td><code>customer_id</code></td><td><code>bigint</code></td><td> <span class="chip">not null</span></td><td><code>orders.o_custkey</code></td><td><code>customer_order_activity.customer_id</code></td></tr>
 <tr><td><code>part_id</code></td><td><code>bigint</code></td><td> <span class="chip">not null</span></td><td><code>lineitem.l_partkey</code></td><td></td></tr>
 <tr><td><code>ordered_on</code></td><td><code>date</code></td><td> <span class="chip">not null</span></td><td><code>orders.o_orderdate</code></td><td></td></tr>
 <tr><td><code>order_status</code></td><td><code>string</code></td><td><div class="muted">Values: F, O, P</div></td><td><code>orders.o_orderstatus</code></td><td></td></tr>

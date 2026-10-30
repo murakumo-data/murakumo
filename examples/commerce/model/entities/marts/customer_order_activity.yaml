@@ -1,0 +1,22 @@
+id: 772ed744-3320-4d78-af94-2f50516ae545
+name: customer_order_activity
+description: Each customer's whole order history, one row per customer per day.
+layer: marts
+kind: cumulative
+domain: sales
+grain:
+  - customer_id
+cumulative:
+  date: fct_order_line.ordered_on
+  measures:
+    order_lines: count(*)
+    spend: sum(fct_order_line.net_amount)
+attributes:
+  - id: a3920e2f-feef-4a1a-b05f-021c16bfd43b
+    name: customer_id
+    type: bigint
+    nullable: false
+mappings:
+  - target: customer_id
+    sources:
+      - fct_order_line.customer_id

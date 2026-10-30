@@ -23,6 +23,8 @@ export type Entity = {
   kind: string
   source: string | null
   domain: string | null
+  grain: string[]
+  cumulative: { date: string; measures: Record<string, string> } | null
   description: string | null
   attributes: Attribute[]
   mappings: Mapping[]

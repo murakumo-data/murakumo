@@ -241,6 +241,9 @@ def build_command(
         help="Build into the schemas under this prefix, such as pr_42_. On a shared warehouse, dev builds go "
         "to dev_<your name>_ by default.",
     ),
+    run_date: str | None = typer.Option(
+        None, "--run-date", help="The day cumulative tables add (YYYY-MM-DD). Default: the latest day with data."
+    ),
 ) -> None:
     """Build the project into the warehouse and keep it: raw tables, then every dbt model and test.
 
@@ -292,6 +295,7 @@ def build_command(
                 sample=sample,
                 schedule=schedule,
                 schema_prefix=schema_prefix,
+                dbt_vars={"run_date": run_date} if run_date else None,
             )
         except SourceUnavailable as exc:
             fail(str(exc))
@@ -621,3 +625,56 @@ def runs_command(
     table("Loads", ["Loaded", "Table", "Rows in", "Rejected", "Why rejected"], loads)
     if failed:
         table("Failed tests in the last run", ["Model", "Test", "Failing rows"], failed)
+
+
+def backfill_command(
+    table: str = typer.Argument(..., help="A cumulative table."),
+    start: str = typer.Option(..., "--from", help="The first day to add, YYYY-MM-DD."),
+    end: str = typer.Option(..., "--to", help="The last day to add, YYYY-MM-DD."),
+    project_path: Path = ProjectOption,
+    environment: str | None = typer.Option(None, "--env"),
+    prefix: str | None = typer.Option(None, "--prefix", help="Build under this schema prefix."),
+) -> None:
+    """Build a cumulative table day by day, from one day to another, as its daily runs would have."""
+    from datetime import date, timedelta
+
+    from murakumo.environments import prefix_for
+    from murakumo.generate.verify import build
+    from murakumo.importers.database import SourceUnavailable
+    from murakumo.ir.model import EntityKind
+
+    project = open_project(project_path)
+    entity = project.model.entity(table)
+    if entity is None or entity.kind is not EntityKind.CUMULATIVE:
+        fail(f"{table} is not a cumulative table")
+        raise typer.Exit(1)
+    try:
+        first, last = date.fromisoformat(start), date.fromisoformat(end)
+    except ValueError:
+        fail("write the days as YYYY-MM-DD")
+        raise typer.Exit(1) from None
+    if last < first or (last - first).days > 3660:
+        fail("--to must be on or after --from, and within ten years of it")
+        raise typer.Exit(1)
+    warehouse = project.manifest.targets.warehouse.type
+    name = environment or (project.manifest.targets.environments or ["dev"])[0]
+    schema_prefix = prefix_for(project, name, warehouse, prefix)
+    day = first
+    while day <= last:
+        try:
+            result = build(
+                project,
+                environment=environment,
+                schema_prefix=schema_prefix,
+                select=entity.name,
+                dbt_vars={"run_date": day.isoformat()},
+            )
+        except SourceUnavailable as exc:
+            fail(str(exc))
+            raise typer.Exit(1) from None
+        if result.error or not result.ok:
+            fail(f"{day}: {result.error or 'a model or test failed'}")
+            raise typer.Exit(1)
+        console.print(f"  {day}: built")
+        day += timedelta(days=1)
+    console.print(f"[green]Backfilled[/green] {entity.name} from {first} to {last}.")

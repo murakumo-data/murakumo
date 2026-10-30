@@ -180,6 +180,51 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormPr
             onSave={(domain) => save({ domain })}
           />
         </Row>
+        {entity.kind === 'cumulative' && (
+          <>
+            <Row label="Per">
+              <TextField
+                label="Grain"
+                value={entity.grain.join(', ') || null}
+                placeholder="the key column, e.g. customer_id"
+                disabled={disabled}
+                onSave={(text) => save({ grain: (text ?? '').split(',').map((t) => t.trim()).filter(Boolean) })}
+              />
+            </Row>
+            <Row label="Active on">
+              <TextField
+                label="Cumulative date"
+                value={entity.cumulative?.date ?? null}
+                placeholder="entity.column whose day counts, e.g. fct_orders.ordered_at"
+                disabled={disabled}
+                onSave={(date) =>
+                  date && save({ cumulative: { date, measures: entity.cumulative?.measures ?? {} } })
+                }
+              />
+            </Row>
+            <Row label="Each day">
+              <TextField
+                label="Cumulative measures"
+                multiline
+                value={
+                  Object.entries(entity.cumulative?.measures ?? {})
+                    .map(([name, sql]) => `${name} = ${sql}`)
+                    .join('\n') || null
+                }
+                placeholder={'orders = count(*)\nspend = sum(fct_orders.amount)'}
+                disabled={disabled || !entity.cumulative}
+                onSave={(text) => {
+                  const measures: Record<string, string> = {}
+                  for (const line of (text ?? '').split('\n')) {
+                    const [name, ...rest] = line.split('=')
+                    if (name.trim() && rest.length) measures[name.trim()] = rest.join('=').trim()
+                  }
+                  save({ cumulative: { date: entity.cumulative!.date, measures } })
+                }}
+              />
+            </Row>
+          </>
+        )}
         <Row label="Refreshed">
           <span className="small">
             {(state.orchestration?.schedules ?? [])

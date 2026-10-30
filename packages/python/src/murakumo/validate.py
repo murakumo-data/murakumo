@@ -212,6 +212,13 @@ def _check_entity(
         out.append(warning("MK305", "entity has no columns", file))
     if entity.kind is EntityKind.FACT and not entity.grain:
         out.append(warning("MK303", "a fact table should declare its grain (the columns that make a row unique)", file))
+    if entity.kind is EntityKind.CUMULATIVE:
+        if entity.cumulative is None:
+            out.append(
+                error("MK310", "a cumulative table needs `cumulative: {date: entity.column}`", file, "cumulative")
+            )
+        if not entity.grain:
+            out.append(error("MK312", "a cumulative table needs a grain: the key it accumulates per", file, "grain"))
     if entity.kind is EntityKind.DIMENSION and not entity.primary_key:
         out.append(warning("MK304", "a dimension should have a primary key", file))
     if entity.load is LoadPattern.INCREMENTAL and not entity.watermark:

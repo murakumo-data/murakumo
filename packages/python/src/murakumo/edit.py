@@ -185,7 +185,20 @@ def remove_column(project: Project, entity_name: str, name: str) -> Attribute:
 
 # Changing and renaming -------------------------------------------------------------------------
 
-ENTITY_FIELDS = {"description", "layer", "kind", "source", "domain", "owner", "history", "load", "watermark", "tags"}
+ENTITY_FIELDS = {
+    "description",
+    "layer",
+    "kind",
+    "source",
+    "domain",
+    "owner",
+    "history",
+    "load",
+    "watermark",
+    "tags",
+    "grain",
+    "cumulative",
+}
 COLUMN_FIELDS = {"description", "type", "nullable", "key", "pii", "classification", "unit", "example", "business_term"}
 RELATIONSHIP_FIELDS = {"name", "cardinality", "optional", "role", "description", "keys"}
 

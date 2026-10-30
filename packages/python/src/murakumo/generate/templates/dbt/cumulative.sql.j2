@@ -1,0 +1,84 @@
+{%- set x = model.extra -%}
+{%- set a = x['array'] -%}
+{{ header }}
+{{ '{{' }} config({{ config }}) {{ '}}' }}
+-- A cumulative table: one row per key per day, carrying its whole history. Each run computes one
+-- day, run_date (dbt --vars), or the latest day with activity: yesterday's row for every key,
+-- with today's activity put in front of its arrays. Rows without a key have no history to join.
+
+with activity as (
+
+    select
+{%- for name, sql, type in x['keys'] %}
+        {{ sql }} as {{ quote(name) }},
+{%- endfor %}
+        cast({{ x['date'] }} as {{ x['date_type'] }}) as activity_date
+{%- for name, sql, element, logical in x['measures'] %},
+        {{ sql }} as {{ quote(name) }}
+{%- endfor %}
+    from {{ model.relation }} as src
+    where {% for name, sql, type in x['keys'] %}{% if not loop.first %} and {% endif %}{{ sql }} is not null{% endfor %}
+    group by {% for name, sql, type in x['keys'] %}{{ sql }}, {% endfor %}cast({{ x['date'] }} as {{ x['date_type'] }})
+
+),
+
+run as (
+
+    select coalesce(
+        cast(nullif('{{ "{{" }} var('run_date', '') {{ "}}" }}', '') as {{ x['date_type'] }}),
+        (select max(activity_date) from activity)
+    ) as day
+
+),
+
+today as (
+
+    select activity.* from activity cross join run where activity.activity_date = run.day
+
+),
+
+yesterday as (
+{{ '{%' }} if is_incremental() {{ '%}' }}
+    select * from {{ '{{' }} this {{ '}}' }}
+    where snapshot_date = (
+        select max(snapshot_date) from {{ '{{' }} this {{ '}}' }} where snapshot_date < (select day from run)
+    )
+{{ '{%' }} else {{ '%}' }}
+    select
+{%- for name, sql, type in x['keys'] %}
+        cast(null as {{ type }}) as {{ quote(name) }},
+{%- endfor %}
+        cast(null as {{ x['array_type']['dates_active'] }}) as dates_active,
+{%- for name, sql, element, logical in x['measures'] %}
+        cast(null as {{ x['array_type'][name] }}) as {{ quote(name) }},
+{%- endfor %}
+        cast(null as bigint) as days_active,
+        cast(null as {{ x['date_type'] }}) as last_active,
+        cast(null as {{ x['date_type'] }}) as snapshot_date
+    where 1 = 0
+{{ '{%' }} endif {{ '%}' }}
+)
+
+select
+{%- for name, sql, type in x['keys'] %}
+    coalesce(t.{{ quote(name) }}, y.{{ quote(name) }}) as {{ quote(name) }},
+{%- endfor %}
+    case
+        when y.dates_active is null then {{ a['of'].format(x='t.activity_date') }}
+        when t.activity_date is null then y.dates_active
+        else {{ a['prepend'].format(x='t.activity_date', a='y.dates_active') }}
+    end as dates_active,
+{%- for name, sql, element, logical in x['measures'] %}
+    case
+        when y.{{ quote(name) }} is null then {{ a['of'].format(x='t.' ~ quote(name)) }}
+        when t.activity_date is null then y.{{ quote(name) }}
+        else {{ a['prepend'].format(x='t.' ~ quote(name), a='y.' ~ quote(name)) }}
+    end as {{ quote(name) }},
+{%- endfor %}
+    coalesce(y.days_active, 0) + case when t.activity_date is null then 0 else 1 end as days_active,
+    coalesce(t.activity_date, y.last_active) as last_active,
+    run.day as snapshot_date
+from today as t
+full outer join yesterday as y
+    on {% for name, sql, type in x['keys'] %}{% if not loop.first %} and {% endif %}t.{{ quote(name) }} = y.{{ quote(name) }}{% endfor %}
+cross join run
