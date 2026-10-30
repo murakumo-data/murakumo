@@ -11,6 +11,9 @@ murakumo build                           # build it in the project's warehouse, 
 murakumo build --schedule nightly        # only what one schedule refreshes
 murakumo export sql                      # the project as plain SQL scripts, without dbt
 murakumo docs                            # open the pipeline docs
+murakumo runs                            # the latest runs, loads and failed tests, from the audit tables
+murakumo backfill TABLE --from D --to D  # build a cumulative table day by day
+murakumo run --engine polars             # the same pipeline as Polars (or PySpark) jobs
 ```
 
 `generate` refuses to run while `murakumo validate` reports errors. Everything it writes goes under
@@ -32,7 +35,7 @@ generated/
     models/intermediate/<domain>/       the versions behind SCD2 dimensions
     models/marts/<domain>/              dimensions and facts, with contracts and tests
     snapshots/_snapshots.yml            SCD2 history
-    macros/murakumo/                    the record hash, schema names and extra generic tests
+    macros/murakumo/                    the record hash, schema names, extra tests and the run log
     selectors.yml                       one selector per schedule
   ddl/<warehouse>/
     raw.sql                             landing schemas and tables for ingestion to write into
@@ -41,6 +44,7 @@ generated/
   docs/
     index.html, <table>.md              pipeline docs: tables, columns, lineage, schedules, sources
   sql/<warehouse>/                      the project as plain SQL, with `plain_sql: true`
+  python/<engine>/                      the pipeline as PySpark or Polars jobs, with `python_engine`
 ```
 
 Schedules, pipelines, plain SQL and CI are described in [orchestration.md](orchestration.md).
@@ -151,6 +155,55 @@ table that keeps data has no migration yet: apply migrations to the warehouse fi
 never alters an existing table. It runs on DuckDB and Snowflake; for other warehouses, run
 `dbt build` in `generated/dbt`. In production an orchestrator does the same on a schedule.
 
+## Audit tables
+
+Every run records itself in an `audit` schema beside the tables it builds (under a personal or
+pull-request environment's prefix, in that environment's own `audit` schema):
+
+| Table | One row per | Records |
+| --- | --- | --- |
+| `audit.run_log` | run | when, which engine, environment and schedule, who, status, models and tests passed and failed |
+| `audit.model_runs` | model or snapshot | status, seconds, rows in the table afterwards (views are not counted) |
+| `audit.dq_results` | test | passed, warned or failed, and how many rows failed it |
+| `audit.row_counts` | raw table loaded | rows ingested, rows rejected and why |
+| `audit.daily_summary` | day (a view) | runs, rows ingested and rejected, models and tests that failed |
+
+The dbt project writes the first three at the end of every run (`on-run-end`), wherever it runs:
+`murakumo build`, an orchestrator, dbt by hand. `murakumo build` writes `row_counts` as it loads:
+rows of a CSV file that do not fit the model's column types are set aside and counted as rejected,
+with the reason (*Could not convert string "nope" to INTEGER*), instead of failing the load.
+`murakumo runs` shows the last days, runs, loads and failed tests. Set `quality.run_log: false` to
+turn the run log off.
+
+## Python pipelines
+
+With `python_engine: pyspark` or `polars` under `generation`, `generate` also writes the pipeline as
+Python to `generated/python/<engine>/`: a module per model, in the order they run, a runtime, and
+`run.py`. Each model's SQL is its dbt SQL rendered once more with the runtime's own `source()`,
+`ref()` and `this`, in Spark SQL for PySpark and DuckDB SQL for Polars, so the jobs build the same
+tables as dbt:
+
+- **PySpark** runs everything as Spark SQL over temporary views and writes Parquet tables, or Delta
+  with `--format delta`;
+- **Polars** holds the data as Polars data frames and runs each model's SQL with DuckDB over them,
+  writing Parquet. The SQL is not rewritten into Polars expressions by hand.
+
+Both keep incremental, cumulative and SCD2 snapshot tables up to date between runs (merging new
+rows by key, closing changed versions), run every test, and record each run in `<output>/audit/`
+as the dbt project does in the warehouse.
+
+```bash
+murakumo run --engine polars --sample 200          # on made-up rows
+murakumo run --engine pyspark                      # raw tables from the project's DuckDB file
+murakumo run --engine pyspark --data orders=orders.parquet --schedule nightly --run-date 2024-01-31
+```
+
+`murakumo run` writes the pipeline to a temporary folder and runs it in its own environment (from
+its `requirements.txt`, with uv), so Murakumo itself does not need Spark. PySpark 3.5 needs Java 17
+or 21: the requirements include `jdk4py`, which brings one. On the same data, both engines build the
+same tables as dbt, row for row, including SCD2 history after a change: Murakumo's tests check
+Polars against dbt on every change, and PySpark was checked the same way by hand.
+
 ## Migrations
 
 dbt rebuilds views and tables on every run, so a model change reaches them by itself. Three kinds
@@ -211,5 +264,6 @@ folder has nothing to check, so migrations are opt-in: the first `murakumo migra
 | MK505 | error | An SCD2 entity has no primary or natural key |
 | MK506 | error | No mapping names a source column, so there is no table to select from |
 | MK507 | error | A mapping expression is not valid SQL |
+| MK508 | error | A cumulative table's grain column has no column or mapping |
 
 An entity with an error is skipped; the rest of the project is still generated.

@@ -68,9 +68,23 @@ def migrate_command(
     check: bool = typer.Option(False, "--check", help="Write nothing; fail if the model needs a migration (for CI)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print the migration instead of writing it."),
     warehouse: Warehouse | None = WarehouseOption,
+    apply: bool = typer.Option(
+        False, "--apply", help="Run the migration files the warehouse has not run yet, instead of writing one."
+    ),
+    prefix: str = typer.Option("", "--prefix", help="With --apply: run them on the schemas under this prefix."),
+    mark_applied: bool = typer.Option(
+        False, "--mark-applied", help="With --apply: record them as run without running them (tables changed by hand)."
+    ),
 ) -> None:
-    """Write the next migration: ALTER statements for tables that keep data, from what changed in the model."""
+    """Write the next migration: ALTER statements for tables that keep data, from what changed in the model.
+
+    With --apply, run the migrations the warehouse has not run yet instead, recording each in
+    audit.murakumo_migrations; with --prefix, on a personal, pull-request or cloned environment.
+    """
     project = open_project(project_path)
+    if apply:
+        _apply_migrations(project, warehouse, prefix, mark_applied)
+        return
     problems = validate_project(project)
     if any(d.level is Level.ERROR for d in problems):
         print_diagnostics([d for d in problems if d.level is Level.ERROR], project.root)
@@ -221,6 +235,15 @@ def build_command(
     schedule: str | None = typer.Option(
         None, "--schedule", help="Build only what this schedule refreshes, as its orchestrator would."
     ),
+    prefix: str | None = typer.Option(
+        None,
+        "--prefix",
+        help="Build into the schemas under this prefix, such as pr_42_. On a shared warehouse, dev builds go "
+        "to dev_<your name>_ by default.",
+    ),
+    run_date: str | None = typer.Option(
+        None, "--run-date", help="The day cumulative tables add (YYYY-MM-DD). Default: the latest day with data."
+    ),
 ) -> None:
     """Build the project into the warehouse and keep it: raw tables, then every dbt model and test.
 
@@ -249,10 +272,31 @@ def build_command(
                 "tables keep their old shape until you run [bold]murakumo migrate[/bold] and apply the SQL."
             )
 
-    target = (warehouse or project.manifest.targets.warehouse.type).value
+    from murakumo.environments import EnvError, prefix_for
+
+    chosen = Warehouse(warehouse or project.manifest.targets.warehouse.type)
+    target = chosen.value
+    environment_name = environment or (project.manifest.targets.environments or ["dev"])[0]
+    try:
+        schema_prefix = prefix_for(project, environment_name, chosen, prefix)
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    if schema_prefix:
+        console.print(f"Building into the schemas under [bold]{schema_prefix}[/bold] ({schema_prefix}staging, ...).")
     with console.status(f"Building on {target}: raw tables, then dbt build..."):
         try:
-            result = build(project, warehouse, environment, data=files, limit=limit, sample=sample, schedule=schedule)
+            result = build(
+                project,
+                warehouse,
+                environment,
+                data=files,
+                limit=limit,
+                sample=sample,
+                schedule=schedule,
+                schema_prefix=schema_prefix,
+                dbt_vars={"run_date": run_date} if run_date else None,
+            )
         except SourceUnavailable as exc:
             fail(str(exc))
             raise typer.Exit(1) from None
@@ -344,6 +388,11 @@ def ci_command(
     deploy: bool = typer.Option(
         False, "--deploy", help="Also build production on pushes to main, after approval, with the CI's secrets."
     ),
+    preview: bool = typer.Option(
+        False,
+        "--preview",
+        help="Also build each pull request on a clone of production, with its new migrations (Snowflake).",
+    ),
     force: bool = typer.Option(False, "--force", help="Replace a CI file that has changes of its own."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print the file instead of writing it."),
     run: bool = typer.Option(False, "--run", help="Run the CI's checks here instead, one after another."),
@@ -367,7 +416,7 @@ def ci_command(
             raise typer.Exit(1)
         return
     try:
-        info = ci.status(project, provider, deploy)
+        info = ci.status(project, provider, deploy, preview)
     except ci.CIError as exc:
         fail(str(exc))
         raise typer.Exit(1) from None
@@ -385,7 +434,9 @@ def ci_command(
     if info["state"] == "current":
         console.print(f"{info['file']} is up to date.")
         return
-    ci.write(project, provider, deploy, force=True)
+    if preview and not info["preview_possible"]:
+        console.print("[yellow]![/yellow] Pull-request previews clone production, which needs Snowflake; left out.")
+    ci.write(project, provider, deploy, force=True, preview=preview)
     console.print(f"Wrote {info['file']} in {info['repository']}. Commit it, and the checks run on every push.")
     if deploy and info["deploy_possible"]:
         where = "Settings → Secrets and variables → Actions" if provider == "github" else "Settings → CI/CD → Variables"
@@ -394,3 +445,313 @@ def ci_command(
         )
     if not info["in_git"]:
         console.print("[yellow]![/yellow] The project is not in a git repository yet: run `git init` first.")
+
+
+def _apply_migrations(project, warehouse, prefix: str, mark_applied: bool) -> None:
+    from murakumo.environments import EnvError, connect
+    from murakumo.migrate import apply_migrations
+
+    try:
+        connection = connect(project, warehouse)
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    try:
+        applied = apply_migrations(project, connection, prefix.lower(), mark_only=mark_applied)
+    except Exception as exc:  # noqa: BLE001 - a warehouse error; show it and stop
+        fail(f"a migration failed: {' '.join(str(exc).split())}")
+        raise typer.Exit(1) from None
+    finally:
+        connection.close()
+    where = f"the schemas under {prefix}" if prefix else "the shared schemas"
+    verb = "Recorded" if mark_applied else "Applied"
+    if applied:
+        console.print(f"{verb} {len(applied)} migration(s) on {where}: {', '.join(applied)}")
+    else:
+        console.print(f"{where[0].upper() + where[1:]} have run every migration.")
+
+
+env_app = typer.Typer(
+    help="Your own schemas, and pull-request ones: see, clone and drop them.", invoke_without_command=True
+)
+
+
+@env_app.callback()
+def env_show(
+    ctx: typer.Context,
+    project_path: Path = ProjectOption,
+    environment: str | None = typer.Option(None, "--env", help="The environment. Default: the first one."),
+    prefix: str | None = typer.Option(None, "--prefix", help="Look at this prefix instead of your own."),
+) -> None:
+    """Show the schemas your builds use, and what is in them."""
+    if ctx.invoked_subcommand:
+        return
+    from murakumo.environments import EnvError, connect, describe, developer, prefix_for
+
+    project = open_project(project_path)
+    warehouse = project.manifest.targets.warehouse.type
+    name = environment or (project.manifest.targets.environments or ["dev"])[0]
+    chosen = prefix_for(project, name, warehouse, prefix)
+    where = f"the schemas under [bold]{chosen}[/bold]." if chosen else "the shared schemas (no prefix)."
+    console.print(f"You are [bold]{developer()}[/bold]; {name} builds go to {where}")
+    try:
+        connection = connect(project)
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    try:
+        for row in describe(project, connection, chosen):
+            state = f"{row['tables']} table(s)" if row["exists"] else "[dim]not created yet[/dim]"
+            console.print(f"  {row['schema']:<32} {state}")
+    finally:
+        connection.close()
+
+
+@env_app.command("clone")
+def env_clone(
+    prefix: str = typer.Option(..., "--prefix", help="The prefix to copy into, such as pr_42_ or dev_ana_."),
+    source: str = typer.Option("", "--from-prefix", help="Copy these schemas instead of the shared ones."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Copy the shared schemas into a prefix: zero-copy clones on Snowflake, table copies on DuckDB.
+
+    Then `murakumo migrate --apply --prefix X` runs the branch's new migrations there, and
+    `murakumo build --prefix X` builds and tests on real data, before anything reaches production.
+    """
+    from murakumo.environments import EnvError, clone, connect
+
+    project = open_project(project_path)
+    try:
+        connection = connect(project)
+        try:
+            copied = clone(project, connection, prefix, source)
+        finally:
+            connection.close()
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    for line in copied:
+        console.print(f"  {line}")
+    console.print(
+        f"Cloned {len(copied)} schema(s)." if copied else "Nothing to clone: the source schemas do not exist."
+    )
+
+
+@env_app.command("drop")
+def env_drop(
+    prefix: str | None = typer.Option(None, "--prefix", help="The prefix to drop. Default: your own."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask first."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Drop every project schema under a prefix (your own by default). The shared schemas are never dropped."""
+    from murakumo.environments import EnvError, connect, drop, prefix_for
+
+    project = open_project(project_path)
+    warehouse = project.manifest.targets.warehouse.type
+    name = project.manifest.collaboration.personal_environment
+    chosen = prefix if prefix is not None else prefix_for(project, name, warehouse)
+    if not chosen:
+        fail("name a prefix, such as --prefix pr_42_: your builds use the shared schemas, which are never dropped")
+        raise typer.Exit(1)
+    if not yes and not typer.confirm(f"Drop every schema under {chosen} and everything in them?"):
+        raise typer.Exit(1)
+    try:
+        connection = connect(project)
+        try:
+            dropped = drop(project, connection, chosen)
+        finally:
+            connection.close()
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    console.print(f"Dropped {', '.join(dropped)}." if dropped else f"Nothing under {chosen} to drop.")
+
+
+def runs_command(
+    project_path: Path = ProjectOption,
+    prefix: str | None = typer.Option(None, "--prefix", help="Read this environment's audit schema."),
+    environment: str | None = typer.Option(None, "--env", help="Default: the first environment."),
+    limit: int = typer.Option(10, help="How many runs to show."),
+) -> None:
+    """The latest runs, loads and failed tests, from the audit tables every run writes."""
+    from rich.table import Table
+
+    from murakumo.environments import EnvError, connect, prefix_for
+
+    project = open_project(project_path)
+    warehouse = project.manifest.targets.warehouse.type
+    name = environment or (project.manifest.targets.environments or ["dev"])[0]
+    chosen = prefix_for(project, name, warehouse, prefix)
+    try:
+        connection = connect(project)
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    audit = f"{chosen}audit" if warehouse is Warehouse.DUCKDB else f"{connection.database}.{chosen}audit"
+    try:
+        if f"{chosen}audit" not in connection.schemas():
+            console.print(f"No runs recorded yet in {chosen}audit: build the project first (`murakumo build`).")
+            return
+        days = connection.execute(f"select * from {audit}.daily_summary order by day desc limit 7", fetch=True)
+        runs = connection.execute(
+            "select started_at, engine, environment, schedule, status, models_ok, models_failed, tests_passed, "
+            f"tests_failed from {audit}.run_log order by started_at desc limit {int(limit)}",
+            fetch=True,
+        )
+        loads = connection.execute(
+            f"select loaded_at, table_name, rows_ingested, rows_rejected, reason from {audit}.row_counts "
+            f"order by loaded_at desc limit {int(limit)}",
+            fetch=True,
+        )
+        failed = connection.execute(
+            f"select d.model, d.test, d.failures from {audit}.dq_results d join ("
+            f"select run_id from {audit}.run_log order by started_at desc limit 1) r on d.run_id = r.run_id "
+            "where d.status in ('fail', 'error') order by d.model, d.test",
+            fetch=True,
+        )
+    finally:
+        connection.close()
+
+    def table(title: str, columns: list[str], rows: list[tuple]) -> None:
+        view = Table(title=title, title_justify="left", box=None, pad_edge=False)
+        for column in columns:
+            view.add_column(column)
+        for row in rows:
+            view.add_row(*["" if v is None else str(v)[:60] for v in row])
+        console.print(view)
+
+    table("By day", ["Day", "Runs", "Rows in", "Rejected", "Models failed", "Tests failed"], days)
+    table("Runs", ["Started", "Engine", "Env", "Schedule", "Status", "Models ok", "Failed", "Tests ok", "Failed"], runs)
+    table("Loads", ["Loaded", "Table", "Rows in", "Rejected", "Why rejected"], loads)
+    if failed:
+        table("Failed tests in the last run", ["Model", "Test", "Failing rows"], failed)
+
+
+def backfill_command(
+    table: str = typer.Argument(..., help="A cumulative table."),
+    start: str = typer.Option(..., "--from", help="The first day to add, YYYY-MM-DD."),
+    end: str = typer.Option(..., "--to", help="The last day to add, YYYY-MM-DD."),
+    project_path: Path = ProjectOption,
+    environment: str | None = typer.Option(None, "--env"),
+    prefix: str | None = typer.Option(None, "--prefix", help="Build under this schema prefix."),
+) -> None:
+    """Build a cumulative table day by day, from one day to another, as its daily runs would have."""
+    from datetime import date, timedelta
+
+    from murakumo.environments import prefix_for
+    from murakumo.generate.verify import build
+    from murakumo.importers.database import SourceUnavailable
+    from murakumo.ir.model import EntityKind
+
+    project = open_project(project_path)
+    entity = project.model.entity(table)
+    if entity is None or entity.kind is not EntityKind.CUMULATIVE:
+        fail(f"{table} is not a cumulative table")
+        raise typer.Exit(1)
+    try:
+        first, last = date.fromisoformat(start), date.fromisoformat(end)
+    except ValueError:
+        fail("write the days as YYYY-MM-DD")
+        raise typer.Exit(1) from None
+    if last < first or (last - first).days > 3660:
+        fail("--to must be on or after --from, and within ten years of it")
+        raise typer.Exit(1)
+    warehouse = project.manifest.targets.warehouse.type
+    name = environment or (project.manifest.targets.environments or ["dev"])[0]
+    schema_prefix = prefix_for(project, name, warehouse, prefix)
+    day = first
+    while day <= last:
+        try:
+            result = build(
+                project,
+                environment=environment,
+                schema_prefix=schema_prefix,
+                select=entity.name,
+                dbt_vars={"run_date": day.isoformat()},
+            )
+        except SourceUnavailable as exc:
+            fail(str(exc))
+            raise typer.Exit(1) from None
+        if result.error or not result.ok:
+            fail(f"{day}: {result.error or 'a model or test failed'}")
+            raise typer.Exit(1)
+        console.print(f"  {day}: built")
+        day += timedelta(days=1)
+    console.print(f"[green]Backfilled[/green] {entity.name} from {first} to {last}.")
+
+
+def run_command(
+    engine: str = typer.Option(..., "--engine", help="polars or pyspark."),
+    project_path: Path = ProjectOption,
+    schedule: str | None = typer.Option(None, "--schedule", help="Build only what this schedule refreshes."),
+    sample: int = typer.Option(0, help="Run on this many made-up rows per raw table instead of real ones."),
+    data: list[str] = typer.Option(None, "--data", help="Read a raw table from a file: TABLE=PATH. Repeat."),
+    run_date: str | None = typer.Option(None, "--run-date", help="The day cumulative tables add (YYYY-MM-DD)."),
+    output: Path | None = typer.Option(None, "--output", help="Where tables are written. Default: lake/<engine>."),
+    table_format: str = typer.Option("parquet", "--format", help="parquet, or delta (Spark, with delta-spark)."),
+) -> None:
+    """Run the pipeline as Python: PySpark or Polars jobs built from the same SQL as the dbt project.
+
+    Raw tables come from --data files, made-up rows (--sample), or the project's DuckDB file.
+    The pipeline runs in its own environment, from its requirements.txt, when uv is installed.
+    """
+    import csv
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+
+    from murakumo.generate import python
+    from murakumo.generate.sample import sample_rows
+    from murakumo.generate.verify import _duckdb_path
+    from murakumo.ir.model import Layer
+
+    if engine not in python.ENGINES:
+        fail("--engine is polars or pyspark")
+        raise typer.Exit(1)
+    project = open_project(project_path)
+    problems = validate_project(project)
+    if any(d.level is Level.ERROR for d in problems):
+        print_diagnostics([d for d in problems if d.level is Level.ERROR], project.root)
+        fail("the model has errors; fix them before running")
+        raise typer.Exit(1)
+    output = (output or project.root / "lake" / engine).resolve()
+    with tempfile.TemporaryDirectory(prefix="murakumo-run-") as tmp:
+        folder = Path(tmp) / engine
+        for path, content in python.render(project, engine).items():
+            target = folder / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        arguments = ["--output", str(output), "--format", table_format]
+        for item in data or []:
+            arguments += ["--data", item]
+        if sample:
+            raw = [e for e in project.model.entities if e.layer is Layer.RAW]
+            rows = sample_rows(project.model, raw, rows=sample)
+            for entity in raw:
+                path = Path(tmp) / "sample" / f"{entity.name}.csv"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                names = [a.name for a in entity.attributes]
+                with path.open("w", newline="", encoding="utf-8") as handle:
+                    writer = csv.writer(handle)
+                    writer.writerow(names)
+                    for row in rows[entity.name]:
+                        writer.writerow(["" if row.get(n) is None else row.get(n) for n in names])
+                arguments += ["--data", f"{entity.name}={path}"]
+        elif project.manifest.targets.warehouse.type is Warehouse.DUCKDB and _duckdb_path(project).is_file():
+            arguments += ["--duckdb", str(_duckdb_path(project))]
+        if schedule:
+            arguments += ["--schedule", schedule]
+        if run_date:
+            arguments += ["--run-date", run_date]
+        uv = shutil.which("uv")
+        if uv:
+            python_version = "3.11" if engine == "pyspark" else "3.12"  # PySpark 3.5 runs up to Python 3.12
+            command = [uv, "run", "--no-project", "--quiet", "--python", python_version]
+            command += ["--with-requirements", str(folder / "requirements.txt"), "python", "run.py", *arguments]
+        else:
+            command = [sys.executable, "run.py", *arguments]
+        console.print(f"Running the {engine} pipeline" + (f" for {schedule}" if schedule else "") + "...")
+        done = subprocess.run(command, cwd=folder)
+    if done.returncode != 0:
+        raise typer.Exit(done.returncode)

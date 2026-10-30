@@ -20,6 +20,7 @@ import difflib
 import hashlib
 import threading
 from collections.abc import Callable
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
@@ -45,6 +46,8 @@ from murakumo.project import MODEL_DIR, Project, load_layout, load_project, save
 from murakumo.validate import validate_project
 
 REVISION_HEADER = "X-Murakumo-Revision"
+PREVIEW_HEADER = "X-Murakumo-Preview"  # on an edit: say what it would reach, without saving it
+PREVIEW: ContextVar[bool] = ContextVar("preview", default=False)
 LOCAL_HOSTS = ["localhost", "127.0.0.1"]
 
 Revision = Annotated[str | None, Header(alias=REVISION_HEADER)]
@@ -148,7 +151,12 @@ class TimezoneBody(BaseModel):
 class CIBody(BaseModel):
     provider: str = "github"
     deploy: bool = False
+    preview: bool = False
     force: bool = False
+
+
+class CommitBody(BaseModel):
+    message: str
 
 
 class NewDomain(BaseModel):
@@ -322,7 +330,17 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS)
 
-    def change(action: Callable[[Project], Any], expected: str | None, prune: bool = False) -> dict[str, Any]:
+    @app.middleware("http")
+    async def preview_header(request, call_next):
+        token = PREVIEW.set(request.headers.get(PREVIEW_HEADER) == "1")
+        try:
+            return await call_next(request)
+        finally:
+            PREVIEW.reset(token)
+
+    def change(
+        action: Callable[[Project], Any], expected: str | None, prune: bool = False, previewable: bool = False
+    ) -> dict[str, Any]:
         with lock:
             if expected and expected != revision(root):
                 raise HTTPException(
@@ -338,6 +356,12 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 placed = action(project)
             except edit.EditError as exc:
                 raise HTTPException(400, {"message": str(exc)}) from None
+            if previewable and PREVIEW.get():
+                # Asked what the edit would reach: answer from memory, and save nothing.
+                from murakumo.impact import report
+
+                before = load_project(root).project.model
+                return {"preview": report(project, before, project.model).as_dict()}
             positions = load_layout(root)
             if isinstance(placed, dict):  # an action that adds an entity may say where to draw it
                 positions.update(placed)
@@ -460,11 +484,11 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             if new_name and new_name != name:
                 edit.rename_entity(project, name, new_name)
 
-        return change(action, rev, prune=True)
+        return change(action, rev, prune=True, previewable=True)
 
     @app.delete("/api/entities/{entity_id}")
     def remove_entity(entity_id: UUID, rev: Revision = None) -> dict[str, Any]:
-        return change(lambda p: edit.remove_entity(p, entity_name(p, entity_id)), rev, prune=True)
+        return change(lambda p: edit.remove_entity(p, entity_name(p, entity_id)), rev, prune=True, previewable=True)
 
     @app.post("/api/entities/{entity_id}/columns")
     def add_column(entity_id: UUID, body: NewColumn, rev: Revision = None) -> dict[str, Any]:
@@ -494,7 +518,7 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             if new_name and new_name != column:
                 edit.rename_column(project, entity, column, new_name)
 
-        return change(action, rev)
+        return change(action, rev, previewable=True)
 
     @app.put("/api/entities/{entity_id}/columns/order")
     def put_column_order(entity_id: UUID, body: ColumnOrder, rev: Revision = None) -> dict[str, Any]:
@@ -509,7 +533,7 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         def action(project: Project) -> None:
             edit.remove_column(project, entity_name(project, entity_id), column_name(project, entity_id, column_id))
 
-        return change(action, rev)
+        return change(action, rev, previewable=True)
 
     @app.post("/api/relationships")
     def add_relationship(body: NewRelationship, rev: Revision = None) -> dict[str, Any]:
@@ -523,24 +547,24 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
     @app.patch("/api/relationships/{relationship_id}")
     def update_relationship(relationship_id: UUID, body: Changes, rev: Revision = None) -> dict[str, Any]:
-        return change(lambda p: edit.update_relationship(p, relationship_id, body), rev)
+        return change(lambda p: edit.update_relationship(p, relationship_id, body), rev, previewable=True)
 
     @app.delete("/api/relationships/{relationship_id}")
     def remove_relationship(relationship_id: UUID, rev: Revision = None) -> dict[str, Any]:
-        return change(lambda p: edit.remove_relationship(p, relationship_id), rev)
+        return change(lambda p: edit.remove_relationship(p, relationship_id), rev, previewable=True)
 
     from murakumo import ci as ci_module
 
     checks = ci_module.Runner(root)
 
     @app.get("/api/ci")
-    def get_ci(provider: str = "github", deploy: bool = False) -> dict[str, Any]:
+    def get_ci(provider: str = "github", deploy: bool = False, preview: bool = False) -> dict[str, Any]:
         """The CI file: there, as Murakumo would write it, or changed; and the last local run of its checks."""
         project, _ = _blocked(root)
         if project is None:
             raise HTTPException(409, {"message": "the project did not load"})
         try:
-            return {**ci_module.status(project, provider, deploy), "run": checks.run.as_dict()}
+            return {**ci_module.status(project, provider, deploy, preview), "run": checks.run.as_dict()}
         except ci_module.CIError as exc:
             raise HTTPException(400, {"message": str(exc)}) from None
 
@@ -552,7 +576,8 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             if project is None:
                 raise HTTPException(409, {"message": "the project did not load"})
             try:
-                return {**ci_module.write(project, body.provider, body.deploy, body.force), "run": checks.run.as_dict()}
+                written = ci_module.write(project, body.provider, body.deploy, body.force, body.preview)
+                return {**written, "run": checks.run.as_dict()}
             except ci_module.CIError as exc:
                 raise HTTPException(409, {"message": str(exc)}) from None
 
@@ -564,6 +589,58 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.get("/api/ci/run")
     def get_ci_run() -> dict[str, Any]:
         return checks.run.as_dict()
+
+    from murakumo import gitsync
+
+    def git_call(action: Callable[[], Any]) -> Any:
+        try:
+            return action()
+        except gitsync.GitError as exc:
+            raise HTTPException(409, {"message": str(exc)}) from None
+
+    @app.get("/api/git")
+    def get_git(refresh: bool = False) -> dict[str, Any]:
+        """Branch, parent branch, how far apart, and the model changes on each side."""
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        from murakumo.environments import developer, prefix_for
+
+        info = git_call(lambda: gitsync.status(project, refresh=refresh))
+        personal = project.manifest.collaboration.personal_environment
+        warehouse = project.manifest.targets.warehouse.type
+        return {
+            **info,
+            "developer": developer(),
+            "personal_environment": personal,
+            "personal_prefix": prefix_for(project, personal, warehouse),
+        }
+
+    @app.post("/api/git/sync")
+    def post_sync(resume: bool = False) -> dict[str, Any]:
+        """Bring in the parent branch, as `murakumo sync` does. Returns the result and the new state."""
+        with lock:
+            result = load_project(root)
+            if result.project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            done = git_call(lambda: gitsync.sync(result.project, resume=resume))
+            return {"sync": done.as_dict(), "state": state(root)}
+
+    @app.post("/api/git/abort")
+    def post_abort() -> dict[str, Any]:
+        with lock:
+            result = load_project(root)
+            git_call(lambda: gitsync.abort(result.project))
+            return {"state": state(root)}
+
+    @app.post("/api/git/commit")
+    def post_commit(body: CommitBody) -> dict[str, Any]:
+        """Commit everything in the project's folder."""
+        with lock:
+            result = load_project(root)
+            if result.project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            return {"commit": git_call(lambda: gitsync.commit(result.project, body.message))}
 
     @app.get("/api/pipeline-docs", response_class=HTMLResponse)
     def get_docs() -> HTMLResponse:

@@ -2,6 +2,20 @@
 -- Reference DDL: dbt builds these tables. Keys are informational where not enforced.
 CREATE SCHEMA IF NOT EXISTS marts;
 
+CREATE TABLE IF NOT EXISTS marts.customer_order_activity (
+    customer_id BIGINT NOT NULL,
+    dates_active DATE[],
+    order_lines BIGINT[],
+    spend DECIMAL(18,4)[],
+    days_active BIGINT,
+    last_active DATE,
+    snapshot_date DATE
+);
+COMMENT ON TABLE marts.customer_order_activity IS 'Each customer''s whole order history, one row per customer per day.';
+COMMENT ON COLUMN marts.customer_order_activity.days_active IS 'How many days it was active.';
+COMMENT ON COLUMN marts.customer_order_activity.last_active IS 'Its latest active day.';
+COMMENT ON COLUMN marts.customer_order_activity.snapshot_date IS 'The day this row describes.';
+
 CREATE TABLE IF NOT EXISTS marts.dim_customer (
     customer_id BIGINT NOT NULL,
     customer_name VARCHAR,

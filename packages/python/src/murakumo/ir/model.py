@@ -234,6 +234,25 @@ class Freshness(IRModel):
     error_after_hours: float | None = None
 
 
+class Cumulative(IRModel):
+    """How a cumulative table accumulates: one row per key per day, carrying its whole history.
+
+    ``date`` is the source column whose day a row counts for (``fct_trip.pickup_at``); each
+    measure is an aggregate over that day's rows (``count(*)``, ``sum(fct_trip.total_amount)``),
+    kept as an array with one value per active day, most recent first.
+    """
+
+    date: str
+    measures: dict[Name, str] = Field(default_factory=dict)
+
+    @field_validator("date")
+    @classmethod
+    def _qualified(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*", value):
+            raise ValueError(f"cumulative date {value!r} must be written entity.column")
+        return value
+
+
 class Entity(Node):
     """A table in the logical model: a source table, a staging model, a dimension, a fact..."""
 
@@ -250,6 +269,7 @@ class Entity(Node):
     partition_by: list[str] = Field(default_factory=list)
     cluster_by: list[Name] = Field(default_factory=list)
     freshness: Freshness | None = None
+    cumulative: Cumulative | None = None  # for kind: cumulative
     tags: list[str] = Field(default_factory=list)
     attributes: list[Attribute] = Field(default_factory=list)
     mappings: list[Mapping] = Field(default_factory=list)

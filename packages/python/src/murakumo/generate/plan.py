@@ -26,10 +26,12 @@ from murakumo.generate.targets import Target
 from murakumo.ir.model import (
     Attribute,
     Entity,
+    EntityKind,
     History,
     KeyRole,
     Layer,
     LoadPattern,
+    Mapping,
     QualityRule,
     Relationship,
     RuleType,
@@ -98,6 +100,8 @@ class DbtModel:
     config: dict = field(default_factory=dict)
     contract: bool = False
     description: str | None = None
+    template: str | None = None  # a template of its own (cumulative tables); the layer's otherwise
+    extra: dict = field(default_factory=dict)  # what that template needs
 
 
 @dataclass
@@ -283,6 +287,8 @@ class Planner:
     # modelled layers --------------------------------------------------------------------------
 
     def plan_modelled(self, entity: Entity) -> list[DbtModel]:
+        if entity.kind is EntityKind.CUMULATIVE:
+            return [self.cumulative(entity)]
         if not entity.mappings:
             self.plan.diagnostics.append(
                 warning("MK504", f"{entity.name} has no mappings, so there is nothing to generate", self.file(entity))
@@ -368,6 +374,85 @@ class Planner:
         if not history:
             return [model]
         return self.scd2(entity, model)
+
+    def cumulative(self, entity: Entity) -> DbtModel:
+        """One row per key per day, each carrying the key's whole history (the brief's cumulative pattern).
+
+        Each run computes one day (``run_date``, or the latest day with activity): yesterday's row
+        for every key, with today's activity put in front of its arrays.
+        """
+        from murakumo.expressions import check_expression
+
+        settings = entity.cumulative
+        if settings is None or not entity.grain:
+            raise _Skip  # reported by validate (MK310, MK312)
+        source_name, _, date_column = settings.date.partition(".")
+        base = self.model.entity(source_name)
+        if base is None:
+            self.plan.diagnostics.append(error("MK207", f"{settings.date} does not exist", self.file(entity)))
+            raise _Skip
+        relation, names = self.relation(base)
+        aliases = {base.name.lower(): "src"}
+        mapped = {m.target.lower(): m for m in entity.mappings}
+        keys = []
+        for key in entity.grain:
+            attribute = entity.attribute(key)
+            mapping = mapped.get(key.lower())
+            if attribute is None or mapping is None:
+                self.plan.diagnostics.append(
+                    error("MK508", f"{entity.name}: grain column {key} needs a column and a mapping", self.file(entity))
+                )
+                raise _Skip
+            keys.append((attribute.name, self.mapping_sql(entity, mapping, aliases), self.physical(attribute)))
+        if date_column.lower() not in names:
+            self.plan.diagnostics.append(error("MK207", f"{settings.date} does not exist", self.file(entity)))
+            raise _Skip
+        date_sql = f"src.{self.quote(names[date_column.lower()])}"
+        measures = []
+        for name, expression in settings.measures.items():
+            check = check_expression(self.project, expression)
+            mapping = Mapping(target=entity.grain[0], sources=check.references, expression=expression)
+            logical = check.type or "double"
+            element = self.target.physical(parse_type(logical))
+            measures.append((name, self.mapping_sql(entity, mapping, aliases), element, logical))
+
+        a = _ARRAYS.get(self.target.dialect, _ARRAYS["duckdb"])
+        date_type = self.target.physical_name("date")
+        columns = [Column(n, n, t) for n, _, t in keys]
+        columns.append(Column("dates_active", "dates_active", self.target.physical_name("array<date>")))
+        for name, _, _, logical in measures:
+            columns.append(Column(name, name, self.target.physical(parse_type(f"array<{logical}>"))))
+        columns += [
+            Column("days_active", "days_active", self.target.physical_name("bigint"), "How many days it was active."),
+            Column("last_active", "last_active", date_type, "Its latest active day."),
+            Column("snapshot_date", "snapshot_date", date_type, "The day this row describes."),
+        ]
+        unique = [k for k, _, _ in keys] + ["snapshot_date"]
+        return DbtModel(
+            name=entity.name,
+            layer=entity.layer.value,
+            folder=f"{entity.layer.value}/{snake(entity.domain or 'core')}",
+            entity=entity,
+            relation=relation,
+            alias="src",
+            columns=columns,
+            materialized="incremental",
+            unique_key=unique,
+            tests=[Test("murakumo_unique_combination", None, {"columns": unique})],
+            description=entity.description,
+            template="cumulative.sql.j2",
+            extra={
+                "keys": keys,
+                "date": date_sql,
+                "date_type": date_type,
+                "measures": measures,
+                "array": a,
+                "array_type": {
+                    "dates_active": self.target.physical_name("array<date>"),
+                    **{n: self.target.physical(parse_type(f"array<{lg}>")) for n, _, _, lg in measures},
+                },
+            },
+        )
 
     def scd2(self, entity: Entity, versions: DbtModel) -> list[DbtModel]:
         """SCD2: the mapped rows as a view, a snapshot that keeps every version, and the dimension on top."""
@@ -639,6 +724,37 @@ def quote_identifier(name: str, dialect: str) -> str:
 
 def build_plan(project: Project, target: Target) -> Plan:
     return Planner(project, target).run()
+
+
+# Arrays differ by warehouse: making one, putting a value in front, its length, its first value.
+_ARRAYS: dict[str, dict[str, str]] = {
+    "duckdb": {"of": "list_value({x})", "prepend": "list_prepend({x}, {a})", "len": "len({a})", "first": "{a}[1]"},
+    "snowflake": {
+        "of": "array_construct({x})",
+        "prepend": "array_prepend({a}, {x})",
+        "len": "array_size({a})",
+        "first": "{a}[0]",
+    },
+    "bigquery": {
+        "of": "[{x}]",
+        "prepend": "array_concat([{x}], {a})",
+        "len": "array_length({a})",
+        "first": "{a}[offset(0)]",
+    },
+    "databricks": {"of": "array({x})", "prepend": "concat(array({x}), {a})", "len": "size({a})", "first": "{a}[0]"},
+    "postgres": {
+        "of": "array[{x}]",
+        "prepend": "array_prepend({x}, {a})",
+        "len": "cardinality({a})",
+        "first": "{a}[1]",
+    },
+    "redshift": {
+        "of": "array({x})",
+        "prepend": "array_concat(array({x}), {a})",
+        "len": "get_array_length({a})",
+        "first": "{a}[0]",
+    },
+}
 
 
 def _connects(rel: Relationship, a: Entity, b: Entity) -> bool:

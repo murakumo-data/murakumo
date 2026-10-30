@@ -23,6 +23,8 @@ export type Entity = {
   kind: string
   source: string | null
   domain: string | null
+  grain: string[]
+  cumulative: { date: string; measures: Record<string, string> } | null
   description: string | null
   attributes: Attribute[]
   mappings: Mapping[]
@@ -196,13 +198,56 @@ export type CIInfo = {
   diff: string
   found: Record<string, boolean>
   deploy_possible: boolean
+  preview_possible: boolean
   run: CIRun
+}
+
+export type ModelChange = {
+  kind: string
+  class: 'additive' | 'compatible' | 'breaking'
+  entity: string
+  column: string | null
+  summary: string
+  detail: Record<string, unknown>
+}
+
+export type GitStatus = {
+  branch: string
+  base: string
+  ref: string
+  on_base: boolean
+  ahead: number
+  behind: number
+  uncommitted: string[]
+  local_changes: ModelChange[]
+  incoming_changes: ModelChange[]
+  merging: boolean
+  conflicts: string[]
+  developer: string
+  personal_environment: string
+  personal_prefix: string // where this person's dev builds go; empty for the shared schemas
+}
+
+export type SyncResult = {
+  state: 'up_to_date' | 'synced' | 'conflicts'
+  incoming: ModelChange[]
+  conflicts: string[]
+  migrations: string[]
+  generated: number
+  commit: string | null
 }
 
 export type EntityCode = {
   blocked: string | null
   files: { path: string; status: FileStatus; content: string }[]
   ddl: string | null
+}
+
+export type ImpactReport = {
+  worst: 'additive' | 'compatible' | 'breaking' | null
+  impacts: { change: ModelChange; columns: string[]; tables: string[]; tests: string[]; metrics: string[]; schedules: string[] }[]
+  files: string[]
+  migration: string[]
 }
 
 export class ApiError extends Error {
@@ -220,6 +265,9 @@ export class ApiError extends Error {
 // made against files that have since changed on disk.
 let revision: string | undefined
 
+// While true, edits are sent as previews: the server says what they would reach and saves nothing.
+let previewing = false
+
 async function request<T>(method: string, path: string, body?: unknown, track = true): Promise<T> {
   let response: Response
   try {
@@ -228,6 +276,7 @@ async function request<T>(method: string, path: string, body?: unknown, track = 
       headers: {
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...(revision && method !== 'GET' ? { 'X-Murakumo-Revision': revision } : {}),
+        ...(previewing ? { 'X-Murakumo-Preview': '1' } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
@@ -311,12 +360,18 @@ export const api = {
       false,
     ),
 
-  ci: (provider: string, deploy: boolean) =>
-    request<CIInfo>('GET', `/ci?provider=${provider}&deploy=${deploy}`, undefined, false),
-  writeCI: (provider: string, deploy: boolean, force: boolean) =>
-    request<CIInfo>('POST', '/ci', { provider, deploy, force }, false),
+  ci: (provider: string, deploy: boolean, preview: boolean) =>
+    request<CIInfo>('GET', `/ci?provider=${provider}&deploy=${deploy}&preview=${preview}`, undefined, false),
+  writeCI: (provider: string, deploy: boolean, preview: boolean, force: boolean) =>
+    request<CIInfo>('POST', '/ci', { provider, deploy, preview, force }, false),
   startCIRun: () => request<CIRun>('POST', '/ci/run', undefined, false),
   ciRun: () => request<CIRun>('GET', '/ci/run', undefined, false),
+
+  git: (refresh = false) => request<GitStatus>('GET', `/git?refresh=${refresh}`, undefined, false),
+  sync: (resume = false) =>
+    request<{ sync: SyncResult; state: State }>('POST', `/git/sync?resume=${resume}`, undefined, false),
+  abortSync: () => request<{ state: State }>('POST', '/git/abort', undefined, false),
+  commit: (message: string) => request<{ commit: string }>('POST', '/git/commit', { message }, false),
 
   generated: () => request<Generated>('GET', '/generated', undefined, false),
   generatedFile: (path: string) =>
@@ -329,4 +384,36 @@ export const api = {
   entityCode: (id: string) => request<EntityCode>('GET', `/entities/${id}/code`, undefined, false),
   generate: () => request<Generated>('POST', '/generate', undefined, false),
   writeMigration: (name: string | null) => request<Generated>('POST', '/migrations', { name }, false),
+}
+
+/** What an edit would reach, without making it: the edit is sent as a preview. */
+export async function previewOf(action: () => Promise<unknown>): Promise<ImpactReport | null> {
+  previewing = true
+  try {
+    const result = (await action()) as { preview?: ImpactReport }
+    return result.preview ?? null
+  } finally {
+    previewing = false
+  }
+}
+
+/** The words for a confirmation before a breaking edit. */
+export function impactText(report: ImpactReport): string {
+  const lines = report.impacts
+    .filter((i) => i.change.class === 'breaking')
+    .map((i) => {
+      const reach = [
+        i.columns.length ? `${i.columns.length} column${i.columns.length === 1 ? '' : 's'} built from it` : '',
+        i.tests.length ? `${i.tests.length} test${i.tests.length === 1 ? '' : 's'}` : '',
+        i.schedules.length ? `schedule ${i.schedules.join(', ')}` : '',
+      ].filter(Boolean)
+      return `• ${i.change.summary}${reach.length ? `\n    reaches ${reach.join(', ')}` : ''}`
+    })
+  const tables = [...new Set(report.impacts.flatMap((i) => i.tables))]
+  return (
+    `This is a breaking change: something that reads ${tables.join(', ')} may fail or change meaning.\n\n` +
+    lines.join('\n') +
+    (report.migration.length ? `\n\nIt needs a migration: ${report.migration.join('; ')}.` : '') +
+    '\n\nGo ahead?'
+  )
 }

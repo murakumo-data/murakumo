@@ -167,6 +167,7 @@ with DAG(
         ),
         render_config=RenderConfig(load_method=LoadMode.DBT_LS, selector={_py(job.name)}),
         execution_config=ExecutionConfig(dbt_executable_path=DBT),
+        operator_args={{"env": {{"MURAKUMO_SCHEDULE": {_py(job.name)}}}, "append_env": True}},  # for audit.run_log
     )
     {chain}
 """
@@ -266,6 +267,7 @@ def _prefect(context: dict, manifest) -> dict[str, str]:
         lines = [
             f"@flow(name={_py(context['project'] + '-' + job.name)}, description={_py(job.description)})",
             f"def {job.name}() -> None:",
+            f'    os.environ["MURAKUMO_SCHEDULE"] = {_py(job.name)}  # recorded in audit.run_log',
         ]
         if job.sources:
             lines.append(f"    dbt({_py(['source', 'freshness', '--select', *job.sources])})")
@@ -476,6 +478,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
 dbt_dir="${{MURAKUMO_DBT_DIR:-$here/../../dbt}}"
 common=(--project-dir "$dbt_dir" --profiles-dir "$dbt_dir" --target "${{MURAKUMO_TARGET:-{context["target"]}}}")
+export MURAKUMO_SCHEDULE="${{1:-}}"  # recorded in audit.run_log
 case "${{1:-}}" in
 {chr(10).join(cases)}
   *)

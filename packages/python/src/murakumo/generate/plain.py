@@ -51,6 +51,7 @@ class Plain:
         for snapshot in plan.snapshots:
             self.schemas[snapshot.name] = SNAPSHOT_SCHEMA
         self.groups = {g.name: g.schema for g in plan.sources}
+        self.variables: dict[str, str] = {}  # dbt --vars; none, so cumulative tables take the latest day
 
     # names --------------------------------------------------------------------------------------
 
@@ -92,6 +93,7 @@ class Plain:
             this=self.relation(model.name),
             config=lambda **_: "",
             is_incremental=lambda: incremental,
+            var=lambda name, default=None: self.variables.get(name, default),
             murakumo_record_hash=self.record_hash,
         )
         return re.sub(r"\n{3,}", "\n\n", rendered).strip()

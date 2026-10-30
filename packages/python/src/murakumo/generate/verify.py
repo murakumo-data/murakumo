@@ -32,6 +32,7 @@ from murakumo.generate import generate
 from murakumo.generate.ddl import DDL
 from murakumo.generate.plan import quote_identifier
 from murakumo.generate.sample import sample_rows
+from murakumo.generate.targets import target_for
 from murakumo.importers.database import SourceUnavailable
 from murakumo.importers.files import READERS, file_format
 from murakumo.ir.model import Entity, Layer
@@ -124,19 +125,38 @@ class DuckDBBackend:
         if location.startswith("snowflake:"):
             raise LoadError(f"{entity.name}: Snowflake tables can only be loaded with --warehouse snowflake")
         check_columns(entity, location)
-        reader = READERS[file_format(location)]
+        fmt = file_format(location)
+        reader = READERS[fmt]
         columns = ", ".join(quote_identifier(a.name, "duckdb") for a in entity.attributes)
         limit_sql = f" limit {int(limit)}" if limit else ""
         table = self.table(schema, entity)
+        before = self.rows_in(schema, entity)
+        # CSV rows DuckDB cannot read are set aside and counted, instead of failing the whole load.
+        rejects = f"murakumo_rejects_{entity.name.lower()}"
+        duck = target_for(Warehouse.DUCKDB)
+        types = ", ".join(f"'{a.name}': '{duck.physical(a.logical_type)}'" for a in entity.attributes)
+        options = (
+            f", types = {{{types}}}, store_rejects = true, rejects_table = '{rejects}', rejects_scan = '{rejects}_scan'"
+        )
         self.connection.execute(
             f"insert into {table} ({columns}, _ingested_at, _batch_id) "
-            f"select {columns}, now(), '{self.batch}' from {reader}(?){limit_sql}",
+            f"select {columns}, now(), '{self.batch}' from {reader}(?{options if fmt == 'csv' else ''}){limit_sql}",
             [location],
         )
-        return self.connection.execute(f"select count(*) from {table}").fetchone()[0]
+        after = self.rows_in(schema, entity)
+        rejected, reason = 0, None
+        if fmt == "csv":
+            rejected, reason = self.connection.execute(
+                f"select count(*), any_value(error_type || ': ' || coalesce(error_message, '')) from {rejects}"
+            ).fetchone()
+        self.last_load = (after - before, rejected, reason)
+        return after
 
     def rows_in(self, schema: str, entity: Entity) -> int:
         return self.connection.execute(f"select count(*) from {self.table(schema, entity)}").fetchone()[0]
+
+    def record_load(self, prefix: str, source: str, entity: Entity, counts: tuple[int, int, str | None]) -> None:
+        self.run_ddl(record_load_sql("duckdb", f"{prefix}audit", self.batch, source, entity.name, counts))
 
     def finish_loading(self) -> None:
         self.connection.close()
@@ -276,6 +296,10 @@ class SnowflakeBackend:
             connection.close()
         return target
 
+    def record_load(self, prefix: str, source: str, entity: Entity, counts: tuple[int, int, str | None]) -> None:
+        audit = f"{self.database}.{prefix}audit"
+        self.run_ddl(record_load_sql("snowflake", audit, self.batch, source, entity.name, counts))
+
     def rows_in(self, schema: str, entity: Entity) -> int:
         cursor = self.connection.cursor()
         try:
@@ -309,6 +333,25 @@ class SnowflakeBackend:
         finally:
             cursor.close()
             self.connection.close()
+
+
+def record_load_sql(dialect: str, audit: str, batch: str, source: str, table: str, counts: tuple) -> str:
+    """Statements that record one load in <audit>.row_counts, creating the table the first time."""
+    ingested, rejected, reason = counts
+    text, stamp, number = (
+        ("varchar", "timestamp", "bigint") if dialect == "duckdb" else ("varchar", "timestamp_ntz", "number")
+    )
+
+    def literal(value: str | None) -> str:
+        return "null" if value is None else "'" + str(value)[:1000].replace("'", "''") + "'"
+
+    return (
+        f"create schema if not exists {audit};\n"
+        f"create table if not exists {audit}.row_counts (run_id {text}, source {text}, table_name {text}, "
+        f"batch_id {text}, rows_ingested {number}, rows_rejected {number}, reason {text}, loaded_at {stamp});\n"
+        f"insert into {audit}.row_counts values ({literal(batch)}, {literal(source)}, {literal(table)}, "
+        f"{literal(batch)}, {int(ingested)}, {int(rejected)}, {literal(reason)}, current_timestamp);\n"
+    )
 
 
 def check_columns(entity: Entity, location: str) -> None:
@@ -372,6 +415,8 @@ def _run_dbt(
     rerun: bool,
     result: VerifyResult,
     selector: str | None = None,
+    select: str | None = None,
+    dbt_vars: dict[str, str] | None = None,
 ):
     from dbt.cli.main import dbtRunner
 
@@ -389,6 +434,8 @@ def _run_dbt(
         "--quiet",
         "--no-use-colors",
         *(["--selector", selector] if selector else []),
+        *(["--select", select] if select else []),
+        *(["--vars", json.dumps(dbt_vars)] if dbt_vars else []),
     ]
     try:
         run = dbtRunner().invoke(arguments)
@@ -471,10 +518,15 @@ def verify(
                     schema = backend.prefix + planned[entity.name]
                     key = entity.name.lower()
                     location = data.get(key) or data.get(f"{(entity.source or '').lower()}.{key}")
+                    before = backend.rows_in(schema, entity)
+                    backend.last_load = None
                     if location:
                         result.loaded[entity.name] = backend.load_location(schema, entity, location, limit)
                     else:
                         result.loaded[entity.name] = backend.load_rows(schema, entity, synthetic[entity.name])
+                    if project.manifest.quality.run_log:
+                        counts = backend.last_load or (result.loaded[entity.name] - before, 0, None)
+                        backend.record_load(backend.prefix, entity.source or "raw", entity, counts)
             except LoadError as exc:
                 result.error = str(exc)
                 return result
@@ -513,13 +565,18 @@ class BuildResult(VerifyResult):
     skipped: list[str] = field(default_factory=list)  # raw tables that already had rows, so got no sample
 
 
+def _duckdb_path(project: Project) -> Path:
+    """The project's own DuckDB file: the manifest's database, or <project>.duckdb beside it."""
+    configured = project.manifest.targets.warehouse.database or ""
+    name = configured if configured.endswith((".duckdb", ".db")) else f"{project.manifest.project.name}.duckdb"
+    return (project.root / name).resolve()
+
+
 def _build_backend(project: Project, warehouse: Warehouse, folder: Path, prefix: str):
     if warehouse is Warehouse.SNOWFLAKE:
         backend = SnowflakeBackend(project, folder, prefix=prefix)
     else:
-        configured = project.manifest.targets.warehouse.database or ""
-        name = configured if configured.endswith((".duckdb", ".db")) else f"{project.manifest.project.name}.duckdb"
-        backend = DuckDBBackend(project, folder, path=(project.root / name).resolve())
+        backend = DuckDBBackend(project, folder, path=_duckdb_path(project))
         backend.prefix = prefix
     backend.batch = datetime.now().strftime("build_%Y%m%d_%H%M%S")
     return backend
@@ -534,6 +591,8 @@ def build(
     sample: int = 0,
     schema_prefix: str = "",
     schedule: str | None = None,
+    select: str | None = None,
+    dbt_vars: dict[str, str] | None = None,
 ) -> BuildResult:
     """Build the project into its real warehouse and keep everything: the raw landing tables
     (created if missing), and every dbt model, snapshot and test in the environment's schemas.
@@ -595,12 +654,17 @@ def build(
                     schema = schema_prefix + planned[entity.name]
                     key = entity.name.lower()
                     location = data.get(key) or data.get(f"{(entity.source or '').lower()}.{key}")
+                    before = backend.rows_in(schema, entity)
+                    backend.last_load = None
                     if location:
                         result.loaded[entity.name] = backend.load_location(schema, entity, location, limit)
-                    elif sample and backend.rows_in(schema, entity) == 0:
+                    elif sample and before == 0:
                         result.loaded[entity.name] = backend.load_rows(schema, entity, synthetic[entity.name])
                     elif sample:
                         result.skipped.append(entity.name)
+                    if entity.name in result.loaded and project.manifest.quality.run_log:
+                        counts = backend.last_load or (result.loaded[entity.name] - before, 0, None)
+                        backend.record_load(schema_prefix, entity.source or "raw", entity, counts)
             except LoadError as exc:
                 result.error = str(exc)
                 return result
@@ -613,7 +677,17 @@ def build(
             if warehouse is Warehouse.DUCKDB:
                 variables.pop("MURAKUMO_SCHEMA")  # the environment's own schema, as in profiles.yml
                 variables["MURAKUMO_SCHEMA_PREFIX"] = schema_prefix
-            run = _run_dbt(folder / "dbt", environment, variables, False, result, selector=schedule)
+            variables["MURAKUMO_SCHEDULE"] = schedule or ""  # recorded in audit.run_log
+            run = _run_dbt(
+                folder / "dbt",
+                environment,
+                variables,
+                False,
+                result,
+                selector=schedule,
+                select=select,
+                dbt_vars=dbt_vars,
+            )
         finally:
             result.location = backend.describe()
             if warehouse is Warehouse.SNOWFLAKE:

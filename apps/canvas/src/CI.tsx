@@ -18,6 +18,7 @@ const MARKS: Record<string, string> = { waiting: '○', running: '◐', passed: 
 export function CIPanel({ onMessage }: { onMessage: (text: string, tone: 'info' | 'error') => void }) {
   const [provider, setProvider] = useState<'github' | 'gitlab'>('github')
   const [deploy, setDeploy] = useState(false)
+  const [preview, setPreview] = useState(false)
   const [info, setInfo] = useState<CIInfo | null>(null)
   const [run, setRun] = useState<CIRun | null>(null)
   const [showFile, setShowFile] = useState(false)
@@ -25,13 +26,13 @@ export function CIPanel({ onMessage }: { onMessage: (text: string, tone: 'info' 
 
   const load = useCallback(async () => {
     try {
-      const result = await api.ci(provider, deploy)
+      const result = await api.ci(provider, deploy, preview)
       setInfo(result)
       setRun(result.run)
     } catch (e) {
       onMessage(e instanceof Error ? e.message : String(e), 'error')
     }
-  }, [provider, deploy, onMessage])
+  }, [provider, deploy, preview, onMessage])
 
   useEffect(() => {
     load()
@@ -56,7 +57,7 @@ export function CIPanel({ onMessage }: { onMessage: (text: string, tone: 'info' 
     if (info.state === 'differs' && !window.confirm(`Replace ${info.file}, losing the changes made to it by hand?`)) return
     setBusy(true)
     try {
-      const result = await api.writeCI(provider, deploy, info.state === 'differs')
+      const result = await api.writeCI(provider, deploy, preview, info.state === 'differs')
       setInfo(result)
       onMessage(`Wrote ${result.file}. Commit it, and the checks run on every push.`, 'info')
     } catch (e) {
@@ -92,6 +93,17 @@ export function CIPanel({ onMessage }: { onMessage: (text: string, tone: 'info' 
         />{' '}
         Also build production on pushes to main, after someone approves it
         {!info.deploy_possible && <span className="muted"> (not for a DuckDB file)</span>}
+      </label>
+      <label className="small">
+        <input
+          type="checkbox"
+          checked={preview}
+          disabled={!info.preview_possible}
+          onChange={(e) => setPreview(e.target.checked)}
+        />{' '}
+        Build each pull request on a clone of production, with its new migrations, and drop it when the pull request
+        closes
+        {!info.preview_possible && <span className="muted"> (needs Snowflake)</span>}
       </label>
 
       <div className="ci__file">

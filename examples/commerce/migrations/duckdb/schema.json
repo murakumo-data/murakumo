@@ -1,7 +1,50 @@
 {
   "warehouse": "duckdb",
-  "migration": 1,
+  "migration": 2,
   "tables": [
+    {
+      "id": "772ed744-3320-4d78-af94-2f50516ae545",
+      "kind": "incremental",
+      "schema": "marts",
+      "name": "customer_order_activity",
+      "columns": [
+        {
+          "id": "a3920e2f-feef-4a1a-b05f-021c16bfd43b",
+          "name": "customer_id",
+          "type": "BIGINT"
+        },
+        {
+          "id": "772ed744-3320-4d78-af94-2f50516ae545:dates_active",
+          "name": "dates_active",
+          "type": "DATE[]"
+        },
+        {
+          "id": "772ed744-3320-4d78-af94-2f50516ae545:order_lines",
+          "name": "order_lines",
+          "type": "BIGINT[]"
+        },
+        {
+          "id": "772ed744-3320-4d78-af94-2f50516ae545:spend",
+          "name": "spend",
+          "type": "DECIMAL(18,4)[]"
+        },
+        {
+          "id": "772ed744-3320-4d78-af94-2f50516ae545:days_active",
+          "name": "days_active",
+          "type": "BIGINT"
+        },
+        {
+          "id": "772ed744-3320-4d78-af94-2f50516ae545:last_active",
+          "name": "last_active",
+          "type": "DATE"
+        },
+        {
+          "id": "772ed744-3320-4d78-af94-2f50516ae545:snapshot_date",
+          "name": "snapshot_date",
+          "type": "DATE"
+        }
+      ]
+    },
     {
       "id": "3f721466-3ca6-4fa1-a3f8-2aa6b1831e48",
       "kind": "incremental",

@@ -48,7 +48,7 @@ def render(plan: Plan) -> dict[str, str]:
         origin = project.origins.get(model.entity.id)
         where = origin.relative_to(project.root) if origin else "the model"
         header = HEADER.format(origin=where)
-        template = "staging.sql.j2" if model.layer == "staging" else "model.sql.j2"
+        template = model.template or ("staging.sql.j2" if model.layer == "staging" else "model.sql.j2")
         files[f"models/{model.folder}/{model.name}.sql"] = _env.get_template(template).render(
             model=model, header=header, quote=lambda n: quote_identifier(n, plan.target.dialect), config=_config(model)
         )
@@ -237,6 +237,14 @@ def _dbt_project(plan: Plan) -> dict:
         "test-paths": ["tests"],
         "clean-targets": ["target", "dbt_packages"],
         "require-dbt-version": ">=1.10.0",
+        **(
+            {
+                "on-run-start": ["{{ murakumo_audit_setup() }}"],
+                "on-run-end": ["{{ murakumo_audit(results) }}"],
+            }
+            if plan.project.manifest.quality.run_log
+            else {}
+        ),
         "models": {name: layers},
     }
 

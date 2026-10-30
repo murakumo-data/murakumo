@@ -47,6 +47,12 @@ def generate(project: Project, warehouse: Warehouse | str | None = None) -> Outp
     output.files["dbt/selectors.yml"] = dbt.selectors(project, plan)
     for path, content in orchestration.render(project, plan).items():
         output.files[path] = content
+    engine = project.manifest.generation.python_engine
+    if engine != "none":
+        from murakumo.generate import python
+
+        for path, content in python.render(project, engine).items():
+            output.files[f"python/{engine}/{path}"] = content
     for path, content in docs.render(project, plan).items():
         output.files[f"docs/{path}"] = content
     if project.manifest.generation.plain_sql:
