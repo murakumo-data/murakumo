@@ -678,3 +678,80 @@ def backfill_command(
         console.print(f"  {day}: built")
         day += timedelta(days=1)
     console.print(f"[green]Backfilled[/green] {entity.name} from {first} to {last}.")
+
+
+def run_command(
+    engine: str = typer.Option(..., "--engine", help="polars or pyspark."),
+    project_path: Path = ProjectOption,
+    schedule: str | None = typer.Option(None, "--schedule", help="Build only what this schedule refreshes."),
+    sample: int = typer.Option(0, help="Run on this many made-up rows per raw table instead of real ones."),
+    data: list[str] = typer.Option(None, "--data", help="Read a raw table from a file: TABLE=PATH. Repeat."),
+    run_date: str | None = typer.Option(None, "--run-date", help="The day cumulative tables add (YYYY-MM-DD)."),
+    output: Path | None = typer.Option(None, "--output", help="Where tables are written. Default: lake/<engine>."),
+    table_format: str = typer.Option("parquet", "--format", help="parquet, or delta (Spark, with delta-spark)."),
+) -> None:
+    """Run the pipeline as Python: PySpark or Polars jobs built from the same SQL as the dbt project.
+
+    Raw tables come from --data files, made-up rows (--sample), or the project's DuckDB file.
+    The pipeline runs in its own environment, from its requirements.txt, when uv is installed.
+    """
+    import csv
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+
+    from murakumo.generate import python
+    from murakumo.generate.sample import sample_rows
+    from murakumo.generate.verify import _duckdb_path
+    from murakumo.ir.model import Layer
+
+    if engine not in python.ENGINES:
+        fail("--engine is polars or pyspark")
+        raise typer.Exit(1)
+    project = open_project(project_path)
+    problems = validate_project(project)
+    if any(d.level is Level.ERROR for d in problems):
+        print_diagnostics([d for d in problems if d.level is Level.ERROR], project.root)
+        fail("the model has errors; fix them before running")
+        raise typer.Exit(1)
+    output = (output or project.root / "lake" / engine).resolve()
+    with tempfile.TemporaryDirectory(prefix="murakumo-run-") as tmp:
+        folder = Path(tmp) / engine
+        for path, content in python.render(project, engine).items():
+            target = folder / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        arguments = ["--output", str(output), "--format", table_format]
+        for item in data or []:
+            arguments += ["--data", item]
+        if sample:
+            raw = [e for e in project.model.entities if e.layer is Layer.RAW]
+            rows = sample_rows(project.model, raw, rows=sample)
+            for entity in raw:
+                path = Path(tmp) / "sample" / f"{entity.name}.csv"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                names = [a.name for a in entity.attributes]
+                with path.open("w", newline="", encoding="utf-8") as handle:
+                    writer = csv.writer(handle)
+                    writer.writerow(names)
+                    for row in rows[entity.name]:
+                        writer.writerow(["" if row.get(n) is None else row.get(n) for n in names])
+                arguments += ["--data", f"{entity.name}={path}"]
+        elif project.manifest.targets.warehouse.type is Warehouse.DUCKDB and _duckdb_path(project).is_file():
+            arguments += ["--duckdb", str(_duckdb_path(project))]
+        if schedule:
+            arguments += ["--schedule", schedule]
+        if run_date:
+            arguments += ["--run-date", run_date]
+        uv = shutil.which("uv")
+        if uv:
+            python_version = "3.11" if engine == "pyspark" else "3.12"  # PySpark 3.5 runs up to Python 3.12
+            command = [uv, "run", "--no-project", "--quiet", "--python", python_version]
+            command += ["--with-requirements", str(folder / "requirements.txt"), "python", "run.py", *arguments]
+        else:
+            command = [sys.executable, "run.py", *arguments]
+        console.print(f"Running the {engine} pipeline" + (f" for {schedule}" if schedule else "") + "...")
+        done = subprocess.run(command, cwd=folder)
+    if done.returncode != 0:
+        raise typer.Exit(done.returncode)
