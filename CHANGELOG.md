@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## 0.4.0 (2026-10-30)
 
 Working as a team, and seeing what each run did: sync with the parent branch, typed diffs and
 impact reports, personal and pull-request environments, run logs, cumulative tables, and the
