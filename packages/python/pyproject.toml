@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "murakumo"
-version = "0.3.0"
+version = "0.4.0"
 description = "Model-first data engineering: design the logical model, generate the platform."
 readme = "README.md"
 requires-python = ">=3.11"

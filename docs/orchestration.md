@@ -135,6 +135,11 @@ warehouse credentials come from the CI's secrets (`SNOWFLAKE_ACCOUNT`, `SNOWFLAK
 `SNOWFLAKE_PRIVATE_KEY`, the key's contents, for Snowflake). A project that builds into a DuckDB
 file has nothing to deploy to.
 
+On every pull request, a step before the checks writes the model changes and their impact
+(`murakumo diff --format markdown`) to the run's summary page; see [teamwork.md](teamwork.md).
+`--preview` adds a job that builds each pull request on a clone of production with its new
+migrations, and drops it when the pull request closes (Snowflake).
+
 The file is yours once written. If it differs from what Murakumo would write, `murakumo ci` shows
 the difference and changes nothing; `--force` replaces it. The canvas's **CI** panel does the
 same, and its **Run checks now** runs the four checks on your computer, showing each as it

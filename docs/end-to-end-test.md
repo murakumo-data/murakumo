@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.3.0
+# End-to-end test: Murakumo 0.4.0
 
-A step-by-step test of Murakumo 0.3.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 0.4.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -11,9 +11,9 @@ should see.
 | 2-4 | Creating a project folder with the guided setup, and going into it | 10 min |
 | 5-9 | The canvas: viewing, editing, mapping, calculated columns, lineage, domains, generating, migrations | 50 min |
 | 10-11 | Importing a data dictionary; editing YAML by hand alongside the canvas | 10 min |
-| 12-14 | Building and testing on DuckDB, with made-up data and real data; schedules, pipelines, docs and plain SQL | 35 min |
-| 15 | The checks a CI pipeline would run, and CI from the canvas | 10 min |
-| 16 | Optional: the same project on Snowflake, built and kept | 20 min |
+| 12-14 | Building and testing on DuckDB, with made-up data and real data; schedules, pipelines, docs, plain SQL, cumulative tables, the run log, Polars and PySpark | 50 min |
+| 15 | The checks a CI pipeline would run, CI from the canvas, working with a teammate | 20 min |
+| 16 | Optional: the same project on Snowflake: your own schemas, production, a pull request's clone | 30 min |
 | 17 | Cleaning up | 2 min |
 
 ## How to use this script
@@ -119,10 +119,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.3.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 0.4.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.3.0.
+☐ Version 0.4.0.
 
 ---
 
@@ -978,6 +978,84 @@ It creates `marts.fct_trip` in full the first time, then adds only trips past th
 
 ☐ The project exports as plain SQL.
 
+**14.6 A cumulative table.** A cumulative table keeps each key's whole history, one row per key per
+day. In the canvas, click **+ Entity**: Name `zone_activity`, Layer `marts`, **Add**. In the
+inspector:
+
+1. **Kind**: `cumulative`. Three new rows appear: **Per**, **Active on** and **Each day**.
+2. Add a column `zone_id`, type `integer` (as in 6.3), and tick **NN**.
+3. **Per**: `zone_id`. **Active on**: `fct_trip.pickup_at`. **Each day**: `trips = count(*)`.
+4. In **Mappings**, set `zone_id`'s source to `fct_trip.pickup_zone_id`.
+
+The chip says **Valid**. Write the files (the blue chip), then in the first tab:
+
+```bash
+murakumo migrate --name zone_activity
+murakumo build
+murakumo backfill zone_activity --from 2024-01-25 --to 2024-01-31
+```
+
+`build` adds the latest day with trips; `backfill` adds a week, one day after another (`2024-01-25:
+built` ... `Backfilled zone_activity`). Look at one zone (routes A and C: start with
+`uv run --with duckdb `, as in 13.3):
+
+```bash
+python -c "
+import duckdb
+con = duckdb.connect('taxi_platform.duckdb', read_only=True)
+print(con.sql(\"select zone_id, days_active, dates_active[1:3], trips[1:3] from marts.zone_activity where snapshot_date = '2024-01-31' order by days_active desc limit 3\"))
+"
+```
+
+You should see the busiest zones with `days_active` 7, their last three active days, newest first,
+and the trips on each.
+
+☐ The cumulative table builds and backfills.
+
+**14.7 The run log.** Every run records itself in the `audit` schema:
+
+```bash
+murakumo runs
+```
+
+You should see **By day** (runs, rows ingested and rejected, failed tests), **Runs** (each build,
+with its engine, status and test counts) and **Loads** (the rows each raw table took in 13.4).
+
+☐ Runs and loads are recorded.
+
+**14.8 The pipeline as Polars and PySpark jobs.** The same models can run as Python, reading the raw
+tables from `taxi_platform.duckdb` and writing Parquet files. Route B: first
+`pip install "murakumo[polars]"`; routes A and C use uv, which installs what the jobs need.
+
+```bash
+murakumo run --engine polars
+```
+
+You should see `Running the polars pipeline...` then `success: N models built, N/N tests passed.
+Tables are in .../lake/polars.` Now PySpark. The first run downloads Spark and a Java runtime
+(about 400 MB), so it takes a few minutes; later runs take seconds:
+
+```bash
+murakumo run --engine pyspark
+```
+
+`success: ...` again, in `lake/pyspark`. Compare both with the tables dbt built (routes A and C:
+start with `uv run --with duckdb `):
+
+```bash
+python -c "
+import duckdb
+con = duckdb.connect('taxi_platform.duckdb', read_only=True)
+print('dbt', con.execute('select count(*) from marts.fct_trip').fetchone()[0])
+print('polars', con.execute(\"select count(*) from 'lake/polars/marts/fct_trip.parquet'\").fetchone()[0])
+print('pyspark', con.execute(\"select count(*) from 'lake/pyspark/marts/fct_trip/*.parquet'\").fetchone()[0])
+"
+```
+
+The three numbers are the same. Remove the output: `rm -rf lake`.
+
+☐ Polars and PySpark build the same tables as dbt.
+
 ---
 
 ## Part 15: The checks a CI pipeline would run
@@ -1049,6 +1127,70 @@ Murakumo's version back with `murakumo ci --force`, then commit it:
 `git add .github && git commit -m "CI"`.
 
 ☐ The workflow is written, its checks pass here, and changes made by hand are kept.
+
+**15.5 Work with a teammate.** To try `murakumo sync` without a second person, make a shared
+repository on this computer and a teammate's copy of it:
+
+```bash
+git add -A && git commit -qm "Work so far"
+git branch -M main
+git init --bare ../team.git
+git remote add origin ../team.git
+git push -u origin main
+git checkout -b my-change
+git clone --quiet -b main ../team.git ../teammate
+```
+
+As the teammate, add a column to the zones on `main`, with its code and migration:
+
+```bash
+cd ../teammate
+git config user.name "Teammate" && git config user.email teammate@example.com
+murakumo add column taxi_zone_lookup zone_code string
+murakumo generate && murakumo migrate --name zone_code
+git add -A && git commit -qm "Zone code" && git push -q
+cd ../taxi_platform
+```
+
+Back as yourself, on `my-change`, add a different column, with its migration, and commit:
+
+```bash
+murakumo add column fct_trip note string
+murakumo generate && murakumo migrate --name trip_note
+git add -A && git commit -qm "Trip note"
+murakumo sync --check
+```
+
+You should see `my-change: 1 commit(s) behind origin/main, 1 ahead.` and, coming in from main,
+`additive  taxi_zone_lookup: new column zone_code (string)`. Now bring it in:
+
+```bash
+murakumo sync
+ls migrations/duckdb
+```
+
+You should see the change brought in; *Migrations: 0006_trip_note.sql replaced by
+0007_trip_note.sql, planned after main's migrations* (the numbers depend on how many you wrote
+before); and `Synced: ... committed ...`. `ls` shows the teammate's
+`zone_code` migration followed by yours, with no number used twice. In the canvas, click **Team**:
+`my-change`, up to date with main, 2 commits ahead.
+
+☐ The teammate's change came in, and the migrations stay in order.
+
+**15.6 What a change reaches.** In the canvas, click `taxi_zone_lookup` and click × next to
+`LocationID` to remove it. Before anything is saved, a confirmation says it is a breaking change,
+that it reaches the zone dimension's `zone_id` and the tests on it, and that it needs a migration.
+Click **Cancel**: nothing changed. Then in the terminal:
+
+```bash
+murakumo diff
+```
+
+You should see `Model changes since origin/main:` and `additive  fct_trip: new column note
+(string)` (your change; the teammate's is already in main), with the metrics and schedules it
+reaches.
+
+☐ Breaking edits are caught before they are saved.
 
 ---
 
@@ -1145,12 +1287,37 @@ murakumo build --sample 200
 ```
 
 `--sample 200` puts 200 made-up rows in each raw table that is still empty (in real use, ingestion
-fills them, or `--data` loads a file). You should see two `loaded ...: 200 rows (synthetic)` lines
-and `built: 4 models and snapshots, 16/16 tests passed. Tables are in Snowflake database SNOW_TEST.`
+fills them, or `--data` loads a file). On a shared warehouse your `dev` builds go to schemas of your
+own, so first you should see `Building into the schemas under dev_<your name>_`, then two
+`loaded ...: 200 rows (synthetic)` lines and `built: 4 models and snapshots, 16/16 tests passed.`
 
 In Snowsight, open **Data → Databases → SNOW_TEST** (refresh with ⟳ if it was open). You should
-see the schemas **RAW_NYC_TLC**, **STAGING** and **MARTS**. Open **MARTS → Tables → FCT_TRIP →
-Data Preview** to see rows.
+see **DEV_<YOUR NAME>_RAW_NYC_TLC**, **..._STAGING**, **..._MARTS** and **..._AUDIT**. Open
+**..._MARTS → Tables → FCT_TRIP → Data Preview** to see rows.
+
+**16.6a Production, and a pull request on a clone of it.** Build production (the shared schemas),
+then do what a pull request's preview does: clone production, apply the branch's new migrations
+on the clone, and build there.
+
+```bash
+murakumo build --env prod --sample 200
+murakumo migrate --apply --mark-applied
+murakumo env clone --prefix pr_1_
+murakumo migrate --apply --prefix pr_1_
+murakumo build --env prod --prefix pr_1_
+murakumo env --prefix pr_1_
+```
+
+You should see the clones (`raw_nyc_tlc -> pr_1_raw_nyc_tlc`, ...), `... have run every migration`
+(the clone carries production's record), a build into `pr_1_*`, and the `pr_1_*` schemas with
+their tables. Snowflake's clones are instant and take no extra space. Then drop them, and your own:
+
+```bash
+murakumo env drop --prefix pr_1_ --yes
+murakumo env drop --yes
+```
+
+☐ Personal, production and pull-request schemas sit side by side, and drop cleanly.
 
 ☐ The tables are in Snowflake.
 
@@ -1223,8 +1390,8 @@ output or a screenshot.
 | 11 Fix by hand in a text editor | | |
 | 12 Verify with made-up data | | |
 | 13 Verify with real data, build, browse as a source | | |
-| 14 Generated code, schedules, pipelines, docs, plain SQL | | |
-| 15 CI checks, and CI from the canvas | | |
+| 14 Generated code, schedules, pipelines, docs, plain SQL, cumulative, run log, Polars and PySpark | | |
+| 15 CI checks, CI from the canvas, sync with a teammate, impact | | |
 | 16 Snowflake (optional) | | |
 | 17 Clean up | | |
 

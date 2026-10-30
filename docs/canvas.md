@@ -98,6 +98,14 @@ murakumo canvas path/to/project --port 9000 --no-open
   GitLab, writes one (optionally with an approved production build), shows the difference when the
   file was changed by hand instead of overwriting it, and **Run checks now** runs the same four
   checks on your computer, each shown as it passes or fails.
+- **Work as a team.** **Team** shows your branch against the parent branch (`collaboration.base_branch`):
+  how far behind and ahead it is, what is coming in, in model terms, and your uncommitted model
+  changes. **Get latest from main** runs `murakumo sync`; **Commit** commits the project. See
+  [teamwork.md](teamwork.md).
+- **Be warned before breaking something.** An edit that would break what reads the model (removing a
+  column or table, narrowing a type, tightening nullability, changing a key) is previewed first: a
+  confirmation lists what it reaches (columns built from it, tests, schedules) and the migration it
+  needs, before anything is saved.
 - **Fix problems.** The toolbar shows the problems `murakumo validate` and `murakumo generate`
   report, such as a column with no mapping (MK503). Click it for the list; click an item to go to
   its entity. Entities with problems carry a badge, and the inspector shows their messages.
@@ -156,6 +164,10 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | GET | `/api/ci?provider=&deploy=` | The CI file: missing, current or changed, with its content or difference, and the last local run |
 | POST | `/api/ci` | Write it: `{provider, deploy, force}`; a file changed by hand needs `force` |
 | POST, GET | `/api/ci/run` | Start the checks here in the background; follow them |
+| GET | `/api/git?refresh=` | Branch, parent branch, ahead and behind, incoming and uncommitted model changes, your schema prefix |
+| POST | `/api/git/sync?resume=` | Bring in the parent branch, as `murakumo sync` does |
+| POST | `/api/git/abort` | Give up a sync with conflicts |
+| POST | `/api/git/commit` | Commit the project: `{message}` |
 | PUT | `/api/layout` | Save positions: `{positions: {entity_id: {x, y}}}` |
 | GET | `/api/generated` | What generating would change: each file's status and entities, generate diagnostics, the next migration |
 | GET | `/api/generated/file?path=` | One generated file and its diff against `generated/` |
@@ -164,6 +176,9 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | POST | `/api/migrations` | Write the next migration: `{name}` (optional) |
 
 The generated endpoints take `?warehouse=` to generate for another warehouse than the manifest's.
+
+Send `X-Murakumo-Preview: 1` with an edit to an entity, column or relationship to get what it would
+reach (`{preview: {worst, impacts, files, migration}}`) instead of making it.
 
 Send the revision you last saw in an `X-Murakumo-Revision` header to have a change refused
 (409, with the current state) if the files changed since. A change the model rejects, such as a

@@ -130,6 +130,37 @@ Write `tests: [unique, not_null]` for simple rules, or a full rule:
 
 Every rule takes `severity: error | warn`.
 
+### Cumulative tables
+
+A cumulative table keeps, for each key, its whole history in one row per day: the days it was
+active, and a value per active day for each measure, most recent first. It is the pattern in the
+project brief: each day takes yesterday's rows and puts today's activity in front of their arrays,
+so a year of history never has to be scanned again.
+
+```yaml
+name: customer_order_activity
+layer: marts
+kind: cumulative
+grain: [customer_id]                        # the key it accumulates per
+cumulative:
+  date: fct_order_line.ordered_on           # the source column whose day counts as activity
+  measures:                                 # optional: one value per active day
+    order_lines: count(*)
+    spend: sum(fct_order_line.net_amount)
+attributes:
+  - { name: customer_id, type: bigint, nullable: false }
+mappings:
+  - { target: customer_id, sources: [fct_order_line.customer_id] }
+```
+
+The generated table adds `dates_active` (an array of dates), an array per measure, `days_active`,
+`last_active` and `snapshot_date`, unique on the grain and `snapshot_date`. Each run adds one day:
+`run_date` (`murakumo build --run-date 2024-01-31`, or what the orchestrator passes), or the
+latest day with activity. `murakumo backfill customer_order_activity --from 2024-01-01 --to
+2024-01-31` builds a range of days, one after another. Rows whose key is empty are left out:
+they have no history to join. On the canvas, a table of kind cumulative gets the same settings in
+the inspector.
+
 ## Relationship
 
 ```yaml
@@ -201,12 +232,15 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK307 | warning | A name is not snake_case (raw tables are exempt: they mirror the source) |
 | MK308 | warning | An incremental load has no watermark |
 | MK309 | warning | SCD2 or SCD6 history without a primary or natural key |
+| MK310 | error | A cumulative table has no `cumulative:` setting |
 | MK311 | warning | A primary key column is nullable |
+| MK312 | error | A cumulative table has no grain |
 | MK401 | error | An import would overwrite a table that belongs to another source or layer |
 | MK402 | error | A dictionary row has no table or column name, or the file has no rows |
 | MK403 | warning | A dictionary value could not be used (type, classification, foreign key) |
 | MK404 | warning | An import found an unknown type, no tables, or too small a sample |
-| MK501–507 | mixed | Generation problems; see [docs/generating.md](generating.md#rule-codes) |
+| MK501–508 | mixed | Generation problems; see [docs/generating.md](generating.md#rule-codes) |
+| MK601–604 | mixed | Schedules: a selection names nothing, a name is used twice, two schedules refresh "the rest", a table no schedule refreshes; see [orchestration.md](orchestration.md#schedules) |
 
 ## Editor support
 

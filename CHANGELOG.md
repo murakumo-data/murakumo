@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+Working as a team, and seeing what each run did: sync with the parent branch, typed diffs and
+impact reports, personal and pull-request environments, run logs, cumulative tables, and the
+pipeline as Polars or PySpark jobs.
+
+- **Sync**: `murakumo sync` brings in the parent branch (`collaboration.base_branch`, main or dev):
+  it says what is coming in, in model terms; merges; takes the parent's side of conflicts in
+  generated code; stops on conflicts in model files (`--continue`, `--abort`); and, when both
+  branches wrote migrations, re-plans yours after the parent's so no number is used twice. Then
+  it regenerates and commits. `--check` only reports. The canvas has the same in a **Team** panel,
+  with **Get latest** and **Commit**.
+- **Typed diffs and impact reports**: `murakumo diff [REF]` matches changes by id, so a rename is a
+  rename, and classes each as additive, compatible or breaking. Under each change it lists what it
+  reaches through the column lineage (columns, tables, tests, metrics, schedules), the generated
+  files that change, and the migration it needs. `--format markdown|json`, `--fail-on breaking`.
+  The CI workflow writes the report on each pull request's summary. In the canvas, a breaking
+  edit is previewed and asks before it is saved.
+- **Personal environments**: on Snowflake, `dev` builds go to schemas of your own (`dev_<name>_*`,
+  from git's user name or `MURAKUMO_DEVELOPER`). `murakumo env` shows them, `env clone` copies
+  production into a prefix (zero-copy on Snowflake), and `env drop` removes them. `build
+  --prefix` builds anywhere.
+- **Migrations on clones**: `murakumo migrate --apply [--prefix]` runs the migrations a warehouse
+  has not run yet and records them in `audit.murakumo_migrations` (`--mark-applied` only records
+  them). `murakumo ci --preview` builds each pull request on a clone of production with its new
+  migrations, and drops the clone when the pull request closes (GitHub; on GitLab, a review
+  environment).
+- **Run logs**: every dbt run records itself in the `audit` schema: `run_log`, `model_runs` (rows
+  affected, rows in the table, seconds), `dq_results` (each test and its failing rows),
+  `row_counts` (rows ingested and rejected per load, with the reason), and a `daily_summary` view.
+  Loading CSV files into DuckDB now rejects rows that do not fit the model's types, and counts
+  them, instead of failing the load. `murakumo runs` shows it all. `quality.run_log: false`
+  turns it off.
+- **Cumulative tables**: `kind: cumulative` keeps each key's whole history, one row per key per
+  day (its active dates and measures, newest first, and `days_active`), built one day at a time
+  (`run_date`). `murakumo backfill TABLE --from --to` fills a range. The canvas edits them
+  (**Per**, **Active on**, **Each day**). Checks MK310, MK312 and MK508.
+- **Polars and PySpark**: `generation.python_engine: polars|pyspark` writes the pipeline as Python
+  jobs in `generated/python/<engine>/`, from the same SQL as the dbt project, with incremental,
+  cumulative and snapshot tables, the tests and the audit tables (as Parquet, or Delta on Spark).
+  `murakumo run --engine polars|pyspark` runs them. Extras: `murakumo[polars]`,
+  `murakumo[pyspark]`.
+- **Fixes**: BigQuery and Databricks column descriptions with a quote in them are now escaped.
+- **Migrations**: a new snapshot says it "starts keeping history (SCD2)".
+- Docs: [Working as a team](docs/teamwork.md); and cumulative tables, run logs, Python pipelines,
+  pull-request previews and the end-to-end test brought up to date.
+
 ## 0.3.0 (2026-10-29)
 
 Running the project: schedules, pipelines for the orchestrator, plain SQL, pipeline docs and CI.

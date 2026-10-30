@@ -47,6 +47,11 @@ murakumo schedules                                     # when each runs, and wha
 murakumo export sql                                    # the project as plain SQL, without dbt
 murakumo docs                                          # pipeline docs: tables, columns, lineage, schedules
 murakumo ci                                            # a GitHub Actions (or GitLab) workflow for every push
+murakumo sync                                          # bring in main: merge, regenerate, re-plan migrations
+murakumo diff                                          # model changes since main, and what they reach
+murakumo env                                           # your own schemas; clone and drop them
+murakumo runs                                          # the latest runs, loads and failed tests
+murakumo run --engine pyspark --sample 200             # the pipeline as PySpark (or Polars) jobs
 murakumo verify                                        # build and test it all on DuckDB, twice
 murakumo verify --warehouse snowflake                  # or on Snowflake, in throwaway schemas
 murakumo build --sample 200                            # build into the project's warehouse and keep the tables
@@ -55,7 +60,7 @@ murakumo --help                                        # every command, with wha
 ```
 
 Extras: `canvas` (the editor), `verify` (builds on DuckDB), `duckdb` (files and DuckDB), `postgres`,
-`snowflake`. `murakumo setup` tells you which a project needs.
+`snowflake`, `polars` and `pyspark` (the pipeline as Python jobs). `murakumo setup` tells you which a project needs.
 
 Docs: [starting a project and setting up](https://github.com/murakumo-data/murakumo/blob/main/docs/setup.md),
 [model files and validation rules](https://github.com/murakumo-data/murakumo/blob/main/docs/model.md),
@@ -63,7 +68,8 @@ Docs: [starting a project and setting up](https://github.com/murakumo-data/murak
 [generating and verifying](https://github.com/murakumo-data/murakumo/blob/main/docs/generating.md),
 [Snowflake](https://github.com/murakumo-data/murakumo/blob/main/docs/snowflake.md),
 [the canvas](https://github.com/murakumo-data/murakumo/blob/main/docs/canvas.md),
-[schedules, pipelines and CI](https://github.com/murakumo-data/murakumo/blob/main/docs/orchestration.md).
+[schedules, pipelines and CI](https://github.com/murakumo-data/murakumo/blob/main/docs/orchestration.md),
+[working as a team](https://github.com/murakumo-data/murakumo/blob/main/docs/teamwork.md).
 
 ## Development
 
