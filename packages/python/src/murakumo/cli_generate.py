@@ -561,3 +561,63 @@ def env_drop(
         fail(str(exc))
         raise typer.Exit(1) from None
     console.print(f"Dropped {', '.join(dropped)}." if dropped else f"Nothing under {chosen} to drop.")
+
+
+def runs_command(
+    project_path: Path = ProjectOption,
+    prefix: str | None = typer.Option(None, "--prefix", help="Read this environment's audit schema."),
+    environment: str | None = typer.Option(None, "--env", help="Default: the first environment."),
+    limit: int = typer.Option(10, help="How many runs to show."),
+) -> None:
+    """The latest runs, loads and failed tests, from the audit tables every run writes."""
+    from rich.table import Table
+
+    from murakumo.environments import EnvError, connect, prefix_for
+
+    project = open_project(project_path)
+    warehouse = project.manifest.targets.warehouse.type
+    name = environment or (project.manifest.targets.environments or ["dev"])[0]
+    chosen = prefix_for(project, name, warehouse, prefix)
+    try:
+        connection = connect(project)
+    except EnvError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    audit = f"{chosen}audit" if warehouse is Warehouse.DUCKDB else f"{connection.database}.{chosen}audit"
+    try:
+        if f"{chosen}audit" not in connection.schemas():
+            console.print(f"No runs recorded yet in {chosen}audit: build the project first (`murakumo build`).")
+            return
+        days = connection.execute(f"select * from {audit}.daily_summary order by day desc limit 7", fetch=True)
+        runs = connection.execute(
+            "select started_at, engine, environment, schedule, status, models_ok, models_failed, tests_passed, "
+            f"tests_failed from {audit}.run_log order by started_at desc limit {int(limit)}",
+            fetch=True,
+        )
+        loads = connection.execute(
+            f"select loaded_at, table_name, rows_ingested, rows_rejected, reason from {audit}.row_counts "
+            f"order by loaded_at desc limit {int(limit)}",
+            fetch=True,
+        )
+        failed = connection.execute(
+            f"select d.model, d.test, d.failures from {audit}.dq_results d join ("
+            f"select run_id from {audit}.run_log order by started_at desc limit 1) r on d.run_id = r.run_id "
+            "where d.status in ('fail', 'error') order by d.model, d.test",
+            fetch=True,
+        )
+    finally:
+        connection.close()
+
+    def table(title: str, columns: list[str], rows: list[tuple]) -> None:
+        view = Table(title=title, title_justify="left", box=None, pad_edge=False)
+        for column in columns:
+            view.add_column(column)
+        for row in rows:
+            view.add_row(*["" if v is None else str(v)[:60] for v in row])
+        console.print(view)
+
+    table("By day", ["Day", "Runs", "Rows in", "Rejected", "Models failed", "Tests failed"], days)
+    table("Runs", ["Started", "Engine", "Env", "Schedule", "Status", "Models ok", "Failed", "Tests ok", "Failed"], runs)
+    table("Loads", ["Loaded", "Table", "Rows in", "Rejected", "Why rejected"], loads)
+    if failed:
+        table("Failed tests in the last run", ["Model", "Test", "Failing rows"], failed)

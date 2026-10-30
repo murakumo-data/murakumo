@@ -235,6 +235,7 @@ class Quality(Section):
     default_tests: list[str] = Field(default_factory=lambda: ["unique_pk", "not_null_pk", "relationships"])
     reconciliation: bool = False
     write_audit_publish: bool = False
+    run_log: bool = True  # every run records itself, its models, tests and loads in the audit schema
 
 
 class Contracts(Section):

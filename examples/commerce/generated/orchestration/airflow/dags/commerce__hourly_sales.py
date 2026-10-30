@@ -37,5 +37,6 @@ with DAG(
         ),
         render_config=RenderConfig(load_method=LoadMode.DBT_LS, selector="hourly_sales"),
         execution_config=ExecutionConfig(dbt_executable_path=DBT),
+        operator_args={"env": {"MURAKUMO_SCHEDULE": "hourly_sales"}, "append_env": True},  # for audit.run_log
     )
     build

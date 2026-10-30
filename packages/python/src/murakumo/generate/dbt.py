@@ -237,6 +237,14 @@ def _dbt_project(plan: Plan) -> dict:
         "test-paths": ["tests"],
         "clean-targets": ["target", "dbt_packages"],
         "require-dbt-version": ">=1.10.0",
+        **(
+            {
+                "on-run-start": ["{{ murakumo_audit_setup() }}"],
+                "on-run-end": ["{{ murakumo_audit(results) }}"],
+            }
+            if plan.project.manifest.quality.run_log
+            else {}
+        ),
         "models": {name: layers},
     }
 

@@ -1,8 +1,9 @@
 {
-  "generated_by": "murakumo 0.2.0",
+  "generated_by": "murakumo 0.3.0",
   "files": {
     "dbt/README.md": "2c2c1a1fc3a489edab38a69be953d7702fa971056de4055a0113852ef9cf554a",
-    "dbt/dbt_project.yml": "37fffc611271dcedabc8f3aad7051bd2775bcf79ae4c05ec169ec79bc68ebb54",
+    "dbt/dbt_project.yml": "d95a961fac643685ed3bf6ec248b151643da383688878cd49276613fd8641eb9",
+    "dbt/macros/murakumo/audit.sql": "f8367f26bac4c2d79ff7741a93d4a4767c48fbf629bfdf8f784c37525b067ce6",
     "dbt/macros/murakumo/record_hash.sql": "ef149d9dc6bc6024aa7cffd61ef1323370811bb4f6217da9e8b5c029b62e1dc8",
     "dbt/macros/murakumo/schema_names.sql": "e64c537c2b820150bd2ba2b204fa1cb976ebaa41c7019870343b930203910aa3",
     "dbt/macros/murakumo/tests.sql": "6b7cbd98dfa984e2009466f6081e8e1fac4e9b7043da9312c072382e401819aa",
@@ -55,8 +56,8 @@
     "docs/weather_hourly.md": "f2b8ca480d92bc97aa31fca10989d506861f5e97714a8ad45282043dda5c2972",
     "docs/yellow_tripdata.md": "5f8e410b7cb4d726960573b836a16701793294b609c29df36894889168da0edc",
     "orchestration/airflow/README.md": "c708cb2a315c251bb97b51b4c4ba5fa63ec194541dcf842fb8c8362e9a4a1358",
-    "orchestration/airflow/dags/commerce__hourly_sales.py": "70b1a791758b6d63b3d52cbd69509706f056c2066bf36642fc82abd42507cf86",
-    "orchestration/airflow/dags/commerce__nightly.py": "0662b85d19ef665a1043712775453a05aac24c15d00762a0915a034d2ae53d7b",
+    "orchestration/airflow/dags/commerce__hourly_sales.py": "f564a455fbbc5c60b451a70f019045f5b95592aa45f9d9a1dd000eaf081255f9",
+    "orchestration/airflow/dags/commerce__nightly.py": "8054a77ee502e255862e015a53cc1d22773843e54494d0de9438f07b6b7b6220",
     "orchestration/airflow/requirements.txt": "cb14c1eb178e6ed33374b710eb5b1a5586934f3dc143f076ee5a67e2dae58f05"
   }
 }
