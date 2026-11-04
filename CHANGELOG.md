@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 (unreleased)
+## 0.6.0 (2026-11-04)
 
 Everything the CLI does, in the canvas: run builds and checks as jobs with live output, set the
 project up, load data, see what ran, and test a change before it is merged.
