@@ -76,3 +76,43 @@ def test_only_new_files_load_and_each_mode(tmp_path):
     files = con.execute("select path, rows_ingested from audit.loaded_files order by loaded_at").fetchall()
     con.close()
     assert [p.split("/")[-1] for p, _ in files] == ["feb.csv", "jan.csv", "mar.csv", "apr.csv", "zones.csv"]
+
+
+def test_a_late_row_reaches_the_incremental_fact(tmp_path):
+    """A trip that arrives late (picked up before trips already built) is picked up by load time;
+    by pickup time, the old way, it was missed."""
+    pytest.importorskip("dbt.adapters.duckdb")
+    import duckdb
+
+    from murakumo.generate.verify import build
+
+    project = init_project(tmp_path / "taxi")
+    columns = [a.name for a in project.model.entity("yellow_tripdata").attributes]
+
+    def trips(path, rows):
+        lines = [",".join(columns)]
+        for pickup in rows:
+            values = {
+                "VendorID": "1",
+                "tpep_pickup_datetime": pickup,
+                "tpep_dropoff_datetime": pickup.replace(":00:", ":30:"),
+                "PULocationID": "1",
+                "DOLocationID": "1",
+                "trip_distance": "2.5",
+                "total_amount": "12.00",
+            }
+            lines.append(",".join(values.get(c, "") for c in columns))
+        path.write_text("\n".join(lines) + "\n")
+
+    landing = tmp_path / "trips"
+    landing.mkdir()
+    write(tmp_path / "zones.csv", [1])
+    trips(landing / "a.csv", ["2024-01-10 10:00:00", "2024-01-11 10:00:00"])
+    data = {"taxi_zone_lookup": str(tmp_path / "zones.csv"), "yellow_tripdata": str(landing)}
+    assert build(project, data=data).error is None
+    trips(landing / "b.csv", ["2024-01-02 09:00:00"])  # late: before everything already built
+    assert build(project, data=data).error is None
+    con = duckdb.connect(str(project.root / "taxi.duckdb"), read_only=True)
+    pickups = [str(r[0]) for r in con.execute("select pickup_at from marts.fct_trip order by 1").fetchall()]
+    con.close()
+    assert pickups == ["2024-01-02 09:00:00", "2024-01-10 10:00:00", "2024-01-11 10:00:00"]

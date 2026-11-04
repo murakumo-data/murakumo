@@ -195,6 +195,8 @@ ENTITY_FIELDS = {
     "history",
     "load",
     "watermark",
+    "incremental_by",
+    "lookback_hours",
     "tags",
     "grain",
     "cumulative",

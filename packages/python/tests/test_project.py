@@ -223,7 +223,8 @@ def test_modelling_warnings(project_dir):
 
     diagnostics = load_and_validate(project_dir)
     assert all(d.level is Level.WARNING for d in diagnostics)
-    assert codes(diagnostics) == ["MK301", "MK302", "MK303", "MK304", "MK305", "MK306", "MK307", "MK308", "MK311"]
+    # No MK308: an incremental mart picks up rows by load time, with no watermark needed.
+    assert codes(diagnostics) == ["MK301", "MK302", "MK303", "MK304", "MK305", "MK306", "MK307", "MK311"]
 
 
 def test_raw_layer_keeps_source_names(project_dir):

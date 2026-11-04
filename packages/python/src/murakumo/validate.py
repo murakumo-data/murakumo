@@ -266,8 +266,14 @@ def _check_entity(
             out.append(error("MK312", "a cumulative table needs a grain: the key it accumulates per", file, "grain"))
     if entity.kind is EntityKind.DIMENSION and not entity.primary_key:
         out.append(warning("MK304", "a dimension should have a primary key", file))
-    if entity.load is LoadPattern.INCREMENTAL and not entity.watermark:
+    if entity.load is LoadPattern.INCREMENTAL and not entity.watermark and entity.layer is Layer.RAW:
         out.append(warning("MK308", "an incremental load needs a watermark column to know what is new", file, "load"))
+    if entity.incremental_by == "watermark" and entity.load is LoadPattern.INCREMENTAL and not entity.watermark:
+        out.append(
+            warning(
+                "MK313", "incremental_by: watermark needs a watermark column; it will rebuild in full", file, "load"
+            )
+        )
     if entity.history in (History.SCD2, History.SCD6) and not any(
         a.key in (KeyRole.PRIMARY, KeyRole.NATURAL) for a in entity.attributes
     ):

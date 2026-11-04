@@ -38,9 +38,11 @@ CREATE TABLE IF NOT EXISTS marts.dim_part (
     part_name VARCHAR,
     brand VARCHAR,
     retail_price DECIMAL(18,4),
-    _updated_at TIMESTAMPTZ
+    _updated_at TIMESTAMPTZ,
+    _loaded_at TIMESTAMPTZ
 );
 COMMENT ON TABLE marts.dim_part IS 'Parts we sell.';
+COMMENT ON COLUMN marts.dim_part._loaded_at IS 'When its source row was loaded.';
 
 CREATE TABLE IF NOT EXISTS marts.fct_order_line (
     order_id BIGINT NOT NULL,
@@ -51,9 +53,11 @@ CREATE TABLE IF NOT EXISTS marts.fct_order_line (
     order_status VARCHAR,
     quantity DECIMAL(15,2),
     net_amount DECIMAL(18,4),
-    _updated_at TIMESTAMPTZ
+    _updated_at TIMESTAMPTZ,
+    _loaded_at TIMESTAMPTZ
 );
 COMMENT ON TABLE marts.fct_order_line IS 'One row per order line, with its net amount after discount.';
 COMMENT ON COLUMN marts.fct_order_line.net_amount IS 'Extended price after discount, before tax.';
+COMMENT ON COLUMN marts.fct_order_line._loaded_at IS 'When its source row was loaded.';
 
 -- DuckDB enforces keys, so dbt tests check them instead of constraints here.

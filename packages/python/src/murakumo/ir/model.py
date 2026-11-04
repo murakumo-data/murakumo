@@ -266,6 +266,10 @@ class Entity(Node):
     history: History = History.NONE
     load: LoadPattern = LoadPattern.FULL
     watermark: Name | None = None
+    # An incremental table picks up what was loaded since its last run (load_time, the default:
+    # late-arriving rows are not missed), or what is newer by its watermark column.
+    incremental_by: str = Field(default="load_time", pattern="^(load_time|watermark)$")
+    lookback_hours: int = Field(default=0, ge=0, le=24 * 31)  # look again this far back, for stragglers
     partition_by: list[str] = Field(default_factory=list)
     cluster_by: list[Name] = Field(default_factory=list)
     freshness: Freshness | None = None

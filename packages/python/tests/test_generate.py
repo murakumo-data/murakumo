@@ -94,7 +94,7 @@ def test_mapping_expressions_are_rewritten_per_dialect(taxi):
 
 def test_updated_at_is_cast_to_the_contract_type(taxi):
     # Snowflake's current_timestamp is TIMESTAMP_LTZ; the contract says TIMESTAMP_TZ.
-    updated = plan_for(taxi, "snowflake").model("fct_trip").columns[-1]
+    updated = next(c for c in plan_for(taxi, "snowflake").model("fct_trip").columns if c.name == "_updated_at")
     assert updated.sql == "cast(current_timestamp as TIMESTAMP_TZ)" and updated.data_type == "TIMESTAMP_TZ"
 
 
@@ -102,7 +102,15 @@ def test_incremental_fact(taxi):
     fact = plan_for(taxi).model("fct_trip")
     assert fact.materialized == "incremental"
     assert fact.unique_key == ["trip_id"]
-    assert "cast('1900-01-01' as TIMESTAMP)" in fact.incremental_filter
+    # By load time: what arrived since the last run, late rows included.
+    assert fact.incremental_filter == (
+        "cast(yellow_tripdata._ingested_at as TIMESTAMPTZ) > "
+        "(select coalesce(max(_loaded_at), cast('1900-01-01' as TIMESTAMPTZ)) from {{ this }})"
+    )
+    assert any(c.name == "_loaded_at" for c in fact.columns)
+    taxi.model.entity("fct_trip").incremental_by = "watermark"  # or by its business time, as before
+    assert "cast('1900-01-01' as TIMESTAMP)" in plan_for(taxi).model("fct_trip").incremental_filter
+    assert "pickup_at" in plan_for(taxi).model("fct_trip").incremental_filter
 
 
 def test_composite_keys_are_tested_as_a_combination():

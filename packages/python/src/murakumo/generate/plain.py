@@ -20,6 +20,7 @@ drift from the dbt project. dbt's own behaviour is written out as statements:
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 from typing import Any
 
 import sqlglot
@@ -95,8 +96,21 @@ class Plain:
             is_incremental=lambda: incremental,
             var=lambda name, default=None: self.variables.get(name, default),
             murakumo_record_hash=self.record_hash,
+            dbt=SimpleNamespace(dateadd=self.dateadd),
         )
         return re.sub(r"\n{3,}", "\n\n", rendered).strip()
+
+    def dateadd(self, part: str, amount: int, expression: str) -> str:
+        """dbt.dateadd, in this warehouse's SQL: an incremental table's look-back."""
+        import sqlglot
+        from sqlglot import exp
+
+        added = exp.DateAdd(
+            this=sqlglot.parse_one(expression, read=self.dialect),
+            expression=exp.Literal.number(amount),
+            unit=exp.Var(this=part.upper()),
+        )
+        return added.sql(dialect=self.dialect)
 
     def create(self, kind: str, name: str, select: str) -> str:
         target = self.relation(name)

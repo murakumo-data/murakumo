@@ -182,6 +182,41 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
             />
           </Row>
         )}
+        {entity.layer !== 'raw' && entity.kind !== 'cumulative' && (
+          <Row label="Each run">
+            <SelectField
+              label="How each run builds it"
+              value={entity.load === 'incremental' ? (entity.incremental_by === 'watermark' ? 'watermark' : 'load_time') : 'full'}
+              options={['full', 'load_time', 'watermark']}
+              disabled={disabled}
+              onSave={(choice) =>
+                choice &&
+                save(choice === 'full' ? { load: 'full' } : { load: 'incremental', incremental_by: choice })
+              }
+            />
+          </Row>
+        )}
+        {entity.layer !== 'raw' && entity.load === 'incremental' && (
+          <p className="muted small inspector__hint">
+            {entity.incremental_by === 'watermark'
+              ? `Rows newer than the latest ${entity.watermark ?? '(set a watermark column)'} already built.`
+              : 'Rows loaded since the last run, late arrivals included; rows built again replace themselves by key.'}{' '}
+            Look back{' '}
+            <input
+              className="input input--narrow"
+              inputMode="numeric"
+              aria-label="Hours to look back"
+              defaultValue={entity.lookback_hours || ''}
+              placeholder="0"
+              disabled={disabled}
+              onBlur={(e) => {
+                const hours = Number(e.target.value.replace(/\D/g, '')) || 0
+                if (hours !== entity.lookback_hours) save({ lookback_hours: hours })
+              }}
+            />{' '}
+            hours.
+          </p>
+        )}
         {entity.layer === 'raw' && (
           <p className="muted small inspector__hint">
             {entity.load === 'full'

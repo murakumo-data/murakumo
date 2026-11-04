@@ -30,6 +30,8 @@ export type Entity = {
   mappings: Mapping[]
   load: string // full | append | incremental | cdc | streaming: how a raw table takes new rows
   watermark: string | null
+  incremental_by: 'load_time' | 'watermark'
+  lookback_hours: number
 }
 
 export type JoinKey = { from: string; to: string }

@@ -237,6 +237,7 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK310 | error | A cumulative table has no `cumulative:` setting |
 | MK311 | warning | A primary key column is nullable |
 | MK312 | error | A cumulative table has no grain |
+| MK313 | warning | A table is built incrementally by its watermark (`incremental_by: watermark`) but has no watermark column, so it is rebuilt in full |
 | MK401 | error | An import would overwrite a table that belongs to another source or layer |
 | MK402 | error | A dictionary row has no table or column name, or the file has no rows |
 | MK403 | warning | A dictionary value could not be used (type, classification, foreign key) |
