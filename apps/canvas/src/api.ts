@@ -110,6 +110,22 @@ export type Orchestration = {
   pipelines: string // where `murakumo generate` writes the orchestrator's pipelines
 }
 
+export type JobState = 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+// A long command (build, verify, backfill...) the server runs in the background.
+export type Job = {
+  id: string
+  kind: string
+  title: string
+  command: string
+  state: JobState
+  started: number
+  finished: number | null
+  code: number | null
+  next: number // the line to ask for next
+  lines: string[]
+}
+
 export type ColourLabel = { name: string; colour: string; description?: string | null }
 export type Note = { id: string; text: string; x: number; y: number; width: number; colour?: string | null; diagram?: string | null }
 export type Diagram = { id: string; name: string; entities: string[] }
@@ -315,6 +331,10 @@ export const api = {
   revision: () => request<{ revision: string; generated: string }>('GET', '/revision', undefined, false),
   currentRevision: () => revision,
   undo: () => request<State>('POST', '/undo'),
+  startJob: (kind: string, options: Record<string, unknown> = {}) => request<Job>('POST', '/jobs', { kind, options }, false),
+  jobs: () => request<{ jobs: Job[] }>('GET', '/jobs', undefined, false),
+  job: (id: string, since = 0) => request<Job>('GET', `/jobs/${id}?since=${since}`, undefined, false),
+  cancelJob: (id: string) => request<Job>('POST', `/jobs/${id}/cancel`, undefined, false),
   saveCanvas: (settings: CanvasSettings & { label?: string }) => request<State>('PUT', '/canvas', settings),
   redo: () => request<State>('POST', '/redo'),
 

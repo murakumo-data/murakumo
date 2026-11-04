@@ -496,17 +496,18 @@ type, `decimal(10,2)`.
 
 ☐ `fhv_tripdata` has four columns.
 
-**6.6a Columns from the source.** On a staging or marts table, picking columns starts with the
-tables it reads from. Press **T** and add `stg_nyc_tlc__taxi_zone_lookup`, Layer `staging`. The
+**6.6a Columns from the source.** On a table outside the raw layer, picking columns starts with
+the tables it reads from. Press **T** and add `int_taxi_zone_lookup`, Layer `intermediate`. The
 inspector says **No columns yet** with **Pick them from its source tables**: click it. At the top,
-under *Where it most likely reads from*, is `taxi_zone_lookup` (the staging table carries its name);
-the other tables follow. Tick the box beside `taxi_zone_lookup` to take all four columns, and click
+under *Where it most likely reads from*, is `taxi_zone_lookup` (the new table carries its name);
+the other tables follow. (Do not call it `stg_nyc_tlc__taxi_zone_lookup`: that is the staging model
+Murakumo already generates for the raw table, and the canvas says so, MK107.) Tick the box beside `taxi_zone_lookup` to take all four columns, and click
 **Add columns**. All four arrive with their types, and its **Mappings** already say where each comes
 from (`taxi_zone_lookup.LocationID`, ...). Three of them are marked amber on the canvas: their names
 are not snake_case (MK307), which you could fix by renaming them here.
 
 Now take it all back: press **⌘Z** (with nothing selected; or the ↶ in the top bar, which says
-*Undo: stg_nyc_tlc__taxi_zone_lookup: new column ... (+3 more)*). The four columns go, in one step.
+*Undo: int_taxi_zone_lookup: new column ... (+3 more)*). The four columns go, in one step.
 Press **⌘Z** again: the table goes too.
 
 ☐ Columns come from the likely source, mapped, and undo takes them back.

@@ -3095,3 +3095,132 @@ button.tree-row__label:not(:disabled) {
     transition: none;
   }
 }
+
+/* Activity ------------------------------------------------------------------------------------ */
+
+.activity {
+  display: grid;
+  gap: 12px;
+}
+
+.activity__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.activity__current {
+  display: grid;
+  gap: 6px;
+}
+
+.activity__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.activity__stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.activity__command {
+  display: block;
+  padding: 4px 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--text-muted);
+  background: var(--code-bg);
+  border-radius: var(--radius);
+}
+
+.activity__log {
+  max-height: 46vh;
+  min-height: 120px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  font: 11.5px/1.45 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #e6e6e3;
+  background: #1a1b1e;
+  border-radius: var(--radius);
+}
+
+.activity__verdict--failed {
+  margin: 0;
+  color: var(--error);
+}
+
+.activity__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.activity__item:hover {
+  background: var(--surface-2);
+}
+
+.activity__item--on {
+  background: var(--info-bg);
+}
+
+.activity__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job--ok { color: var(--ok); }
+.job--failed { color: var(--error); }
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rail__dot--pulse {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  .rail__dot--pulse {
+    animation: none;
+  }
+}

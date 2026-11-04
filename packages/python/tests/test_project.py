@@ -290,3 +290,15 @@ def test_cli_schema_prints_json_schema():
 
 def test_dump_yaml_uses_literal_blocks_for_multiline_text():
     assert "|" in dump_yaml({"expression": "select 1\nfrom t"})
+
+
+def test_a_table_named_like_a_generated_staging_model_is_refused(tmp_path):
+    from murakumo import edit
+    from murakumo.ir.model import Layer
+    from murakumo.scaffold import init_project
+    from murakumo.validate import validate_project
+
+    project = init_project(tmp_path / "proj")
+    edit.add_entity(project, "stg_nyc_tlc__taxi_zone_lookup", Layer.STAGING)
+    codes = [(d.code, d.message) for d in validate_project(project)]
+    assert any(code == "MK107" and "taxi_zone_lookup" in message for code, message in codes)

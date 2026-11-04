@@ -103,6 +103,11 @@ class Layout(BaseModel):
     positions: dict[UUID, Position]
 
 
+class JobBody(BaseModel):
+    kind: str
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class CopyColumns(BaseModel):
     columns: list[str] = Field(min_length=1)  # entity.column
 
@@ -705,6 +710,34 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 return {**written, "run": checks.run.as_dict()}
             except ci_module.CIError as exc:
                 raise HTTPException(409, {"message": str(exc)}) from None
+
+    from murakumo import jobs as jobs_module
+
+    jobs = jobs_module.Jobs(root)
+
+    def job_call(action: Callable[[], Any]) -> Any:
+        try:
+            return action()
+        except jobs_module.JobError as exc:
+            raise HTTPException(409, {"message": str(exc)}) from None
+
+    @app.post("/api/jobs")
+    def start_job(body: JobBody) -> dict[str, Any]:
+        """Start a long command (build, verify, backfill...) in the background; follow it with GET."""
+        return job_call(lambda: jobs.start(body.kind, body.options).as_dict())
+
+    @app.get("/api/jobs")
+    def list_jobs() -> dict[str, Any]:
+        return {"jobs": [{**j.as_dict(), "lines": j.lines[-3:]} for j in reversed(jobs.jobs)]}
+
+    @app.get("/api/jobs/{job_id}")
+    def get_job(job_id: str, since: int = 0) -> dict[str, Any]:
+        """The job and its output from line `since` on, so the canvas fetches only what is new."""
+        return job_call(lambda: jobs.get(job_id).as_dict(since))
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    def cancel_job(job_id: str) -> dict[str, Any]:
+        return job_call(lambda: jobs.cancel(job_id).as_dict())
 
     @app.post("/api/ci/run")
     def run_ci() -> dict[str, Any]:

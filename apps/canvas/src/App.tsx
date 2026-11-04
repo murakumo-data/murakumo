@@ -14,6 +14,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
+  Activity,
   AlignLeft,
   BookOpen,
   CalendarClock,
@@ -52,11 +53,12 @@ import {
   type ReactNode,
 } from 'react'
 
-import { api, ApiError, type Entity, type Generated, type Layer, type LineageResult, type Note, type Position, type State } from './api'
+import { api, ApiError, type Entity, type Job, type Generated, type Layer, type LineageResult, type Note, type Position, type State } from './api'
 import { CIPanel } from './CI'
 import { GitPanel } from './Git'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
+import { ActivityPanel } from './Activity'
 import { arrange, exportImage, type Direction } from './arrange'
 import { BulkBar } from './BulkBar'
 import { DiagramTabs } from './Diagrams'
@@ -125,10 +127,10 @@ const CARDINALITY: Record<string, string> = {
 }
 
 type Selection = { kind: 'entity' | 'relationship'; id: string } | null
-type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git'
+type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git' | 'activity'
 type Theme = 'system' | 'light' | 'dark'
 
-const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git']
+const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git', 'activity']
 
 function savedSide(): Side | null {
   const saved = recall('murakumo.side')
@@ -207,6 +209,8 @@ function Canvas() {
   const [menu, setMenu] = useState<'arrange' | 'export' | 'help' | null>(null)
   const [shortcuts, setShortcuts] = useState(false)
   const [touring, setTouring] = useState(false)
+  const [jobFocus, setJobFocus] = useState<string | null>(null)
+  const [jobRunning, setJobRunning] = useState(false)
   const canvasRef = useRef<State['canvas']>({})
   const addNoteRef = useRef<() => void>(() => {})
   const busy = useRef(0)
@@ -281,6 +285,33 @@ function Canvas() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Long commands run as jobs: start one, show it in Activity, and refresh when it ends.
+  const startJob = useCallback(async (kind: string, options: Record<string, unknown> = {}) => {
+    try {
+      const job = await api.startJob(kind, options)
+      setJobFocus(job.id)
+      setJobRunning(true)
+      setSide('activity')
+      return job
+    } catch (e) {
+      setMessage({ text: e instanceof Error ? e.message : String(e), tone: 'info' })
+      return null
+    }
+  }, [])
+  const jobFinished = useCallback(
+    (job: Job) => {
+      setJobRunning(false)
+      if (job.kind === 'generate' || job.kind === 'export') loadGenerated()
+    },
+    [loadGenerated],
+  )
+  useEffect(() => {
+    api
+      .jobs()
+      .then((r) => setJobRunning(r.jobs.some((j) => j.state === 'running')))
+      .catch(() => {})
+  }, [])
 
   // The first time the canvas opens, a short tour; the help button starts it again.
   const loaded = state !== null
@@ -883,6 +914,12 @@ function Canvas() {
     { id: 'git', label: 'Team', icon: <GitBranch size={18} /> },
     { id: 'ci', label: 'CI', icon: <Workflow size={18} /> },
     {
+      id: 'activity',
+      label: 'Activity',
+      icon: <Activity size={18} />,
+      badge: jobRunning ? <span className="rail__dot rail__dot--pending rail__dot--pulse" /> : null,
+    },
+    {
       id: 'changes',
       label: 'Changes',
       icon: <FileCode2 size={18} />,
@@ -1170,6 +1207,16 @@ function Canvas() {
               )}
               {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} />}
               {side === 'ci' && <CIPanel onMessage={showMessage} />}
+              {side === 'activity' && (
+                <ActivityPanel
+                  focus={jobFocus}
+                  onFinished={jobFinished}
+                  actions={[
+                    { label: 'Verify', title: 'Build the project on DuckDB with made-up rows and run every test, twice (murakumo verify)', onClick: () => startJob('verify', { rows: 200 }) },
+                    { label: 'Generate', title: 'Write generated/ (murakumo generate)', onClick: () => startJob('generate') },
+                  ]}
+                />
+              )}
               {side === 'schedules' && (
                 <SchedulesPanel
                   state={state}

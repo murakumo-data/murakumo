@@ -58,6 +58,29 @@ def validate_project(project: Project) -> list[Diagnostic]:
     for name in _duplicates(r.name for r in model.relationships if r.name):
         out.append(error("MK106", f"relationship name {name!r} is used more than once", rel_file))
 
+    # Every raw table gets a generated staging model (stg_<source>__<table>); a table of the same
+    # name would be a second dbt model by that name, which dbt refuses.
+    from murakumo.generate.plan import snake
+
+    pattern = manifest.conventions.naming.get("staging", "stg_{source}__{entity}")
+    staged = {
+        pattern.format(source=snake(e.source or "raw"), entity=snake(e.name), name=snake(e.name)).lower(): e
+        for e in model.entities
+        if e.layer is Layer.RAW
+    }
+    for entity in model.entities:
+        raw = staged.get(entity.name.lower()) if entity.layer is not Layer.RAW else None
+        if raw is not None:
+            out.append(
+                error(
+                    "MK107",
+                    f"{entity.name} is the name of the staging model generated for {raw.name}; "
+                    f"name it differently (int_{snake(raw.name)}, say), or map its columns in {raw.name}'s "
+                    "staging instead",
+                    file_of(entity.id),
+                )
+            )
+
     ids: list[str] = [str(o.id) for o in (*model.sources, *model.entities, *model.relationships, *model.metrics)]
     ids += [str(a.id) for e in model.entities for a in e.attributes]
     for dup in _duplicates(ids):
