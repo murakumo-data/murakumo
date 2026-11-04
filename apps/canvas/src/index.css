@@ -3680,3 +3680,18 @@ button.tree-row__label:not(:disabled) {
   overflow: auto;
 }
 .inspector__hint { margin: -4px 0 6px; }
+
+.schedules__here {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
+.schedules__here p {
+  margin: 2px 0 0;
+}

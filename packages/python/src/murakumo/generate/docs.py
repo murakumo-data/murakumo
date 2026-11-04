@@ -15,7 +15,6 @@ from typing import Any
 
 from murakumo.generate.plan import Plan
 from murakumo.ir.model import Entity, Layer
-from murakumo.lineage import build_lineage
 from murakumo.schedules import ScheduleError, resolve
 from murakumo.sources import list_sources
 
@@ -37,6 +36,8 @@ class Page:
 
 
 def _pages(project, plan: Plan) -> list[Page]:
+    from murakumo.lineage import build_lineage  # here: lineage imports generate, which imports this
+
     lineage = build_lineage(project)
     timezone = project.manifest.orchestration.timezone
     try:

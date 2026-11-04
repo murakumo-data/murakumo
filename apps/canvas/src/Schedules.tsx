@@ -44,9 +44,11 @@ type Props = {
   onHighlight: (schedule: ScheduleInfo | null) => void
   lastRuns: RunLog['schedules'] | null // when each last ran here, from the audit tables
   onRunNow: (schedule: string) => void
+  scheduler: { running: boolean; since: number | null } // the schedules running on this computer
+  onScheduler: (start: boolean) => void
 }
 
-export function SchedulesPanel({ state, run, highlighted, onHighlight, lastRuns, onRunNow }: Props) {
+export function SchedulesPanel({ state, run, highlighted, onHighlight, lastRuns, onRunNow, scheduler, onScheduler }: Props) {
   const info = state.orchestration
   const [adding, setAdding] = useState(false)
   if (!info) return null
@@ -55,6 +57,22 @@ export function SchedulesPanel({ state, run, highlighted, onHighlight, lastRuns,
 
   return (
     <div className="schedules">
+      <section className="schedules__here">
+        <div>
+          <strong>On this computer</strong>
+          <p className="muted small">
+            {scheduler.running
+              ? `Running each schedule at its time here${scheduler.since ? ` since ${new Date(scheduler.since * 1000).toLocaleTimeString()}` : ''}; each run is recorded below. Its output is in Activity.`
+              : 'Run each schedule here at its times, until stopped (murakumo scheduler): for trying them, or a project that lives on one machine.'}
+          </p>
+        </div>
+        <button
+          className={scheduler.running ? 'button button--small button--danger' : 'button button--small button--primary'}
+          onClick={() => onScheduler(!scheduler.running)}
+        >
+          {scheduler.running ? 'Stop' : 'Run them here'}
+        </button>
+      </section>
       <p className="muted small">
         When each part of the project is refreshed. Each schedule becomes a dbt selector and a pipeline for{' '}
         your orchestrator in <code>generated/</code>. Select with <code>domain:</code>, <code>layer:</code>,{' '}

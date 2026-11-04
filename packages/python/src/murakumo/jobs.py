@@ -138,6 +138,11 @@ def command(root: Path, kind: str, options: dict[str, Any]) -> tuple[str, list[s
         args = ["env", "drop", "--yes"]
         _common(options, args)
         return f"Drop {options.get('prefix') or 'your schemas'}", args
+    if kind == "scheduler":
+        args = ["scheduler"]
+        _common(options, args)
+        _data(root, options, args)
+        return "Run the schedules here", args
     if kind == "export":
         return "Export as plain SQL", ["export", "sql"]
     if kind == "generate":
@@ -185,13 +190,17 @@ class Jobs:
 
     @property
     def running(self) -> Job | None:
-        return next((j for j in self.jobs if j.state == "running"), None)
+        return next((j for j in self.jobs if j.state == "running" and j.kind != "scheduler"), None)
 
     def start(self, kind: str, options: dict[str, Any]) -> Job:
         title, args = command(self.root, kind, options)
         with self.lock:
-            if self.running:
-                raise JobError(f"{self.running.title} is still running; wait for it, or stop it")
+            busy = next(
+                (j for j in self.jobs if j.state == "running" and (j.kind == "scheduler") == (kind == "scheduler")),
+                None,
+            )
+            if busy:  # the scheduler runs beside one other job; anything else waits its turn
+                raise JobError(f"{busy.title} is still running; wait for it, or stop it")
             job = Job(uuid.uuid4().hex[:12], kind, title, "murakumo " + " ".join(args))
             self.jobs.append(job)
             del self.jobs[:-KEEP]

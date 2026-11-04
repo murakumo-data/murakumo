@@ -803,3 +803,25 @@ def run_command(
         done = subprocess.run(command, cwd=folder)
     if done.returncode != 0:
         raise typer.Exit(done.returncode)
+
+
+def scheduler_command(
+    project_path: Path = ProjectOption,
+    environment: str | None = typer.Option(None, "--env", help="Build into this environment. Default: your own."),
+    data: list[str] = typer.Option(
+        None, "--data", help="TABLE=FOLDER: load the new files in a folder before each run. Repeat."
+    ),
+) -> None:
+    """Run the schedules on this computer at their times, until stopped (Ctrl+C).
+
+    Each run is `murakumo build --schedule NAME`, recorded in the run log with its schedule.
+    """
+    from murakumo import scheduler
+
+    project = open_project(project_path)
+    _data_files(project, data)
+    console.print("Running the schedules here; Ctrl+C stops. Each run is recorded in the run log.")
+    try:
+        scheduler.run(project, environment, data or [], say=lambda line: console.print(escape(line)))
+    except KeyboardInterrupt:
+        console.print("Stopped.")
