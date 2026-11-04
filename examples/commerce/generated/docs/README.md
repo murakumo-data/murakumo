@@ -1,6 +1,7 @@
 # commerce: pipeline docs
 
-Open `index.html` for the full page. One file per table:
+Open `index.html` for the full page. [stack.md](stack.md) is the platform: its tools, sources,
+how to set it up by hand, and why it is built so. One file per table:
 
 **raw:** [customer](customer.md), [lineitem](lineitem.md), [nation](nation.md), [orders](orders.md), [part](part.md), [partsupp](partsupp.md), [region](region.md), [supplier](supplier.md), [taxi_zone_lookup](taxi_zone_lookup.md), [weather_daily](weather_daily.md), [weather_hourly](weather_hourly.md), [yellow_tripdata](yellow_tripdata.md)
 

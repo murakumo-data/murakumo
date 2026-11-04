@@ -7,7 +7,7 @@ Unknown keys are errors, so a typo such as ``orchestartor`` is caught by ``murak
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -93,6 +93,21 @@ class WarehouseTarget(Section):
     type: Warehouse = Warehouse.DUCKDB
     database: str | None = None
     connection: str | None = None
+    # Snowflake platform settings. Tables in these layers can be rebuilt from raw, so they are transient:
+    # no fail-safe, and so no storage paid for it.
+    transient_layers: list[str] = Field(default_factory=lambda: ["staging", "intermediate"])
+    # Days of time travel per layer (raw: 7, marts: 30); a layer not listed keeps Snowflake's default of 1.
+    time_travel_days: dict[str, int] = Field(default_factory=dict)
+    # Credits the compute warehouse may use a month: notified at 75% and 90%, suspended at 100%.
+    monthly_credits: int | None = Field(default=None, ge=1)
+
+    @field_validator("time_travel_days")
+    @classmethod
+    def _days(cls, value: dict[str, int]) -> dict[str, int]:
+        for layer, days in value.items():
+            if not 0 <= days <= 90:
+                raise ValueError(f"time travel for {layer} is between 0 and 90 days, not {days}")
+        return value
 
 
 class Partitioning(Section):
@@ -163,13 +178,149 @@ class Ingestion(Section):
     schedule: str | None = None
 
 
+# Connections: how a source's data is fetched -----------------------------------------------------
+# Secrets are never written here: each is the name of an environment variable that holds it.
+
+
+class Auth(Section):
+    """How a REST API knows who is asking."""
+
+    type: str = Field(default="none", pattern="^(none|api_key|bearer|basic|oauth2)$")
+    env: str | None = None  # api_key, bearer: the variable holding the key or token
+    name: str = "Authorization"  # api_key: the header or query parameter it goes in
+    location: str = Field(default="header", pattern="^(header|query)$")  # api_key: where it goes
+    user_env: str | None = None  # basic
+    password_env: str | None = None  # basic
+    token_url: str | None = None  # oauth2 client credentials
+    client_id_env: str | None = None
+    client_secret_env: str | None = None
+    scope: str | None = None
+
+
+class Paging(Section):
+    """How a REST API hands over a long list a page at a time."""
+
+    type: str = Field(default="none", pattern="^(none|page|offset|cursor|link)$")
+    param: str | None = None  # the page, offset or cursor parameter (page, offset, cursor)
+    size_param: str | None = None  # the page-size parameter (per_page, limit)
+    size: int = Field(default=100, ge=1, le=10000)
+    start: int = 1  # page: the first page's number; offset starts at 0
+    cursor_path: str | None = None  # cursor: where the next cursor is in the response (meta.next_cursor)
+    max_pages: int | None = Field(default=None, ge=1)  # a safety stop
+
+
+class Endpoint(Section):
+    """One request, whose records become one raw table."""
+
+    table: Name
+    path: str = ""
+    method: str = Field(default="GET", pattern="^(GET|POST)$")
+    params: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    body: dict[str, Any] | None = None
+    records: str | None = None  # where the list of records is in the response (data.items); default: all of it
+    since_param: str | None = None  # incremental: this parameter gets the latest watermark already fetched
+
+
+class RestConnection(Section):
+    kind: Literal["rest"] = "rest"
+    base_url: str
+    headers: dict[str, str] = Field(default_factory=dict)
+    auth: Auth = Field(default_factory=Auth)
+    paging: Paging = Field(default_factory=Paging)
+    requests_per_second: float | None = Field(default=None, gt=0)
+    endpoints: list[Endpoint] = Field(default_factory=list)
+
+    @field_validator("base_url")
+    @classmethod
+    def _http(cls, value: str) -> str:
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("a REST API's base_url starts with https:// (or http://)")
+        return value.rstrip("/")
+
+
+class FileSet(Section):
+    """Files whose rows become one raw table."""
+
+    table: Name
+    pattern: str  # a glob under the connection's path: trips_*.csv
+    format: str | None = Field(default=None, pattern="^(csv|tsv|json|jsonl|parquet|xlsx)$")  # default: by extension
+
+
+class SftpConnection(Section):
+    kind: Literal["sftp"] = "sftp"
+    host: str
+    port: int = 22
+    user_env: str
+    key_file_env: str | None = None  # the variable holding the private key file's path
+    password_env: str | None = None
+    path: str = "/"
+    files: list[FileSet] = Field(default_factory=list)
+
+
+class Query(Section):
+    """A table (or a query) in a source database, copied into one raw table."""
+
+    table: Name
+    source: str  # schema.table in the source database, or a SELECT
+    incremental_column: str | None = None  # fetch only rows where this is past the latest fetched
+
+
+class DatabaseConnection(Section):
+    kind: Literal["database"] = "database"
+    url_env: str  # the variable holding the SQLAlchemy URL: postgresql+psycopg://user:pass@host/db
+    tables: list[Query] = Field(default_factory=list)
+
+
+class FilesConnection(Section):
+    kind: Literal["files"] = "files"
+    location: str  # a folder, or s3://bucket/prefix
+    files: list[FileSet] = Field(default_factory=list)
+
+
+class Message(Section):
+    """A protobuf message type whose messages become one raw table."""
+
+    table: Name
+    message: str  # the message's name in the .proto file
+    pattern: str  # where files of length-delimited messages arrive: events/orders_*.bin
+
+
+class ProtobufConnection(Section):
+    kind: Literal["protobuf"] = "protobuf"
+    proto: str  # the .proto file, relative to the project
+    location: str  # a folder, or s3://bucket/prefix, where the message files arrive
+    messages: list[Message] = Field(default_factory=list)
+
+
+Connection = Annotated[
+    RestConnection | SftpConnection | DatabaseConnection | FilesConnection | ProtobufConnection,
+    Field(discriminator="kind"),
+]
+
+
 class SourceDeclaration(Section):
-    """Where to import a source's metadata from: ``csv:path``, ``excel:path``, ``introspect:url``..."""
+    """A source: where to import its metadata from (``csv:path``, ``openapi:url``...), and how its
+    data is fetched (``connection``)."""
 
     name: Name
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
     from_: str | None = Field(default=None, alias="from")
     ingestion: Ingestion = Field(default_factory=Ingestion)
+    connection: Connection | None = None
+
+    def tables(self) -> list[str]:
+        """The raw tables the connection fills."""
+        c = self.connection
+        if c is None:
+            return []
+        items = {
+            "rest": lambda: c.endpoints,
+            "sftp": lambda: c.files,
+            "database": lambda: c.tables,
+            "files": lambda: c.files,
+            "protobuf": lambda: c.messages,
+        }[c.kind]()
+        return [i.table for i in items]
 
 
 class Modelling(Section):
@@ -265,6 +416,17 @@ class Generation(Section):
     semantic_layer: str | None = None
 
 
+class Stack(Section):
+    """The tools the data platform is built from, beyond the warehouse, transform and orchestrator
+    (in targets and generation): how data is fetched from the sources, how it is loaded, and CI."""
+
+    extract: str = Field(default="python", pattern="^(python|glue|lambda|none)$")
+    load: str = Field(default="build", pattern="^(build|snowpipe|autoloader)$")
+    landing: str = "landing"  # where fetched files land: a folder in the project, or s3://bucket/prefix
+    region: str | None = None  # the cloud region, for Glue, Lambda and S3 (default: AWS_REGION)
+    ci: str = Field(default="github", pattern="^(github|gitlab|none)$")
+
+
 class Quality(Section):
     framework: list[str] = Field(default_factory=lambda: ["dbt_tests"])
     default_tests: list[str] = Field(default_factory=lambda: ["unique_pk", "not_null_pk", "relationships"])
@@ -303,6 +465,7 @@ class Manifest(Section):
     modelling: Modelling = Field(default_factory=Modelling)
     conventions: Conventions = Field(default_factory=Conventions)
     generation: Generation = Field(default_factory=Generation)
+    stack: Stack = Field(default_factory=Stack)
     orchestration: Orchestration = Field(default_factory=Orchestration)
     collaboration: Collaboration = Field(default_factory=Collaboration)
     quality: Quality = Field(default_factory=Quality)

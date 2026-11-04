@@ -15,6 +15,7 @@ my_platform/
     relationships.yaml          every relationship, in one list
     metrics.yaml                every metric, in one list
     layout.yaml                 where the canvas draws each entity (optional)
+    decisions.yaml              why the platform is built as it is: see docs/stack.md (optional)
   custom/                       hand-written code, never touched by Murakumo
   generated/                    written by `murakumo generate`; see docs/generating.md
 ```

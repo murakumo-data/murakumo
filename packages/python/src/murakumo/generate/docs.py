@@ -369,7 +369,8 @@ def _markdown(page: Page) -> str:
 
 def _index(project, pages: list[Page]) -> str:
     lines = [f"# {project.manifest.project.name}: pipeline docs", "",
-             "Open `index.html` for the full page. One file per table:", ""]  # fmt: skip
+             "Open `index.html` for the full page. [stack.md](stack.md) is the platform: its tools, sources,",
+             "how to set it up by hand, and why it is built so. One file per table:", ""]  # fmt: skip
     for layer in LAYERS:
         names = [p.entity.name for p in pages if p.entity.layer.value == layer]
         if names:
@@ -377,9 +378,92 @@ def _index(project, pages: list[Page]) -> str:
     return "\n".join(lines)
 
 
+def stack_page(project, plan: Plan) -> str:
+    """The platform: each tool chosen, how each source is fetched, how to set it up by hand, and why."""
+    from murakumo import stack as stack_module
+    from murakumo.generate.ingestion import connected, steps
+
+    values = stack_module.current(project)
+    lines = [
+        f"# {project.manifest.project.name}: the platform",
+        "",
+        "What the platform is built from, how each source's data reaches the warehouse, and how to set it",
+        "up by hand. Generated from murakumo.yaml and model/decisions.yaml.",
+        "",
+        "## The stack",
+        "",
+        "| Part | Choice | What it does |",
+        "| --- | --- | --- |",
+    ]
+    for part in stack_module.PARTS:
+        value = values[part.key]
+        lines.append(f"| {part.title} | `{value}` | {_cell(part.options.get(value, part.question))} |")
+    problems = stack_module.check(project)
+    if problems:
+        lines += ["", *(f"- **{level}** ({part}): {message}" for level, part, message in problems)]
+    sources = connected(project)
+    lines += ["", "## Sources", ""]
+    if not sources:
+        lines.append("No source has a connection yet, so Murakumo fetches nothing: data arrives some other way.")
+    for declaration in sources:
+        c = declaration.connection
+        where = getattr(c, "base_url", None) or getattr(c, "host", None) or getattr(c, "location", None) or ""
+        tables = ", ".join(declaration.tables())
+        lines += [f"### {declaration.name}", "", f"{c.kind} · `{where}` · tables: {tables}", ""]
+        if c.kind == "rest":
+            auth = c.auth.type
+            lines.append(f"- Auth: {auth}" + (f", from `{c.auth.env}`" if c.auth.env else ""))
+            size = f", {c.paging.size} a page" if c.paging.type != "none" else ""
+            lines.append(f"- Paging: {c.paging.type}{size}")
+            for endpoint in c.endpoints:
+                since = ""
+                if endpoint.since_param:
+                    since = f", only what is newer than the last run (`{endpoint.since_param}`)"
+                records = f", records at `{endpoint.records}`" if endpoint.records else ""
+                lines.append(f"- `{endpoint.method} {endpoint.path or '/'}` → {endpoint.table}{records}{since}")
+        lines.append("")
+    setup = steps(project, plan)
+    if project.manifest.targets.warehouse.type.value == "snowflake":
+        from murakumo.environments import provision
+        from murakumo.generate.ingestion import Step
+
+        setup.insert(
+            0,
+            Step(
+                "provision",
+                "Create the databases, warehouse and roles",
+                "Once, as an administrator: a database per environment, a role to deploy each, a developer role,"
+                " and the spending cap if one is set (`murakumo env provision` prints the same).",
+                sql=provision(project),
+            ),
+        )
+    if setup:
+        lines += ["## Setting it up by hand", ""]
+        for number, step in enumerate(setup, 1):
+            lines += [f"### {number}. {step.title}", "", step.why, ""]
+            if step.commands:
+                lines += ["```bash", *step.commands, "```", ""]
+            if step.sql:
+                lines += ["```sql", step.sql.rstrip(), "```", ""]
+    lines += ["## Decisions", ""]
+    log = stack_module.decisions(project.root)
+    if not log:
+        lines.append("None recorded yet. `murakumo stack set ... --why` and `murakumo decisions add` record them.")
+    else:
+        lines += ["| When | Who | What | Why |", "| --- | --- | --- | --- |"]
+        for entry in log:
+            change = f" ({entry.get('from')} → {entry.get('to')})" if "from" in entry or "to" in entry else ""
+            lines.append(
+                f"| {entry['at']} | {_cell(str(entry.get('by', '')))} | {_cell(str(entry['what']) + change)} "
+                f"| {_cell(str(entry.get('why', '')))} |"
+            )
+    return "\n".join(lines) + "\n"
+
+
 def render(project, plan: Plan) -> dict[str, str]:
     pages = _pages(project, plan)
     files = {"index.html": _html(project, plan, pages), "README.md": _index(project, pages)}
+    files["stack.md"] = stack_page(project, plan)
     for page in pages:
         files[f"{page.entity.name}.md"] = _markdown(page)
     return files

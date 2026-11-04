@@ -32,6 +32,7 @@ PREFIX = re.compile(r"^[a-z][a-z0-9_]*_$")
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # a terminal spinner redraws one line; captured, each frame is a line
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")  # colours and cursor moves, which a log page cannot show
 ENGINES = ("polars", "pyspark")
+DEPLOY_STEPS = ("provision", "integration", "pipes", "ci")  # the steps Murakumo runs itself
 
 
 class JobError(Exception):
@@ -96,6 +97,8 @@ def command(root: Path, kind: str, options: dict[str, Any]) -> tuple[str, list[s
             args += ["--schedule", _name(options["schedule"], "the schedule")]
         if options.get("run_date"):
             args += ["--run-date", _day(options["run_date"], "the run date")]
+        if options.get("ingest"):
+            args.append("--ingest")
         what = f"Build {options.get('environment') or 'dev'}"
         if options.get("schedule"):
             what += f": {options['schedule']}"
@@ -143,6 +146,25 @@ def command(root: Path, kind: str, options: dict[str, Any]) -> tuple[str, list[s
         _common(options, args)
         _data(root, options, args)
         return "Run the schedules here", args
+    if kind == "ingest":
+        args = ["ingest"]
+        if options.get("source"):
+            args += ["--source", _name(options["source"], "the source")]
+        if options.get("table"):
+            args += ["--table", _name(options["table"], "the table")]
+        return f"Fetch {options.get('source') or 'the sources'}", args
+    if kind == "load":
+        args = ["load"]
+        _common(options, args)
+        return f"Load the landed files into {options.get('environment') or 'your schemas'}", args
+    if kind == "deploy":
+        environment = _name(options.get("environment"), "the environment")
+        args = ["stack", "deploy", "--env", environment, "--apply"]
+        for step in options.get("steps") or []:
+            if step not in DEPLOY_STEPS:
+                raise JobError(f"a deploy step is one of {', '.join(DEPLOY_STEPS)}")
+            args += ["--step", step]
+        return f"Deploy {environment}", args
     if kind == "export":
         return "Export as plain SQL", ["export", "sql"]
     if kind == "generate":

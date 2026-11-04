@@ -14,7 +14,7 @@ environment variables as ``profiles.yml``.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
@@ -38,6 +38,8 @@ class Job:
     description: str
     sources: list[str]  # dbt source selections for freshness: source:group.table
     models: list[str]  # the dbt models and snapshots it builds
+    extract: list[str] = field(default_factory=list)  # the sources it fetches first (stack.extract: python)
+    load: bool = False  # whether it loads the landed files before building (stack.load: build)
 
 
 def _jobs(project, plan: Plan) -> list[Job]:
@@ -46,6 +48,8 @@ def _jobs(project, plan: Plan) -> list[Job]:
     groups = {
         t.entity.name.lower(): g.name for g in plan.sources for t in g.tables if g.freshness or t.entity.freshness
     }
+    stack = project.manifest.stack
+    fills = {t.lower(): d.name for d in project.manifest.sources if d.connection is not None for t in d.tables()}
     jobs = []
     for entry in resolve(project):
         sources = [
@@ -55,8 +59,18 @@ def _jobs(project, plan: Plan) -> list[Job]:
         ]
         when = describe(entry.schedule.cron, timezone)
         models = dbt_models(plan, entry.entities)
+        fetched = sorted({fills[e.name.lower()] for e in entry.entities if e.name.lower() in fills})
         jobs.append(
-            Job(entry.schedule.name, entry.schedule.cron, when, entry.schedule.description or when, sources, models)
+            Job(
+                entry.schedule.name,
+                entry.schedule.cron,
+                when,
+                entry.schedule.description or when,
+                sources,
+                models,
+                extract=fetched if stack.extract == "python" else [],
+                load=bool(fetched) and stack.load == "build",
+            )
         )
     return jobs
 
@@ -121,6 +135,30 @@ def _airflow(context: dict, manifest) -> dict[str, str]:
         dag_id = f"{context['project']}__{job.name}"
         freshness = ""
         chain = "build"
+        ingest = folders = imports = ""
+        if job.extract or job.load:
+            imports = "import sys\n"
+            folders = """
+# generated/orchestration/airflow/dags/<this file> -> the project folder, and its fetch scripts
+PROJECT_DIR = Path(os.environ.get("MURAKUMO_PROJECT_DIR", Path(__file__).resolve().parents[4]))
+INGEST_DIR = PROJECT_DIR / "generated" / "ingestion" / "python"
+PYTHON = os.environ.get("MURAKUMO_PYTHON", sys.executable)"""
+            ingest = "".join(
+                f"""
+    extract_{source} = BashOperator(
+        task_id="extract_{source}",
+        bash_command=f"{{PYTHON}} {{INGEST_DIR}}/extract.py {{INGEST_DIR}}/sources/{source}.json",
+    )
+"""
+                for source in job.extract
+            )
+            if job.load:
+                ingest += """
+    load = BashOperator(
+        task_id="load",
+        bash_command=f"murakumo load --env {TARGET} --project {PROJECT_DIR}",
+    )
+"""
         if job.sources:
             freshness = f"""
     freshness = BashOperator(
@@ -130,11 +168,16 @@ def _airflow(context: dict, manifest) -> dict[str, str]:
     )
 """
             chain = "freshness >> build"
+        steps = [f"extract_{source}" for source in job.extract]
+        if steps or job.load:
+            first = ("[" + ", ".join(steps) + "]" if len(steps) > 1 else steps[0]) if steps else ""
+            before = " >> ".join(x for x in (first, "load" if job.load else "") if x)
+            chain = f"{before} >> {chain}"
         files[f"dags/{snake(context['project'])}__{job.name}.py"] = (
             PY_HEADER.format(doc=f"Airflow DAG for the {job.name} schedule: {job.description}.")
             + f"""
 import os
-from pathlib import Path
+{imports}from pathlib import Path
 
 import pendulum
 from airflow import DAG
@@ -145,7 +188,7 @@ from cosmos.constants import LoadMode
 # generated/orchestration/airflow/dags/<this file> -> generated/dbt
 DBT_DIR = Path(os.environ.get("MURAKUMO_DBT_DIR", Path(__file__).resolve().parents[3] / "dbt"))
 TARGET = os.environ.get("MURAKUMO_TARGET", {_py(context["target"])})
-DBT = os.environ.get("DBT_EXECUTABLE", "dbt")
+DBT = os.environ.get("DBT_EXECUTABLE", "dbt"){folders}
 
 with DAG(
     dag_id={_py(dag_id)},
@@ -156,7 +199,7 @@ with DAG(
     max_active_runs=1,
     default_args={{"retries": 2, "retry_delay": pendulum.duration(minutes=5)}},
     tags=["murakumo", {_py(context["project"])}],
-):{freshness}
+):{ingest}{freshness}
     build = DbtTaskGroup(
         group_id="dbt_build",
         project_config=ProjectConfig(DBT_DIR),
@@ -194,7 +237,43 @@ with DAG(
 # Dagster --------------------------------------------------------------------------------------
 
 
+def _ingest_preamble(depth: int) -> str:
+    """The Python that fetches and loads before a build, for the Python orchestrators."""
+    return f"""
+# The project folder, and its fetch scripts (generated/ingestion/python)
+PROJECT_DIR = Path(os.environ.get("MURAKUMO_PROJECT_DIR", Path(__file__).resolve().parents[{depth}]))
+INGEST_DIR = PROJECT_DIR / "generated" / "ingestion" / "python"
+
+
+def extract(source: str) -> None:
+    \"\"\"Fetch what is new from a source into the landing area.\"\"\"
+    script, settings = INGEST_DIR / "extract.py", INGEST_DIR / "sources" / f"{{source}}.json"
+    subprocess.run([sys.executable, str(script), str(settings)], check=True)
+
+
+def load() -> None:
+    \"\"\"Load the landed files into the raw tables, each file once.\"\"\"
+    subprocess.run(["murakumo", "load", "--env", TARGET, "--project", str(PROJECT_DIR)], check=True)
+"""
+
+
 def _dagster(context: dict, manifest) -> dict[str, str]:
+    ingesting = {job.name: job for job in context["jobs"] if job.extract or job.load}
+    ingest = ""
+    preamble = ""
+    imports = "import subprocess\nimport sys\n" if ingesting else ""
+    if ingesting:
+        entries = ", ".join(
+            f'{_py(name)}: {{"extract": {_py(job.extract)}, "load": {job.load}}}' for name, job in ingesting.items()
+        )
+        preamble = _ingest_preamble(3) + f"\n\nINGEST = {{{entries}}}  # what each schedule fetches and loads first\n"
+        ingest = (
+            '    schedule = INGEST.get(context.run.tags.get("murakumo/schedule", ""), {})\n'
+            '    for source in schedule.get("extract", []):\n'
+            "        extract(source)\n"
+            '    if schedule.get("load"):\n'
+            "        load()\n"
+        )
     schedules = "\n".join(
         f"""    build_schedule_from_dbt_selection(
         [{snake(context["project"])}_dbt],
@@ -210,7 +289,7 @@ def _dagster(context: dict, manifest) -> dict[str, str]:
         PY_HEADER.format(doc="Dagster definitions: the dbt project as assets, with one schedule per Murakumo schedule.")
         + f"""
 import os
-from pathlib import Path
+{imports}from pathlib import Path
 
 from dagster import Definitions
 from dagster_dbt import DbtCliResource, DbtProject, build_schedule_from_dbt_selection, dbt_assets
@@ -222,11 +301,11 @@ project = DbtProject(project_dir=DBT_DIR, profiles_dir=DBT_DIR, target=TARGET)
 project.prepare_if_dev()  # parses the dbt project when run with `dagster dev`
 if not project.manifest_path.exists():  # elsewhere, parse it once
     project.preparer.prepare(project)
-
+{preamble}
 
 @dbt_assets(manifest=project.manifest_path, project=project)
 def {snake(context["project"])}_dbt(context, dbt: DbtCliResource):
-    yield from dbt.cli(["build"], context=context).stream()
+{ingest}    yield from dbt.cli(["build"], context=context).stream()
 
 
 schedules = [
@@ -269,16 +348,37 @@ def _prefect(context: dict, manifest) -> dict[str, str]:
             f"def {job.name}() -> None:",
             f'    os.environ["MURAKUMO_SCHEDULE"] = {_py(job.name)}  # recorded in audit.run_log',
         ]
+        lines += [f"    fetch({_py(source)})" for source in job.extract]
+        if job.load:
+            lines.append("    load_landed()")
         if job.sources:
             lines.append(f"    dbt({_py(['source', 'freshness', '--select', *job.sources])})")
         lines.append(f"    dbt({_py(['build', '--selector', job.name])})")
         blocks.append("\n".join(lines))
     flows = "\n\n\n".join(blocks)
+    ingest = ""
+    imports = ""
+    if any(job.extract or job.load for job in context["jobs"]):
+        imports = "import subprocess\nimport sys\n"
+        ingest = (
+            _ingest_preamble(3)
+            + """
+
+@task(retries=2, retry_delay_seconds=300)
+def fetch(source: str) -> None:
+    extract(source)
+
+
+@task(retries=1)
+def load_landed() -> None:
+    load()
+"""
+        )
     code = (
         PY_HEADER.format(doc="Prefect flows: one per Murakumo schedule, each building its dbt selector.")
         + f'''
 import os
-from pathlib import Path
+{imports}from pathlib import Path
 
 from dbt.cli.main import dbtRunner
 from prefect import flow, get_run_logger, task
@@ -295,7 +395,7 @@ def dbt(arguments: list[str]) -> None:
     get_run_logger().info("dbt %s: %s", " ".join(arguments), "ok" if result.success else "failed")
     if not result.success:
         raise RuntimeError(f"dbt {{' '.join(arguments)}} failed: {{result.exception or 'see the log'}}")
-
+{ingest}
 
 {flows}
 '''

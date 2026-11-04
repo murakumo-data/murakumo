@@ -120,6 +120,19 @@ grants. Then grant the developer role to each person and each deployer role to t
 `SNOWFLAKE_ROLE_PERSONAL=TAXI_DEVELOPER` (people) and `SNOWFLAKE_ROLE_PROD=TAXI_DEPLOYER_PROD`
 (CI). See [working as a team](teamwork.md).
 
+## Platform settings
+
+- **Rebuildable layers are transient.** Staging and intermediate are transient by default
+  (`targets.warehouse.transient_layers`): no fail-safe, so no storage paid for it. Marts and
+  snapshots stay permanent.
+- **Time travel per layer:** `time_travel_days: {raw: 7, marts: 30}`.
+- **A monthly spending cap:** `monthly_credits: 50` adds a resource monitor to `murakumo env
+  provision`.
+- **Snowpipe:** with `stack.load: snowpipe`, each file that lands in S3 is loaded by a pipe.
+  `murakumo stack deploy --env prod --apply` creates the integration, stage and pipes.
+
+All of this is described in [stack.md](stack.md).
+
 ## Verify
 
 ```bash

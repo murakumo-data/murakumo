@@ -352,6 +352,28 @@ def drop(project: Project, connection: Connection, placement: Placement | str) -
 # Setting the environments up -------------------------------------------------------------------
 
 
+def _monitor(manifest, name: str, compute: str) -> list[str]:
+    """A resource monitor capping the compute warehouse's credits a month (ACCOUNTADMIN creates it)."""
+    credits = manifest.targets.warehouse.monthly_credits
+    if credits is None:
+        return [
+            "-- No spending cap: set targets.warehouse.monthly_credits in murakumo.yaml to add a resource monitor.",
+            "",
+        ]
+    monitor = f"{name}_MONTHLY"
+    return [
+        f"-- At most {credits} credits a month (resource monitors need ACCOUNTADMIN): notified at 75% and",
+        "-- 90%, suspended at 100% once running queries finish, and at once at 110%.",
+        f"create resource monitor if not exists {monitor} with credit_quota = {credits} frequency = monthly",
+        "  start_timestamp = immediately",
+        "  triggers on 75 percent do notify on 90 percent do notify",
+        "  on 100 percent do suspend on 110 percent do suspend_immediate;",
+        f"alter resource monitor {monitor} set credit_quota = {credits};",
+        f"alter warehouse {compute} set resource_monitor = {monitor};",
+        "",
+    ]
+
+
 def provision(project: Project) -> str:
     """What an administrator runs once so the environments exist: on Snowflake, a database per
     environment and one for everyone's own schemas, a role to deploy each environment, and a role
@@ -382,6 +404,7 @@ def provision(project: Project) -> str:
         f"create warehouse if not exists {compute}"
         " warehouse_size = xsmall auto_suspend = 60 initially_suspended = true;",
         "",
+        *_monitor(manifest, name, compute),
         "-- Everyone's own schemas: each person builds into one named after them.",
         f"create database if not exists {personal};",
         f"create role if not exists {developer_role};",

@@ -263,6 +263,9 @@ def build_command(
     run_date: str | None = typer.Option(
         None, "--run-date", help="The day cumulative tables add (YYYY-MM-DD). Default: the latest day with data."
     ),
+    ingest: bool = typer.Option(
+        False, "--ingest", help="Fetch what is new from the sources first, and load everything that has landed."
+    ),
 ) -> None:
     """Build the project into the warehouse and keep it: raw tables, then every dbt model and test.
 
@@ -278,6 +281,22 @@ def build_command(
         fail("the model has errors; fix them before building")
         raise typer.Exit(1)
     files = _data_files(project, data)
+    if ingest:
+        from murakumo import ingest as ingesting
+
+        try:
+            with console.status("Fetching what is new from the sources..."):
+                fetched = ingesting.run(project)
+        except ingesting.IngestError as exc:
+            fail(str(exc))
+            raise typer.Exit(1) from None
+        for item in fetched:
+            if item.error:
+                fail(f"{item.source}: {item.error}")
+                raise typer.Exit(1)
+            for name, (count, landed_files) in item.tables.items():
+                console.print(f"  fetched {item.source}.{name}: {count} new, {len(landed_files)} file(s) landed")
+        files = {**ingesting.landed(project), **files}
     if warehouse in (None, project.manifest.targets.warehouse.type) and compare(generate(project), project.root).any:
         console.print(
             f"[yellow]![/yellow] {GENERATED_DIR}/ is out of date with the model; building the model as it is now. "

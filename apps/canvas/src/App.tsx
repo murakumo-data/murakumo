@@ -26,6 +26,7 @@ import {
   History,
   ImageDown,
   KeyRound,
+  Layers,
   LayoutGrid,
   ListTree,
   Moon,
@@ -88,6 +89,7 @@ import { RunsPanel } from './Runs'
 import { Search } from './Search'
 import { TestChange } from './TestChange'
 import { SettingsPanel } from './Settings'
+import { StackPanel } from './Stack'
 import { SourcesPanel } from './Sources'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
@@ -133,7 +135,7 @@ const CARDINALITY: Record<string, string> = {
 }
 
 type Selection = { kind: 'entity' | 'relationship'; id: string } | null
-type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git' | 'activity' | 'settings' | 'runs'
+type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'stack' | 'schedules' | 'ci' | 'git' | 'activity' | 'settings' | 'runs'
 type Theme = 'system' | 'light' | 'dark'
 
 const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git', 'activity', 'settings', 'runs']
@@ -942,6 +944,7 @@ function Canvas() {
   const panels: { id: Side; label: string; icon: ReactNode; badge?: ReactNode }[] = [
     { id: 'explorer', label: 'Explorer', icon: <ListTree size={18} /> },
     { id: 'sources', label: 'Sources', icon: <Database size={18} />, badge: state.sources.length || null },
+    { id: 'stack', label: 'Stack', icon: <Layers size={18} /> },
     { id: 'schedules', label: 'Schedules', icon: <CalendarClock size={18} /> },
     { id: 'git', label: 'Team', icon: <GitBranch size={18} /> },
     { id: 'ci', label: 'CI', icon: <Workflow size={18} /> },
@@ -1239,8 +1242,9 @@ function Canvas() {
                 />
               )}
               {side === 'sources' && (
-                <SourcesPanel state={state} run={run} onMessage={(text) => setMessage({ text, tone: 'info' })} />
+                <SourcesPanel state={state} run={run} startJob={startJob} onMessage={(text) => setMessage({ text, tone: 'info' })} />
               )}
+              {side === 'stack' && <StackPanel revision={state.revision} onState={setState} onMessage={showMessage} startJob={startJob} />}
               {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} onTestChange={setTesting} />}
               {side === 'ci' && <CIPanel onMessage={showMessage} />}
               {side === 'runs' && (

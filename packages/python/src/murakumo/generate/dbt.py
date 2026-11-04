@@ -242,6 +242,16 @@ def _dbt_project(plan: Plan) -> dict:
         "marts": {"+materialized": "table", "+schema": "marts"},
         "semantic": {"+materialized": "view", "+schema": "semantic"},
     }
+    warehouse = plan.project.manifest.targets.warehouse
+    snapshots: dict = {}
+    if plan.target.warehouse is Warehouse.SNOWFLAKE:
+        # dbt makes Snowflake tables transient unless told otherwise: only layers that can be rebuilt
+        # from raw are (no fail-safe storage); marts and snapshots keep their history.
+        for layer, settings in layers.items():
+            settings["+transient"] = layer in warehouse.transient_layers
+            if layer in warehouse.time_travel_days:
+                settings["+post-hook"] = [f"{{{{ murakumo_retention({warehouse.time_travel_days[layer]}) }}}}"]
+        snapshots = {"snapshots": {name: {"+transient": False}}}
     return {
         "name": name,
         "version": "1.0.0",
@@ -262,6 +272,7 @@ def _dbt_project(plan: Plan) -> dict:
             else {}
         ),
         "models": {name: layers},
+        **snapshots,
     }
 
 

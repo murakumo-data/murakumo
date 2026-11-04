@@ -14,6 +14,7 @@ type Options = {
   schedule: string
   run_date: string
   prefix: string
+  ingest: boolean // fetch what is new from the sources with a connection first, and load what has landed
 }
 
 const size = (bytes: number) =>
@@ -64,7 +65,7 @@ export function BuildDialog(props: {
   const cumulative = (state.model?.entities ?? []).some((e) => e.kind === 'cumulative')
   const schedules = state.orchestration?.implicit ? [] : (state.orchestration?.schedules ?? [])
   const [files, setFiles] = useState<Upload[]>([])
-  const [options, setOptions] = useState<Options>({ environment: state.environments.personal, sample: 0, data: {}, schedule: '', run_date: '', prefix: '' })
+  const [options, setOptions] = useState<Options>({ environment: state.environments.personal, sample: 0, data: {}, schedule: '', run_date: '', prefix: '', ingest: false })
   const [advanced, setAdvanced] = useState(false)
   useEffect(() => {
     api.uploads().then((r) => setFiles(r.files), () => {})
@@ -80,6 +81,7 @@ export function BuildDialog(props: {
     ...Object.entries(options.data).map(([t, f]) => `--data ${t}=${f}`),
     options.schedule && `--schedule ${options.schedule}`,
     options.run_date && `--run-date ${options.run_date}`,
+    options.ingest && '--ingest',
   ]
     .filter(Boolean)
     .join(' ')
@@ -100,6 +102,7 @@ export function BuildDialog(props: {
             schedule: options.schedule || undefined,
             run_date: options.run_date || undefined,
             prefix: options.prefix || undefined,
+            ingest: options.ingest || undefined,
           })
         }}
       >
@@ -154,6 +157,10 @@ export function BuildDialog(props: {
             />
           </label>
           <p className="muted small">For trying the pipeline: this many made-up rows go into each raw table that is still empty.</p>
+          <label className="settings__check">
+            <input type="checkbox" checked={options.ingest} onChange={(e) => set({ ingest: e.target.checked })} /> Fetch
+            what is new from the sources first (those with a connection), and load everything that has landed
+          </label>
         </fieldset>
 
         <fieldset className="build__group">

@@ -233,6 +233,22 @@ def import_openapi_command(
     apply_imports(project, imports, dry_run, prune)
 
 
+@import_app.command("protobuf")
+def import_protobuf_command(
+    location: str = typer.Argument(..., help="Path of a .proto file."),
+    source: str = typer.Option(..., help="Name for this source."),
+    only: list[str] = typer.Option(None, "--message", help="Only these message types. Repeat for several."),
+    project_path: Path = ProjectOption,
+    dry_run: bool = DryRunOption,
+) -> None:
+    """Add one raw table per protobuf message type in a .proto file."""
+    from murakumo.importers.protobuf import import_proto
+
+    project = open_project(project_path)
+    imports = _guarded(lambda: [import_proto(location, safe_name(source, "source"), only=only or None)])
+    apply_imports(project, imports, dry_run, prune=False)
+
+
 @import_app.command("json")
 def import_json_command(
     location: str = typer.Argument(..., help="Path or URL of a sample JSON response."),

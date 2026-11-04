@@ -35,19 +35,23 @@ generated/
     models/intermediate/<domain>/       the versions behind SCD2 dimensions
     models/marts/<domain>/              dimensions and facts, with contracts and tests
     snapshots/_snapshots.yml            SCD2 history
-    macros/murakumo/                    the record hash, schema names, extra tests and the run log
+    macros/murakumo/                    the record hash, schema names, extra tests, the run log and time travel
     selectors.yml                       one selector per schedule
   ddl/<warehouse>/
     raw.sql                             landing schemas and tables for ingestion to write into
     marts.sql                           reference DDL for the modelled tables, with keys
-  orchestration/<orchestrator>/         a pipeline per schedule, and how to deploy them
+  orchestration/<orchestrator>/         a pipeline per schedule (fetch, load, build), and how to deploy them
+  ingestion/                            for sources with a connection: the extract code, and the Lambda,
+                                        Glue, Snowpipe or Auto Loader setup the stack chose
   docs/
     index.html, <table>.md              pipeline docs: tables, columns, lineage, schedules, sources
+    stack.md                            the platform: its tools, sources, how to set it up by hand, and why
   sql/<warehouse>/                      the project as plain SQL, with `plain_sql: true`
   python/<engine>/                      the pipeline as PySpark or Polars jobs, with `python_engine`
 ```
 
-Schedules, pipelines, plain SQL and CI are described in [orchestration.md](orchestration.md).
+Schedules, pipelines, plain SQL and CI are described in [orchestration.md](orchestration.md); the
+stack, connections and ingestion in [stack.md](stack.md).
 
 ### Staging
 
@@ -302,5 +306,8 @@ folder has nothing to check, so migrations are opt-in: the first `murakumo migra
 | MK506 | error | No mapping names a source column, so there is no table to select from |
 | MK507 | error | A mapping expression is not valid SQL |
 | MK508 | error | A cumulative table's grain column has no column or mapping |
+| MK701 | error | Two choices in the stack do not go together (Snowpipe on DuckDB, Lambda landing in a folder) |
+| MK702 | warning | A source's connection fills a table that is not a raw table in the model |
+| MK703 | warning | A transient layer asks for more than 1 day of time travel, which Snowflake refuses |
 
 An entity with an error is skipped; the rest of the project is still generated.

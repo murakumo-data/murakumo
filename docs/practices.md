@@ -2,7 +2,7 @@
 
 A review of Murakumo against the practices data teams rely on, from four sources: Kimball's
 dimensional modelling, dbt's own guidance, Snowflake's, and the principles in *Designing
-Data-Intensive Applications*. Each practice says what Murakumo does about it today (0.7) and,
+Data-Intensive Applications*. Each practice says what Murakumo does about it today (0.8) and,
 where it falls short, what would close the gap. The review works from the published practices;
 it does not quote the books.
 
@@ -54,13 +54,13 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Functional and access roles kept apart | One role per job, not split into access roles | Partly |
 | Key-pair authentication for services | The profiles and CI use key pairs; keys stay in files and secrets | Done |
 | Warehouses that suspend themselves | Provisioning creates an x-small warehouse that suspends after 60 seconds | Done |
-| Resource monitors to cap spend | Not created | Not yet: add to provisioning (0.8) |
+| Resource monitors to cap spend | `targets.warehouse.monthly_credits`: provisioning creates a monitor that notifies at 75% and 90% and suspends at 100% (0.8) | Done |
 | Zero-copy clones for testing | Pull-request previews and copies into your own schema clone | Done |
-| Time travel and fail-safe settings per layer | Left at Snowflake's defaults | Not yet: shorter retention for staging (0.8) |
-| Transient tables for what can be rebuilt (staging, intermediate) | Permanent tables | Not yet: `transient` for rebuildable layers (0.8) |
+| Time travel and fail-safe settings per layer | `targets.warehouse.time_travel_days` per layer, set on raw tables and by dbt after each build; MK703 when a transient layer asks for more than a day (0.8) | Done |
+| Transient tables for what can be rebuilt (staging, intermediate) | `transient_layers` (staging and intermediate by default); marts and snapshots kept permanent, where dbt alone would make every table transient (0.8) | Done |
 | Clustering keys on large tables | `cluster_by:` on an entity | Done |
 | Masking and row-access policies for personal data | PII and classification on columns; governance settings exist; no policies generated | Not yet (0.9) |
-| Loading with COPY and Snowpipe | COPY for files from the build; Snowpipe not generated | Not yet: 0.8, with the stack choice |
+| Loading with COPY and Snowpipe | COPY for files from the build; with `stack.load: snowpipe`, a pipe per raw table from an S3 stage through a storage integration (0.8) | Done |
 
 ## Designing data-intensive applications
 
@@ -79,9 +79,9 @@ cases. **Not yet** is a gap, with the milestone it fits.
 
 ## What this says about the roadmap
 
-The gaps fall in three groups:
+The gaps fell in three groups:
 
-- **Platform settings**, which belong in provisioning and the stack choice (0.8):
+- **Platform settings**, closed in 0.8 with the stack choice:
   - resource monitors
   - retention and time travel per layer
   - transient tables for rebuildable layers

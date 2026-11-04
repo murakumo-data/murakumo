@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { api, ApiError, type BrowseSchema, type ImportReport, type SourceInfo, type State } from './api'
+import { api, ApiError, type BrowseSchema, type Connection, type ImportReport, type SourceInfo, type State } from './api'
 import { UploadButton } from './Build'
+import { ConnectionEditor } from './Connection'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
 
@@ -30,15 +31,59 @@ const KINDS: { value: string; label: string; placeholder: string; help: string }
     help: 'Its columns and types become a table.',
   },
   { value: 'openapi', label: 'API (OpenAPI spec)', placeholder: 'specs/api.yaml or https://…', help: 'One table per object schema.' },
+  {
+    value: 'connect',
+    label: 'Fetched by Murakumo (REST API, SFTP, database, files, protobuf)',
+    placeholder: '',
+    help: 'Say how its data is fetched next: requests to send, files to copy. Its tables can be made from what comes back.',
+  },
 ]
 
 const browsable = (s: SourceInfo) => s.kind === 'database' || s.kind === 'snowflake'
 
-type View = { kind: 'list' } | { kind: 'browse'; source: SourceInfo } | { kind: 'reimport'; source: SourceInfo }
+type View =
+  | { kind: 'list' }
+  | { kind: 'browse'; source: SourceInfo }
+  | { kind: 'reimport'; source: SourceInfo }
+  | { kind: 'connect'; name: string }
 
-export function SourcesPanel({ state, run, onMessage }: { state: State; run: Run; onMessage: (text: string) => void }) {
+export function SourcesPanel({
+  state,
+  run,
+  onMessage,
+  startJob,
+}: {
+  state: State
+  run: Run
+  onMessage: (text: string) => void
+  startJob: (kind: string, options?: Record<string, unknown>) => Promise<unknown>
+}) {
   const [view, setView] = useState<View>({ kind: 'list' })
   const [adding, setAdding] = useState(false)
+  // How each source's data is fetched (its connection, in murakumo.yaml), read with the stack.
+  const [connections, setConnections] = useState<Record<string, Connection | null>>({})
+  useEffect(() => {
+    api.stack().then(
+      (info) => setConnections(Object.fromEntries(info.sources.map((s) => [s.name, s.connection]))),
+      () => {},
+    )
+  }, [state.revision, view.kind])
+
+  if (view.kind === 'connect') {
+    const tables = (state.model?.entities ?? []).filter((e) => e.layer === 'raw' && e.source === view.name).map((e) => e.name)
+    return (
+      <ConnectionEditor
+        key={view.name}
+        source={view.name}
+        initial={connections[view.name] ?? null}
+        tables={tables}
+        run={run}
+        startJob={startJob}
+        onBack={() => setView({ kind: 'list' })}
+        onMessage={onMessage}
+      />
+    )
+  }
 
   if (view.kind === 'browse') {
     return <Browser source={view.source} run={run} onBack={() => setView({ kind: 'list' })} onMessage={onMessage} />
@@ -95,23 +140,32 @@ export function SourcesPanel({ state, run, onMessage }: { state: State; run: Run
             </div>
             {s.from ? (
               <code className="sources__from">{s.from}</code>
-            ) : (
+            ) : connections[s.name] ? null : (
               <span className="muted small">No from: line, so it is edited by hand or with the CLI.</span>
             )}
             {s.updated && (
               <span className="muted small">Updated {new Date(s.updated).toLocaleString()}</span>
             )}
-            {state.editable && s.from && (
+            {connections[s.name] ? (
+              <span className="small">
+                Fetched by Murakumo: <span className="badge badge--neutral">{connections[s.name]!.kind}</span>
+              </span>
+            ) : null}
+            {state.editable && (
               <div className="sources__actions">
-                {browsable(s) ? (
-                  <button className="button button--small" onClick={() => setView({ kind: 'browse', source: s })}>
-                    Browse tables
-                  </button>
-                ) : (
-                  <button className="button button--small" onClick={() => setView({ kind: 'reimport', source: s })}>
-                    Re-import
-                  </button>
-                )}
+                <button className="button button--small" onClick={() => setView({ kind: 'connect', name: s.name })}>
+                  {connections[s.name] ? 'Connection' : 'Connect…'}
+                </button>
+                {s.from &&
+                  (browsable(s) ? (
+                    <button className="button button--small" onClick={() => setView({ kind: 'browse', source: s })}>
+                      Browse tables
+                    </button>
+                  ) : (
+                    <button className="button button--small" onClick={() => setView({ kind: 'reimport', source: s })}>
+                      Re-import
+                    </button>
+                  ))}
               </div>
             )}
           </li>
@@ -119,7 +173,14 @@ export function SourcesPanel({ state, run, onMessage }: { state: State; run: Run
       </ul>
       {state.editable &&
         (adding ? (
-          <AddSource run={run} onDone={() => setAdding(false)} />
+          <AddSource
+            run={run}
+            onDone={() => setAdding(false)}
+            onConnect={(name) => {
+              setAdding(false)
+              setView({ kind: 'connect', name })
+            }}
+          />
         ) : (
           <button className="button button--small" onClick={() => setAdding(true)}>
             + Add source
@@ -129,7 +190,7 @@ export function SourcesPanel({ state, run, onMessage }: { state: State; run: Run
   )
 }
 
-function AddSource({ run, onDone }: { run: Run; onDone: () => void }) {
+function AddSource({ run, onDone, onConnect }: { run: Run; onDone: () => void; onConnect: (name: string) => void }) {
   const [draft, setDraft] = useState({ name: '', kind: 'database', location: '' })
   const kind = KINDS.find((k) => k.value === draft.kind)!
   return (
@@ -137,6 +198,7 @@ function AddSource({ run, onDone }: { run: Run; onDone: () => void }) {
       className="sources__add"
       onSubmit={async (e) => {
         e.preventDefault()
+        if (draft.kind === 'connect') return onConnect(draft.name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_'))
         if (await run(() => api.addSource({ ...draft, name: draft.name.trim(), location: draft.location.trim() }))) onDone()
       }}
     >
@@ -161,15 +223,17 @@ function AddSource({ run, onDone }: { run: Run; onDone: () => void }) {
           ))}
         </select>
       </label>
-      <label className="row">
-        <span className="row__label">{draft.kind === 'database' ? 'Variable' : draft.kind === 'snowflake' ? 'Database' : 'Path or URL'}</span>
-        <input
-          className="input"
-          placeholder={kind.placeholder}
-          value={draft.location}
-          onChange={(e) => setDraft({ ...draft, location: e.target.value })}
-        />
-      </label>
+      {draft.kind !== 'connect' && (
+        <label className="row">
+          <span className="row__label">{draft.kind === 'database' ? 'Variable' : draft.kind === 'snowflake' ? 'Database' : 'Path or URL'}</span>
+          <input
+            className="input"
+            placeholder={kind.placeholder}
+            value={draft.location}
+            onChange={(e) => setDraft({ ...draft, location: e.target.value })}
+          />
+        </label>
+      )}
       <p className="muted small">{kind.help}</p>
       {['csv', 'excel', 'file'].includes(draft.kind) && (
         <div className="sources__upload">
@@ -192,7 +256,7 @@ function AddSource({ run, onDone }: { run: Run; onDone: () => void }) {
           Cancel
         </button>
         <button type="submit" className="button button--small button--primary" disabled={!draft.name.trim()}>
-          Add source
+          {draft.kind === 'connect' ? 'Next: its connection' : 'Add source'}
         </button>
       </div>
     </form>

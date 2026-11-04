@@ -86,6 +86,28 @@ a list of objects, a single object, or columnar arrays like Open-Meteo's
 `{"time": [...], "temperature_2m": [...]}`. Inferred types are only as good as the sample, so
 use a sample with plenty of rows and check the result.
 
+## Protobuf
+
+```bash
+murakumo import protobuf protos/orders.proto --source events
+murakumo import protobuf protos/orders.proto --source events --message Order --message Refund
+```
+
+Each message type becomes a raw table, its fields columns:
+
+- integers and floats become numbers;
+- `google.protobuf.Timestamp` becomes a timestamp;
+- enums become text;
+- nested messages and maps become `json`;
+- repeated scalars become arrays.
+
+Comments before a message, or before or after a field, become descriptions.
+
+## Fetching the data
+
+Importing reads a source's structure. Fetching its rows (from an API, SFTP, a database or a
+folder, on a schedule) is the source's **connection**: see [stack.md](stack.md).
+
 ## Sources in the manifest
 
 ```yaml
