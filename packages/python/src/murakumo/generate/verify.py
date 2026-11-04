@@ -739,6 +739,7 @@ def build(
     schedule: str | None = None,
     select: str | None = None,
     dbt_vars: dict[str, str] | None = None,
+    load_only: bool = False,
 ) -> BuildResult:
     """Build the project into its real warehouse and keep everything: the raw landing tables
     (created if missing), and every dbt model, snapshot and test in the environment's schemas.
@@ -749,6 +750,7 @@ def build(
     everyone's own (one schema per person, on a shared warehouse). ``schema_prefix`` puts every
     schema beside the environment's own, as a pull request's preview does.
     ``schedule`` builds only what that schedule refreshes, through its dbt selector.
+    ``load_only`` creates and loads the raw tables, and stops before dbt (``murakumo load``).
     """
     warehouse = Warehouse(warehouse or project.manifest.targets.warehouse.type)
     if warehouse not in SUPPORTED:
@@ -833,6 +835,8 @@ def build(
                 return result
             finally:
                 backend.finish_loading()
+            if load_only:
+                return result
             variables = backend.dbt_environment()
             if warehouse is Warehouse.DUCKDB:
                 variables.pop("MURAKUMO_SCHEMA")  # the environment's own schema, as in profiles.yml

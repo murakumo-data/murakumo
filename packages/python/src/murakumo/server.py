@@ -233,6 +233,35 @@ class TimezoneBody(BaseModel):
     timezone: str
 
 
+class StackBody(BaseModel):
+    values: dict[str, str]
+    why: str | None = Field(default=None, max_length=2000)
+
+
+class ConnectionBody(BaseModel):
+    connection: dict[str, Any] | None  # null takes the connection away
+    why: str | None = Field(default=None, max_length=2000)
+
+
+class RequestBody(BaseModel):
+    """A REST request to try: a connection (saved or not) and one of its endpoints."""
+
+    connection: dict[str, Any]
+    endpoint: dict[str, Any]
+
+
+class TableFromRecords(BaseModel):
+    source: str
+    table: str
+    records: list[dict[str, Any]] = Field(max_length=5000)
+    path: str | None = None
+
+
+class DecisionBody(BaseModel):
+    what: str = Field(min_length=1, max_length=500)
+    why: str | None = Field(default=None, max_length=2000)
+
+
 class CIBody(BaseModel):
     provider: str = "github"
     deploy: bool = False
@@ -826,6 +855,153 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             if changed:
                 history.record("settings: " + "; ".join(changed), before, history_module.take(root))
             return {**settings(), "changed": changed, "state": state(root)}
+
+    # The stack, the sources' connections, and the decisions log -----------------------------------
+
+    from murakumo import stack as stack_module
+
+    def loaded() -> Project:
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return project
+
+    def stack_state(project: Project) -> dict[str, Any]:
+        from murakumo.generate.ingestion import connected
+
+        values = stack_module.current(project)
+        return {
+            "parts": [
+                {
+                    "key": p.key,
+                    "title": p.title,
+                    "question": p.question,
+                    "value": values[p.key],
+                    "options": [{"value": v, "label": label} for v, label in p.options.items()],
+                }
+                for p in stack_module.PARTS
+            ],
+            "problems": [{"level": lv, "part": part, "message": m} for lv, part, m in stack_module.check(project)],
+            "sources": [
+                {
+                    "name": d.name,
+                    "connection": d.connection.model_dump(exclude_none=True) if d.connection else None,
+                    "tables": d.tables(),
+                }
+                for d in project.manifest.sources
+            ],
+            "connected": [d.name for d in connected(project)],
+            "environments": project.manifest.targets.names,
+            "decisions": stack_module.decisions(root),
+        }
+
+    @app.get("/api/stack")
+    def get_stack() -> dict[str, Any]:
+        return stack_state(loaded())
+
+    @app.put("/api/stack")
+    def put_stack(body: StackBody) -> dict[str, Any]:
+        """Change parts of the stack (`murakumo stack set`), each recorded in the decisions log; undoable."""
+        with lock:
+            project = loaded()
+            before = history_module.take(root)
+            try:
+                changed = stack_module.set_parts(project, body.values, body.why)
+            except stack_module.StackError as exc:
+                raise HTTPException(400, {"message": str(exc)}) from None
+            if changed:
+                history.record("stack: " + "; ".join(changed), before, history_module.take(root))
+            return {**stack_state(loaded()), "changed": changed, "state": state(root)}
+
+    @app.put("/api/sources/{name}/connection")
+    def put_connection(name: str, body: ConnectionBody) -> dict[str, Any]:
+        """Say how a source's data is fetched (`murakumo source connect`), or stop fetching it."""
+        from murakumo.manifest import SourceDeclaration
+
+        if body.connection is not None:
+            try:
+                SourceDeclaration.model_validate({"name": name, "connection": body.connection})
+            except ValueError as exc:
+                errors = exc.errors() if hasattr(exc, "errors") else [{"loc": (), "msg": str(exc)}]
+                kinds = {"rest", "sftp", "database", "files", "protobuf"}
+                where = ".".join(str(x) for x in errors[0]["loc"][1:] if str(x) not in kinds)
+                message = errors[0]["msg"].removeprefix("Value error, ")
+                raise HTTPException(400, {"message": f"{where}: {message}" if where else message}) from None
+        with lock:
+            project = loaded()
+            before = history_module.take(root)
+            try:
+                what = stack_module.set_connection(project, name, body.connection, body.why)
+            except stack_module.StackError as exc:
+                raise HTTPException(400, {"message": str(exc)}) from None
+            history.record(what, before, history_module.take(root))
+            return {**stack_state(loaded()), "changed": [what], "state": state(root)}
+
+    @app.post("/api/sources/request")
+    def try_request(body: RequestBody) -> dict[str, Any]:
+        """Send one request (its first page) and show what came back, as the extract code would send it.
+        Secrets come from this machine's environment variables, as in a run."""
+        from murakumo import ingest
+        from murakumo.manifest import Endpoint, RestConnection
+
+        try:
+            connection = RestConnection.model_validate({**body.connection, "endpoints": []}).model_dump(
+                exclude_none=True
+            )
+            endpoint = Endpoint.model_validate(body.endpoint).model_dump(exclude_none=True)
+        except ValueError as exc:
+            raise HTTPException(400, {"message": " ".join(str(exc).split())[:300]}) from None
+        try:
+            return ingest.preview(connection, endpoint)
+        except ingest.IngestError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/sources/{name}/test")
+    def test_source(name: str) -> dict[str, Any]:
+        """Check a source's connection without landing anything (`murakumo source test`)."""
+        from murakumo import ingest
+
+        try:
+            return {"lines": ingest.test(loaded(), name)}
+        except ingest.IngestError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/sources/table-from-records")
+    def table_from_records(body: TableFromRecords, rev: Revision = None) -> dict[str, Any]:
+        """Make (or update) a raw table from records a request returned: its columns and their types."""
+        from murakumo.importers.api import import_records
+        from murakumo.importers.base import merge, safe_name
+
+        if not body.records:
+            raise HTTPException(400, {"message": "the response had no records to make a table from"})
+        reports: list[dict[str, Any]] = []
+
+        def action(project: Project) -> None:
+            imported = import_records(body.records, safe_name(body.source, "source"), body.table, path=body.path)
+            report = merge(project, imported)
+            reports.append({"added": report.added, "changed": report.changed})
+
+        return {**change(action, rev), "reports": reports}
+
+    @app.get("/api/stack/deploy")
+    def get_deploy(env: str) -> dict[str, Any]:
+        """The steps to deploy an environment (`murakumo stack deploy`): nothing runs from here."""
+        from murakumo import deploy
+
+        try:
+            return {"steps": [s.as_dict() for s in deploy.plan(loaded(), env)]}
+        except deploy.DeployError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.get("/api/decisions")
+    def get_decisions() -> dict[str, Any]:
+        return {"decisions": stack_module.decisions(root)}
+
+    @app.post("/api/decisions")
+    def add_decision(body: DecisionBody) -> dict[str, Any]:
+        with lock:
+            stack_module.record(root, body.what, why=body.why)
+        return {"decisions": stack_module.decisions(root)}
 
     @app.get("/api/env/provision")
     def get_provision() -> dict[str, str]:

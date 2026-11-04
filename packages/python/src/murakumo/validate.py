@@ -197,6 +197,29 @@ def validate_project(project: Project) -> list[Diagnostic]:
     for code, level, message in schedule_problems(project):
         out.append((error if level == "error" else warning)(code, message, manifest_file, "orchestration"))
 
+    # The stack ----------------------------------------------------------------------------------
+
+    from murakumo.stack import check as stack_check
+
+    for level, part, message in stack_check(project):
+        if level == "error":
+            out.append(error("MK701", message, manifest_file, f"stack.{part}"))
+        elif "is not a raw table" in message:
+            out.append(warning("MK702", message, manifest_file, "sources"))
+    warehouse = manifest.targets.warehouse
+    if warehouse.type.value == "snowflake":
+        for layer, days in warehouse.time_travel_days.items():
+            if layer in warehouse.transient_layers and days > 1:
+                out.append(
+                    warning(
+                        "MK703",
+                        f"{layer} tables are transient, which keep at most 1 day of time travel, not {days}: "
+                        f"take {layer} out of transient_layers, or set its days to 0 or 1",
+                        manifest_file,
+                        "targets.warehouse",
+                    )
+                )
+
     # Metrics ------------------------------------------------------------------------------------
 
     for metric in model.metrics:

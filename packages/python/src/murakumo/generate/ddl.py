@@ -61,10 +61,13 @@ class DDL:
         columns: list[tuple[str, str, bool, str | None]],
         constraints: list[str],
         name: str | None = None,
+        retention: int | None = None,
     ) -> str:
         table = f"{self.q(schema)}.{self.q(name or entity.name)}"
         lines = [self.column(*c) for c in columns] + [f"    {c}" for c in constraints]
         sql = f"CREATE TABLE IF NOT EXISTS {table} (\n" + ",\n".join(lines) + "\n)"
+        if retention is not None and self.warehouse is Warehouse.SNOWFLAKE:
+            sql += f"\nDATA_RETENTION_TIME_IN_DAYS = {retention}"
         if entity.description and self.warehouse is Warehouse.DATABRICKS:
             sql += f"\nCOMMENT '{_comment(entity.description, True)}'"
         if entity.description and self.warehouse is Warehouse.BIGQUERY:
@@ -103,7 +106,9 @@ class DDL:
                     (name, self.target.physical(parse_type(logical)), True, "Written by ingestion.")
                     for name, logical in LANDING_COLUMNS.items()
                 ]
-                out.append("\n" + self.table(self.single or self.prefix + group.schema, entity, columns, []))
+                retention = self.plan.project.manifest.targets.warehouse.time_travel_days.get("raw")
+                schema = self.single or self.prefix + group.schema
+                out.append("\n" + self.table(schema, entity, columns, [], retention=retention))
         return "".join(out)
 
     def key_suffix(self) -> str:

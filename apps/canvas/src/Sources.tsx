@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { api, ApiError, type BrowseSchema, type ImportReport, type SourceInfo, type State } from './api'
+import { api, ApiError, type BrowseSchema, type Connection, type ImportReport, type SourceInfo, type State } from './api'
 import { UploadButton } from './Build'
+import { ConnectionEditor } from './Connection'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
 
@@ -34,11 +35,49 @@ const KINDS: { value: string; label: string; placeholder: string; help: string }
 
 const browsable = (s: SourceInfo) => s.kind === 'database' || s.kind === 'snowflake'
 
-type View = { kind: 'list' } | { kind: 'browse'; source: SourceInfo } | { kind: 'reimport'; source: SourceInfo }
+type View =
+  | { kind: 'list' }
+  | { kind: 'browse'; source: SourceInfo }
+  | { kind: 'reimport'; source: SourceInfo }
+  | { kind: 'connect'; name: string }
 
-export function SourcesPanel({ state, run, onMessage }: { state: State; run: Run; onMessage: (text: string) => void }) {
+export function SourcesPanel({
+  state,
+  run,
+  onMessage,
+  startJob,
+}: {
+  state: State
+  run: Run
+  onMessage: (text: string) => void
+  startJob: (kind: string, options?: Record<string, unknown>) => Promise<unknown>
+}) {
   const [view, setView] = useState<View>({ kind: 'list' })
   const [adding, setAdding] = useState(false)
+  // How each source's data is fetched (its connection, in murakumo.yaml), read with the stack.
+  const [connections, setConnections] = useState<Record<string, Connection | null>>({})
+  useEffect(() => {
+    api.stack().then(
+      (info) => setConnections(Object.fromEntries(info.sources.map((s) => [s.name, s.connection]))),
+      () => {},
+    )
+  }, [state.revision, view.kind])
+
+  if (view.kind === 'connect') {
+    const tables = (state.model?.entities ?? []).filter((e) => e.layer === 'raw' && e.source === view.name).map((e) => e.name)
+    return (
+      <ConnectionEditor
+        key={view.name}
+        source={view.name}
+        initial={connections[view.name] ?? null}
+        tables={tables}
+        run={run}
+        startJob={startJob}
+        onBack={() => setView({ kind: 'list' })}
+        onMessage={onMessage}
+      />
+    )
+  }
 
   if (view.kind === 'browse') {
     return <Browser source={view.source} run={run} onBack={() => setView({ kind: 'list' })} onMessage={onMessage} />
@@ -95,23 +134,32 @@ export function SourcesPanel({ state, run, onMessage }: { state: State; run: Run
             </div>
             {s.from ? (
               <code className="sources__from">{s.from}</code>
-            ) : (
+            ) : connections[s.name] ? null : (
               <span className="muted small">No from: line, so it is edited by hand or with the CLI.</span>
             )}
             {s.updated && (
               <span className="muted small">Updated {new Date(s.updated).toLocaleString()}</span>
             )}
-            {state.editable && s.from && (
+            {connections[s.name] ? (
+              <span className="small">
+                Fetched by Murakumo: <span className="badge badge--neutral">{connections[s.name]!.kind}</span>
+              </span>
+            ) : null}
+            {state.editable && (
               <div className="sources__actions">
-                {browsable(s) ? (
-                  <button className="button button--small" onClick={() => setView({ kind: 'browse', source: s })}>
-                    Browse tables
-                  </button>
-                ) : (
-                  <button className="button button--small" onClick={() => setView({ kind: 'reimport', source: s })}>
-                    Re-import
-                  </button>
-                )}
+                <button className="button button--small" onClick={() => setView({ kind: 'connect', name: s.name })}>
+                  {connections[s.name] ? 'Connection' : 'Connect…'}
+                </button>
+                {s.from &&
+                  (browsable(s) ? (
+                    <button className="button button--small" onClick={() => setView({ kind: 'browse', source: s })}>
+                      Browse tables
+                    </button>
+                  ) : (
+                    <button className="button button--small" onClick={() => setView({ kind: 'reimport', source: s })}>
+                      Re-import
+                    </button>
+                  ))}
               </div>
             )}
           </li>

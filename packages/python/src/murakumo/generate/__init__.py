@@ -15,7 +15,7 @@ from uuid import UUID
 
 from murakumo import __version__
 from murakumo.diagnostics import Diagnostic
-from murakumo.generate import dbt, ddl, docs, orchestration
+from murakumo.generate import dbt, ddl, docs, ingestion, orchestration
 from murakumo.generate.plan import Plan, build_plan
 from murakumo.generate.targets import Target, target_for
 from murakumo.ir.model import Entity, Layer
@@ -47,6 +47,7 @@ def generate(project: Project, warehouse: Warehouse | str | None = None) -> Outp
     output.files["dbt/selectors.yml"] = dbt.selectors(project, plan)
     for path, content in orchestration.render(project, plan).items():
         output.files[path] = content
+    output.files.update(ingestion.render(project, plan))
     engine = project.manifest.generation.python_engine
     if engine != "none":
         from murakumo.generate import python

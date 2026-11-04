@@ -210,7 +210,13 @@ def import_json(location: str, source: str, name: str, path: str | None = None) 
         data = json.loads(fetch(location))
     except json.JSONDecodeError as exc:
         raise ValueError(f"{location} is not JSON: {exc.msg} at line {exc.lineno}") from None
-    rows = records_at(data, path)
+    return import_records(records_at(data, path), source, name, location.split("?", 1)[0], path)
+
+
+def import_records(
+    rows: list[dict], source: str, name: str, sample: str | None = None, path: str | None = None
+) -> SourceImport:
+    """Infer one entity from records already fetched (a response tried in the canvas, say)."""
     columns: dict[str, list[Any]] = {}
     for row in rows:
         for key in row:
@@ -229,7 +235,7 @@ def import_json(location: str, source: str, name: str, path: str | None = None) 
         for key, values in columns.items()
     ]
     result = SourceImport(source=SourceSystem(name=source, type=SourceType.API), partial=True)
-    properties: dict[str, Any] = {"sample": location.split("?", 1)[0]}
+    properties: dict[str, Any] = {"sample": sample} if sample else {}
     if path:
         properties["records_path"] = path
     result.entities.append(

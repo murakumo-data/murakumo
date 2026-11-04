@@ -71,6 +71,43 @@ export type SourceInfo = {
   updated: string | null
 }
 
+export type StackPart = {
+  key: string
+  title: string
+  question: string
+  value: string
+  options: { value: string; label: string }[] // empty: free text (landing)
+}
+export type Decision = { at: string; by?: string; what: string; from?: string | null; to?: string | null; why?: string }
+// A source's connection, as murakumo.yaml holds it: kind, then that kind's settings.
+export type Connection = { kind: string; [key: string]: unknown }
+export type StackInfo = {
+  parts: StackPart[]
+  problems: { level: 'error' | 'warning'; part: string; message: string }[]
+  sources: { name: string; connection: Connection | null; tables: string[] }[]
+  connected: string[]
+  environments: string[]
+  decisions: Decision[]
+  changed?: string[]
+  state?: State
+}
+export type RequestResult = {
+  status: number
+  milliseconds: number
+  headers: Record<string, string>
+  records: number
+  sample: Record<string, unknown>[]
+  response: unknown
+}
+export type DeployStep = {
+  key: string
+  title: string
+  why: string
+  kind: 'sql' | 'file' | 'commands'
+  content: string
+  role: string | null
+}
+
 export type BrowseSchema = {
   name: string
   tables: {
@@ -546,6 +583,23 @@ export const api = {
   entityCode: (id: string) => request<EntityCode>('GET', `/entities/${id}/code`, undefined, false),
   generate: () => request<Generated>('POST', '/generate', undefined, false),
   writeMigration: (name: string | null) => request<Generated>('POST', '/migrations', { name }, false),
+
+  stack: () => request<StackInfo>('GET', '/stack', undefined, false),
+  saveStack: (values: Record<string, string>, why: string | null) =>
+    request<StackInfo>('PUT', '/stack', { values, why }, false),
+  saveConnection: (name: string, connection: Connection | null, why: string | null) =>
+    request<StackInfo>('PUT', `/sources/${encodeURIComponent(name)}/connection`, { connection, why }, false),
+  tryRequest: (connection: Connection, endpoint: Record<string, unknown>) =>
+    request<RequestResult>('POST', '/sources/request', { connection, endpoint }, false),
+  testSource: (name: string) =>
+    request<{ lines: string[] }>('POST', `/sources/${encodeURIComponent(name)}/test`, undefined, false),
+  tableFromRecords: (body: { source: string; table: string; records: Record<string, unknown>[]; path?: string | null }) =>
+    request<State>('POST', '/sources/table-from-records', body),
+  deployPlan: (env: string) =>
+    request<{ steps: DeployStep[] }>('GET', `/stack/deploy?env=${encodeURIComponent(env)}`, undefined, false),
+  decisions: () => request<{ decisions: Decision[] }>('GET', '/decisions', undefined, false),
+  addDecision: (what: string, why: string | null) =>
+    request<{ decisions: Decision[] }>('POST', '/decisions', { what, why }, false),
 }
 
 /** What an edit would reach, without making it: the edit is sent as a preview. */

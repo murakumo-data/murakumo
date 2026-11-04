@@ -33,6 +33,7 @@ ENTITIES_DIR = f"{MODEL_DIR}/entities"
 RELATIONSHIPS_FILE = f"{MODEL_DIR}/relationships.yaml"
 METRICS_FILE = f"{MODEL_DIR}/metrics.yaml"
 LAYOUT_FILE = f"{MODEL_DIR}/layout.yaml"
+DECISIONS_FILE = f"{MODEL_DIR}/decisions.yaml"
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -197,7 +198,7 @@ def load_project(root: Path) -> LoadResult:
             missing += file_missing
 
     model_dir = root / MODEL_DIR
-    known = {root / RELATIONSHIPS_FILE, root / METRICS_FILE, root / LAYOUT_FILE}
+    known = {root / RELATIONSHIPS_FILE, root / METRICS_FILE, root / LAYOUT_FILE, root / DECISIONS_FILE}
     for path in sorted(model_dir.rglob("*.yml")) if model_dir.is_dir() else []:
         diagnostics.append(warning("MK004", "ignored: model files must end in .yaml", path))
     for path in sorted(model_dir.glob("*.yaml")) if model_dir.is_dir() else []:
