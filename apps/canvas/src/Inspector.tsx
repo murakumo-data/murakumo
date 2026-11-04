@@ -171,6 +171,26 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
             onSave={(source) => save({ source })}
           />
         </Row>
+        {entity.layer === 'raw' && (
+          <Row label="New rows">
+            <SelectField
+              label="How new rows are taken"
+              value={entity.load}
+              options={['append', 'incremental', 'full']}
+              disabled={disabled}
+              onSave={(load) => load && save({ load })}
+            />
+          </Row>
+        )}
+        {entity.layer === 'raw' && (
+          <p className="muted small inspector__hint">
+            {entity.load === 'full'
+              ? 'Each load replaces the table with every file given (once any changed).'
+              : entity.load === 'incremental'
+                ? `New rows replace the rows with the same key${entity.watermark ? `, the latest by ${entity.watermark} kept` : ', the latest kept'}.`
+                : 'New files are added; a file already loaded is skipped.'}
+          </p>
+        )}
         <Row label="Domain">
           <SelectField
             label="Domain"

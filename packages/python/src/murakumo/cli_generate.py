@@ -142,9 +142,18 @@ def _data_files(project, data: list[str] | None) -> dict[str, str]:
 
 
 def _report(result, files: dict[str, str]) -> None:
+    for table, (new, known) in sorted(getattr(result, "files", {}).items()):
+        if not new:
+            console.print(f"  {table}: nothing new ({known} file(s) already loaded)")
     for table, count in sorted(result.loaded.items()):
         source = {k.lower(): v for k, v in files.items()}.get(table.lower())
+        new, known = getattr(result, "files", {}).get(table, (0, 0))
+        mode = getattr(result, "modes", {}).get(table)
         how = f"from {source}" if source else "synthetic"
+        if source and (new > 1 or known):
+            how += f": {new} new file(s)" + (f", {known} already loaded" if known else "")
+        if mode and mode != "append":
+            how += f"; {'replaced the table' if mode == 'full' else 'merged by key'}"
         console.print(f"  loaded {table}: {count} rows ({how})")
         refused, why = getattr(result, "rejected", {}).get(table, (0, None))
         if refused:

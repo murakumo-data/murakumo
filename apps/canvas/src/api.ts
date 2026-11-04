@@ -28,6 +28,8 @@ export type Entity = {
   description: string | null
   attributes: Attribute[]
   mappings: Mapping[]
+  load: string // full | append | incremental | cdc | streaming: how a raw table takes new rows
+  watermark: string | null
 }
 
 export type JoinKey = { from: string; to: string }

@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from murakumo import loading
 from murakumo.generate import generate
 from murakumo.generate.ddl import DDL
 from murakumo.generate.plan import quote_identifier
@@ -122,7 +123,8 @@ class DuckDBBackend:
         )
         return len(rows)
 
-    def load_location(self, schema: str, entity: Entity, location: str, limit: int | None) -> int:
+    def load_location(self, schema: str, entity: Entity, location: str, limit: int | None, mode: str = "append") -> int:
+        """Load a file: its rows added (append), or merged by key, the latest of each kept (incremental)."""
         if location.startswith("snowflake:"):
             raise LoadError(f"{entity.name}: Snowflake tables can only be loaded with --warehouse snowflake")
         check_columns(entity, location)
@@ -131,7 +133,7 @@ class DuckDBBackend:
         columns = ", ".join(quote_identifier(a.name, "duckdb") for a in entity.attributes)
         limit_sql = f" limit {int(limit)}" if limit else ""
         table = self.table(schema, entity)
-        before = self.rows_in(schema, entity)
+        new = f"murakumo_new_{entity.name.lower()}"
         # CSV rows DuckDB cannot read are set aside and counted, instead of failing the whole load.
         rejects = f"murakumo_rejects_{entity.name.lower()}"
         duck = target_for(Warehouse.DUCKDB)
@@ -140,18 +142,46 @@ class DuckDBBackend:
             f", types = {{{types}}}, store_rejects = true, rejects_table = '{rejects}', rejects_scan = '{rejects}_scan'"
         )
         self.connection.execute(
-            f"insert into {table} ({columns}, _ingested_at, _batch_id) "
-            f"select {columns}, now(), '{self.batch}' from {reader}(?{options if fmt == 'csv' else ''}){limit_sql}",
+            f"create or replace temp table {new} as select {columns}, now() as _ingested_at, "
+            f"'{self.batch}' as _batch_id from {reader}(?{options if fmt == 'csv' else ''}){limit_sql}",
             [location],
         )
+        arrived = self.connection.execute(f"select count(*) from {new}").fetchone()[0]
+        key = [quote_identifier(k, "duckdb") for k in loading.keys(entity)]
+        if mode == "incremental" and key:
+            latest = quote_identifier(entity.watermark, "duckdb") if entity.watermark else "_ingested_at"
+            listed = ", ".join(key)
+            self.connection.execute(f"delete from {table} where ({listed}) in (select {listed} from {new})")
+            self.connection.execute(
+                f"insert into {table} ({columns}, _ingested_at, _batch_id) select {columns}, _ingested_at, _batch_id "
+                f"from {new} qualify row_number() over (partition by {listed} order by {latest} desc nulls last) = 1"
+            )
+        else:
+            self.connection.execute(
+                f"insert into {table} ({columns}, _ingested_at, _batch_id) "
+                f"select {columns}, _ingested_at, _batch_id from {new}"
+            )
+        self.connection.execute(f"drop table {new}")
         after = self.rows_in(schema, entity)
         rejected, reason = 0, None
         if fmt == "csv":
             rejected, reason = self.connection.execute(
                 f"select count(*), any_value(error_type || ': ' || coalesce(error_message, '')) from {rejects}"
             ).fetchone()
-        self.last_load = (after - before, rejected, reason)
+        self.last_load = (arrived, rejected, reason)
         return after
+
+    def truncate(self, schema: str, entity: Entity) -> None:
+        self.connection.execute(f"delete from {self.table(schema, entity)}")
+
+    def loaded_shas(self, audit: str, table: str) -> set[str]:
+        """The files already loaded into a table, by content."""
+        self.run_ddl(loading.loaded_files_sql("duckdb", audit))
+        rows = self.connection.execute(f"select sha256 from {audit}.loaded_files where table_name = ?", [table])
+        return {r[0] for r in rows.fetchall()}
+
+    def record_file(self, audit: str, table: str, path: str, size: int, sha: str, rows: int) -> None:
+        self.run_ddl(loading.record_file_sql(audit, table, path, size, sha, rows, self.batch))
 
     def rows_in(self, schema: str, entity: Entity) -> int:
         return self.connection.execute(f"select count(*) from {self.table(schema, entity)}").fetchone()[0]
@@ -258,7 +288,62 @@ class SnowflakeBackend:
         finally:
             path.unlink(missing_ok=True)
 
-    def load_location(self, schema: str, entity: Entity, location: str, limit: int | None) -> int:
+    def load_location(self, schema: str, entity: Entity, location: str, limit: int | None, mode: str = "append") -> int:
+        before = self.rows_in(schema, entity)
+        total = self._load_location(schema, entity, location, limit)
+        if mode == "incremental" and loading.keys(entity):
+            self._merge_by_key(schema, entity)
+            arrived = self._batch_rows(schema, entity)
+        else:
+            arrived = max(total - before, 0)
+        self.last_load = (arrived, 0, None)
+        return self.rows_in(schema, entity)
+
+    def _batch_rows(self, schema: str, entity: Entity) -> int:
+        cursor = self.connection.cursor()
+        try:
+            return cursor.execute(
+                f"select count(*) from {self.table(schema, entity)} where _batch_id = '{self.batch}'"
+            ).fetchone()[0]
+        finally:
+            cursor.close()
+
+    def _merge_by_key(self, schema: str, entity: Entity) -> None:
+        """This batch's rows replace older rows with the same key; within it, the latest of each key."""
+        table = self.table(schema, entity)
+        listed = ", ".join(quote_identifier(k, "snowflake") for k in loading.keys(entity))
+        latest = quote_identifier(entity.watermark, "snowflake") if entity.watermark else "_ingested_at"
+        keep = f"{quote_identifier(schema, 'snowflake')}.murakumo_keep_{entity.name.lower()}"
+        batch = f"_batch_id = '{self.batch}'"
+        for statement in (
+            f"delete from {table} where _batch_id <> '{self.batch}' and ({listed}) in "
+            f"(select {listed} from {table} where {batch})",
+            f"create or replace temporary table {keep} as select * from {table} where {batch} "
+            f"qualify row_number() over (partition by {listed} order by {latest} desc nulls last) = 1",
+            f"delete from {table} where {batch}",
+            f"insert into {table} select * from {keep}",
+            f"drop table {keep}",
+        ):
+            self.run_ddl(statement)
+
+    def truncate(self, schema: str, entity: Entity) -> None:
+        self.run_ddl(f"truncate table {self.table(schema, entity)}")
+
+    def loaded_shas(self, audit: str, table: str) -> set[str]:
+        self.run_ddl(loading.loaded_files_sql("snowflake", f"{self.database}.{audit}"))
+        cursor = self.connection.cursor()
+        try:
+            rows = cursor.execute(
+                f"select sha256 from {self.database}.{audit}.loaded_files where table_name = %s", (table,)
+            ).fetchall()
+            return {r[0] for r in rows}
+        finally:
+            cursor.close()
+
+    def record_file(self, audit: str, table: str, path: str, size: int, sha: str, rows: int) -> None:
+        self.run_ddl(loading.record_file_sql(f"{self.database}.{audit}", table, path, size, sha, rows, self.batch))
+
+    def _load_location(self, schema: str, entity: Entity, location: str, limit: int | None) -> int:
         limit_sql = f" limit {int(limit)}" if limit else ""
         if location.startswith("snowflake:"):
             source = location.removeprefix("snowflake:")
@@ -566,6 +651,41 @@ def verify(
 @dataclass
 class BuildResult(VerifyResult):
     skipped: list[str] = field(default_factory=list)  # raw tables that already had rows, so got no sample
+    files: dict[str, tuple[int, int]] = field(default_factory=dict)  # raw table -> (files loaded, already loaded)
+    modes: dict[str, str] = field(default_factory=dict)  # raw table -> how it took the new rows
+
+
+def _load_new_files(backend, schema: str, audit: str, entity: Entity, location: str, limit, result) -> tuple | None:
+    """Load what is new in a location into a raw table, the table's way (full, append, incremental).
+
+    Returns the counts to record (rows that arrived, rejected, why), or None when nothing was new."""
+    mode = loading.mode(entity)
+    result.modes[entity.name] = mode
+    files = loading.expand(location)
+    if not files:
+        raise LoadError(f"{entity.name}: no data files in {location}")
+    known = backend.loaded_shas(audit, entity.name)
+    seen = [(f, None if loading.remote(f) else loading.fingerprint(f)) for f in files]
+    new = [(f, sha) for f, sha in seen if sha is None or sha not in known]
+    result.files[entity.name] = (len(new), len(seen) - len(new))
+    if not new:
+        return None
+    if mode == "full":
+        backend.truncate(schema, entity)
+        new = seen  # a full load is every file given, once anything changed
+    arrived, rejected, reasons = 0, 0, []
+    for path, sha in new:
+        backend.last_load = None
+        backend.load_location(schema, entity, path, limit, mode)
+        rows, refused, why = backend.last_load or (0, 0, None)
+        arrived, rejected = arrived + rows, rejected + refused
+        if why:
+            reasons.append(why)
+        if sha is not None:
+            backend.record_file(audit, entity.name, path, Path(path).stat().st_size, sha, rows)
+    if rejected:
+        result.rejected[entity.name] = (rejected, reasons[0] if reasons else None)
+    return arrived, rejected, reasons[0] if reasons else None
 
 
 def _duckdb_path(project: Project, database: str | None = None) -> Path:
@@ -661,6 +781,7 @@ def build(
                 raw = [e for e in project.model.entities if e.layer is Layer.RAW]
                 synthetic = sample_rows(project.model, raw, rows=sample) if sample else {}
                 planned = {t.entity.name: g.schema for g in output.plan.sources for t in g.tables}
+                audit = placement.schema("audit")
                 for entity in raw:
                     schema = placement.schema(planned[entity.name])
                     key = entity.name.lower()
@@ -668,7 +789,11 @@ def build(
                     before = backend.rows_in(schema, entity)
                     backend.last_load = None
                     if location:
-                        result.loaded[entity.name] = backend.load_location(schema, entity, location, limit)
+                        loaded = _load_new_files(backend, schema, audit, entity, location, limit, result)
+                        if loaded is None:
+                            continue  # nothing new in it
+                        backend.last_load = loaded
+                        result.loaded[entity.name] = loaded[0]  # the rows that arrived
                     elif sample and before == 0:
                         result.loaded[entity.name] = backend.load_rows(schema, entity, synthetic[entity.name])
                     elif sample:

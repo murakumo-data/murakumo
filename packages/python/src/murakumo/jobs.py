@@ -71,9 +71,15 @@ def _data(root: Path, options: dict[str, Any], args: list[str]) -> None:
     """Raw tables read from files: {table: path}, each path inside the project folder."""
     for table, path in (options.get("data") or {}).items():
         _name(table, "a raw table")
-        full = (root / str(path)).resolve()
-        if not full.is_relative_to(root.resolve()) or not full.is_file():
-            raise JobError(f"{path} is not a file in the project")
+        text = str(path)
+        if any(c in text for c in "*?["):  # a glob: every new file it matches, inside the project
+            if ".." in text or text.startswith("/") or not re.fullmatch(r"[\w./*?\[\]-]+", text):
+                raise JobError(f"{path} is not a pattern inside the project")
+            args += ["--data", f"{table}={text}"]
+            continue
+        full = (root / text).resolve()
+        if not full.is_relative_to(root.resolve()) or not (full.is_file() or full.is_dir()):
+            raise JobError(f"{path} is not a file or folder in the project")
         args += ["--data", f"{table}={full.relative_to(root.resolve())}"]
 
 

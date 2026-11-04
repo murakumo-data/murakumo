@@ -3679,3 +3679,4 @@ button.tree-row__label:not(:disabled) {
   margin: 0;
   overflow: auto;
 }
+.inspector__hint { margin: -4px 0 6px; }

@@ -126,6 +126,7 @@ export function BuildDialog(props: {
                 }}
               >
                 <option value="">What is already loaded</option>
+                <option value={`data/${table.name}*`}>Every new file in data/ starting with {table.name}</option>
                 {files.map((f) => (
                   <option key={f.path} value={f.path}>
                     {f.name} ({size(f.size)})
