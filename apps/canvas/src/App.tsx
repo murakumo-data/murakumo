@@ -62,6 +62,7 @@ import { BulkBar } from './BulkBar'
 import { DiagramTabs } from './Diagrams'
 import { EntityNode, tableHandle, type EntityNodeType } from './EntityNode'
 import { Explorer } from './Explorer'
+import { Shortcuts, Tour } from './Help'
 import { EntityPanel, RelationshipPanel } from './Inspector'
 import {
   domainColour,
@@ -202,7 +203,9 @@ function Canvas() {
   const tableNodes = useMemo(() => nodes.filter(isTable), [nodes])
   const [diagram, setDiagram] = useState<string | null>(() => recall('murakumo.diagram') || null)
   const [labelFilter, setLabelFilter] = useState<string | null>(null)
-  const [menu, setMenu] = useState<'arrange' | 'export' | null>(null)
+  const [menu, setMenu] = useState<'arrange' | 'export' | 'help' | null>(null)
+  const [shortcuts, setShortcuts] = useState(false)
+  const [touring, setTouring] = useState(false)
   const canvasRef = useRef<State['canvas']>({})
   const addNoteRef = useRef<() => void>(() => {})
   const busy = useRef(0)
@@ -278,6 +281,12 @@ function Canvas() {
     load()
   }, [load])
 
+  // The first time the canvas opens, a short tour; the help button starts it again.
+  const loaded = state !== null
+  useEffect(() => {
+    if (loaded && recall('murakumo.toured') === null) setTouring(true)
+  }, [loaded])
+
   // The theme: the system's, or light or dark as chosen, for the page and the canvas.
   useEffect(() => {
     if (theme === 'system') document.documentElement.removeAttribute('data-theme')
@@ -297,7 +306,7 @@ function Canvas() {
   // Inside a text field, keys stay the field's own.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
+      const target = event.target instanceof HTMLElement ? event.target : null
       if (target && (target.closest('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)) return
       const key = event.key.toLowerCase()
       if ((event.metaKey || event.ctrlKey) && key === 'k') {
@@ -306,6 +315,11 @@ function Canvas() {
         return
       }
       if (document.querySelector('.dialog-backdrop')) return
+      if (event.key === '?' || (event.key === '/' && event.shiftKey)) {
+        event.preventDefault()
+        setShortcuts(true)
+        return
+      }
       if (!event.metaKey && !event.ctrlKey && !event.altKey && editable.current) {
         if (key === 't') {
           event.preventDefault()
@@ -1082,9 +1096,24 @@ function Canvas() {
             <RailButton label={`Theme: ${theme}`} onClick={cycleTheme}>
               {theme === 'dark' ? <Moon size={18} /> : theme === 'light' ? <Sun size={18} /> : <SunMoon size={18} />}
             </RailButton>
-            <RailButton label="Notation and tips" active={legend} onClick={() => setLegend(!legend)}>
-              <CircleHelp size={18} />
-            </RailButton>
+            <span className="popover-anchor">
+              <RailButton label="Help" active={menu === 'help' || legend} onClick={() => setMenu(menu === 'help' ? null : 'help')}>
+                <CircleHelp size={18} />
+              </RailButton>
+              {menu === 'help' && (
+                <div className="popover popover--side popover--up" role="menu">
+                  <button className="menu-item" role="menuitem" onClick={() => { setMenu(null); setTouring(true) }}>
+                    Tour of the canvas
+                  </button>
+                  <button className="menu-item" role="menuitem" onClick={() => { setMenu(null); setShortcuts(true) }}>
+                    Keyboard shortcuts <kbd className="kbd">?</kbd>
+                  </button>
+                  <button className="menu-item" role="menuitem" onClick={() => { setMenu(null); setLegend(!legend) }}>
+                    Notation and tips
+                  </button>
+                </div>
+              )}
+            </span>
           </div>
         </nav>
 
@@ -1329,6 +1358,15 @@ function Canvas() {
             focus(hit.entity)
             const column = hit.column && hit.entity.attributes.find((a) => a.name === hit.column)
             if (column) setFlash({ entity: hit.entity.id, column: column.id })
+          }}
+        />
+      )}
+      {shortcuts && <Shortcuts onClose={() => setShortcuts(false)} />}
+      {touring && (
+        <Tour
+          onClose={() => {
+            remember('murakumo.toured', '1')
+            setTouring(false)
           }}
         />
       )}

@@ -3015,3 +3015,72 @@ button.tree-row__label:not(:disabled) {
 .picker__item--have {
   opacity: 0.55;
 }
+
+/* Help ---------------------------------------------------------------------------------------- */
+
+.popover--up {
+  top: auto;
+  bottom: 0;
+}
+
+.shortcuts {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.shortcuts__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.shortcuts__row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.shortcuts__row dd {
+  margin: 0;
+}
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.tour__spotlight {
+  position: fixed;
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  outline: 200vmax solid rgb(0 0 0 / 35%); /* dims everything around the spotlight */
+  pointer-events: none;
+  transition: all 0.2s ease;
+}
+
+.tour__card {
+  position: fixed;
+  width: 320px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow), 0 16px 40px rgb(0 0 0 / 20%);
+}
+
+.tour__card h3 {
+  margin: 2px 0 6px;
+  font-size: 15px;
+}
+
+.tour__card p {
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour__spotlight {
+    transition: none;
+  }
+}
