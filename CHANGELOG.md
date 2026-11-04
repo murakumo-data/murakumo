@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 (unreleased)
+## 0.5.0 (2026-11-04)
 
 A canvas made for large models, modelled on dedicated data-modelling tools: undo, an Explorer,
 view modes, colour labels, notes, diagrams, auto-layout and export, and the fixes from the 0.4
