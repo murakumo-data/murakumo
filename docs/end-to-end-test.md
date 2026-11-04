@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.5.0
+# End-to-end test: Murakumo 0.6.0
 
-A step-by-step test of Murakumo 0.5.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 0.6.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -119,10 +119,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.5.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 0.6.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.5.0.
+☐ Version 0.6.0.
 
 ---
 
@@ -250,6 +250,10 @@ murakumo setup
 You should see sections for **Tools** (Python, the canvas), **Warehouse: duckdb** (dbt and
 dbt-duckdb installed; *DuckDB runs locally: no account or credentials needed*), **Orchestrator**
 and **Project**, ending with `Ready to build.`
+
+**In the canvas** (once it is open, in Part 5): the gear at the bottom of the rail opens
+**Settings**. **This machine** shows the same checklist, with **Test the connections**; **Project**
+changes the warehouse, orchestrator, modelling pattern and the rest, as `murakumo config` does.
 
 ☐ `Ready to build.`
 
@@ -798,6 +802,11 @@ You should see two new tables, `weather_daily` and `weather_hourly`, and
 needs a watermark column to know what is new*. The canvas shows a new raw group with two tables
 and the yellow **2 warnings** chip.
 
+**In the canvas**, instead: **Sources** → **+ Add source**, Kind **Data dictionary (Excel)**, then
+**Choose a file from this computer…** and pick the downloaded file. It is copied into `data/` (which
+git ignores) and the name and path fill themselves in; **Add source**, then **Re-import** →
+**Preview import** → **Import into the model**.
+
 ☐ Two weather tables and two MK308 warnings.
 
 ---
@@ -863,6 +872,10 @@ verified: ... models and snapshots built, N/N tests passed, incremental rebuild 
 ```
 
 The two numbers in `N/N` must be the same.
+
+**In the canvas**: the pulse icon on the rail opens **Activity**; **Verify** runs the same command,
+and its output appears as it comes. The command is shown above the output, to copy into a
+terminal.
 
 ☐ All tests passed.
 
@@ -949,6 +962,11 @@ You should see schemas `raw_nyc_tlc`, `raw_open_meteo`, `staging` and `marts` wi
 and about 2.9 million rows in `fct_trip`. Running `build` again without `--data` rebuilds the
 models on the rows already landed; it never deletes them.
 
+**In the canvas**: **Activity** → **Build…**. **Add a file…** adds each downloaded file (they go to
+`data/`); pick each raw table's file in its list, leave **Made-up rows** at 0, and click **Build**.
+The dialog shows the same `murakumo build --data ...` command. Rows a file could not fit into the
+model's types are reported as rejected, with why.
+
 ☐ The tables are there to query.
 
 **13.5 Browse a database from the canvas.** The project's DuckDB file is a database like any
@@ -1022,6 +1040,12 @@ murakumo build --schedule zones
 You should see the two schedules with their next runs, then a build of only the zone tables:
 `built: 2 models and snapshots, N/N tests passed`.
 
+**The evidence a schedule ran.** In the Schedules panel each schedule now says when it last ran
+here, and how it ended. Click **Run now** on `nightly`: **Activity** shows `murakumo build
+--schedule nightly` running; when it ends, `nightly` says *Last ran ...: succeeded*, and the clock
+icon's **Runs** panel lists the run with its schedule. (An orchestrator's runs record themselves
+the same way, in the warehouse's audit tables.)
+
 ☐ Schedules are added on the canvas, listed in the terminal, and one builds on its own.
 
 **14.3 Pipelines.** Click the blue **N files to write** chip and write the files (the schedules
@@ -1080,6 +1104,8 @@ cat export/sql/duckdb/*fct_trip.sql
 It creates `marts.fct_trip` in full the first time, then adds only trips past the latest
 `pickup_at`, replacing rows with the same `trip_id`. Remove the folder: `rm -rf export`.
 
+**In the canvas**: **Activity** → **Export as plain SQL** writes the same files.
+
 ☐ The project exports as plain SQL.
 
 **14.6 A cumulative table.** A cumulative table keeps each key's whole history, one row per key per
@@ -1114,6 +1140,9 @@ print(con.sql(\"select zone_id, days_active, dates_active[1:3], trips[1:3] from 
 You should see the busiest zones with `days_active` 7, their last three active days, newest first,
 and the trips on each.
 
+**In the canvas**: click `zone_activity`; under **Each day**, **Backfill** takes a first and last day
+and runs the same backfill in **Activity**.
+
 ☐ The cumulative table builds and backfills.
 
 **14.7 The run log.** Every run records itself in the `audit` schema:
@@ -1124,6 +1153,10 @@ murakumo runs
 
 You should see **By day** (runs, rows ingested and rejected, failed tests), **Runs** (each build,
 with its engine, status and test counts) and **Loads** (the rows each raw table took in 13.4).
+
+**In the canvas**: the clock icon on the rail opens **Runs**: the same days, runs, loads (hover a
+load for why rows were rejected) and the last run's failed tests; click a failed test to go to its
+table.
 
 ☐ Runs and loads are recorded.
 
@@ -1157,6 +1190,8 @@ print('pyspark', con.execute(\"select count(*) from 'lake/pyspark/marts/fct_trip
 ```
 
 The three numbers are the same. Remove the output: `rm -rf lake`.
+
+**In the canvas**: **Activity** → **Run as Python…**, pick the engine, **Run**.
 
 ☐ Polars and PySpark build the same tables as dbt.
 
@@ -1294,6 +1329,9 @@ You should see `Model changes since origin/main:` and `additive  fct_trip: new c
 (string)` (your change; the teammate's is already in main), with the metrics and schedules it
 reaches.
 
+**In the canvas**: **Team** → **Compare with** `main` → **Compare** lists the same changes and what
+they reach; **Copy the report for a pull request** copies it as Markdown.
+
 ☐ Breaking edits are caught before they are saved.
 
 ---
@@ -1420,6 +1458,11 @@ their tables. Snowflake's clones are instant and take no extra space. Then drop 
 murakumo env drop --prefix pr_1_ --yes
 murakumo env drop --yes
 ```
+
+**In the canvas**, the same pull-request steps without remembering the commands: **Team** →
+**Test my change…**. It suggests a prefix from the branch name; **Run** each step in turn (copy
+production, apply this branch's migrations, build and test there, drop the copy). Each step shows
+its command and whether it worked, and lists what is under the prefix after it.
 
 ☐ Personal, production and pull-request schemas sit side by side, and drop cleanly.
 

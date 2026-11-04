@@ -18,7 +18,8 @@ murakumo canvas path/to/project --port 9000 --no-open
   **redo**, whether the generated code is up to date, and the problems.
 - **The tool rail**, on the left: add a table (T), a relationship (R) or a note (N), arrange the
   tables, export the canvas as an image; then the panels (Explorer, Sources, Schedules, Team,
-  CI, Changes, Problems), the pipeline docs, light or dark, and help. Hover an icon for its name.
+  CI, Runs, Activity, Changes, Problems), settings, the pipeline docs, light or dark, and help.
+  Hover an icon for its name.
 - **The Explorer** lists every table by domain, layer, colour label and source, each opening to
   its tables and their columns; its search box finds tables and columns. Click a table to go to
   it; click a domain to show only its tables; the eye beside a layer hides it.
@@ -161,6 +162,41 @@ murakumo canvas path/to/project --port 9000 --no-open
   its table and column, which is pointed out. Tables with problems carry a badge, the columns
   they are about are marked red or amber (hover for the message), and the inspector shows them.
 
+## Running the project
+
+Everything `murakumo` does in a terminal, the canvas does too. Long commands run as **jobs**: the
+canvas starts the same `murakumo` command in the project's folder, in the background, and shows
+its output as it comes in **Activity** (the pulse icon), with the command itself to copy. One job
+runs at a time; **Stop** stops it. The last twenty are kept with their output.
+
+- **Settings** (the gear): **Project** sets the warehouse, orchestrator and modelling pattern (as
+  `murakumo config`), the Python pipeline, plain-SQL output, the run log, the parent branch and
+  personal schemas, each saved to `murakumo.yaml` at once with its comments kept, and undoable.
+  **This machine** is `murakumo setup`: what the project needs here (drivers, variables, key
+  files, connections) and how to fix each, with **Test the connections**. Passwords and keys are
+  never typed into the canvas: they stay in environment variables and key files.
+- **Build…** (in Activity) loads the raw tables and builds every model and test into the
+  warehouse: from files you add (**Add a file…**; they go to `data/`, which git ignores), from what
+  is already loaded, or from made-up rows; into dev or prod, one schedule or everything, a day for
+  cumulative tables, and a schema prefix. **Verify** builds on a throwaway DuckDB and runs every
+  test twice. **Run as Python…** runs the Polars or PySpark pipeline. **Generate** and **Export as
+  plain SQL** write `generated/` and `export/`.
+- **Runs** (the clock) reads the audit tables every run writes: by day, each run with its engine,
+  schedule and counts, each load's rows taken in and rejected (hover for why), and the last run's
+  failed tests (click one to go to its table). **Schedules** says when each schedule last ran here
+  and how it ended, and **Run now** builds it.
+- **Backfill**: a cumulative table's inspector takes a first and last day and fills them in, one
+  day after another.
+- **Data dictionaries**: **+ Add source** with a CSV or Excel dictionary has **Choose a file from
+  this computer…**, which copies it into `data/` and fills in the path; then import as usual.
+- **Test my change** (in **Team**, or Activity): what a pull request's preview does, one step at a
+  time: copy production into a prefix (`pr_<branch>_`), apply this branch's new migrations there,
+  build and test there, and drop the copy. Each step shows its command and result, and what is
+  under the prefix after it. On Snowflake the copy is a zero-copy clone; on DuckDB, the tables are
+  copied.
+- **Compare with** (in **Team**): `murakumo diff` against any branch, tag or commit: each change, how
+  risky, what it reaches, the migration it needs, and **Copy the report for a pull request**.
+
 Renames follow references, as with `murakumo rename`: renaming `lineitem` updates the
 relationships, mappings and metrics that use it, and renames `lineitem.yaml` too; renaming a
 column updates keys, grain, watermark, tests, relationships, and mappings, including
@@ -220,6 +256,15 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | POST | `/api/git/abort` | Give up a sync with conflicts |
 | POST | `/api/git/commit` | Commit the project: `{message}` |
 | PUT | `/api/layout` | Save positions: `{positions: {entity_id: {x, y}}}` |
+| POST | `/api/jobs` | Start a job: `{kind, options}`; kind is `build`, `verify`, `run`, `backfill`, `migrate_apply`, `env_clone`, `env_drop`, `export` or `generate`, and each option is checked before the command is built |
+| GET | `/api/jobs`, `/api/jobs/{id}?since=` | The jobs, newest first; one job and its output from line `since` on |
+| POST | `/api/jobs/{id}/cancel` | Stop a job, and what it started |
+| GET, PUT | `/api/settings` | The project's settings and their choices; change any of `warehouse`, `orchestrator`, `pattern`, `python_engine`, `plain_sql`, `run_log`, `base_branch`, `personal_schemas` |
+| GET | `/api/setup?connect=` | What `murakumo setup` checks, each with how to fix it |
+| GET, PUT, DELETE | `/api/uploads`, `/api/uploads/{name}` | Files in `data/`; add one as its raw bytes (`application/octet-stream` only), or remove one |
+| GET | `/api/runs?environment=&prefix=` | The audit tables: days, runs, loads, the last run's failed tests, each schedule's last run |
+| GET | `/api/env?environment=&prefix=` | Where an environment's builds go, and each schema's tables |
+| GET | `/api/diff?ref=` | Model changes since a branch, tag or commit, what each reaches, and the report as Markdown |
 | PUT | `/api/canvas` | Save what the canvas draws besides the model, in `model/layout.yaml`: any of `collapse_over`, `collapsed: {entity_id: bool}`, `labels: [{name, colour, description}]`, `colours: {entity_id: label}`, `notes: [{id, text, x, y, width, colour, diagram}]`, `diagrams: [{id, name, entities}]`, and `label` (what undo calls it) |
 | POST | `/api/undo`, `/api/redo` | Take back the last change, or make it again; refused (409) when the files changed some other way since |
 | PATCH | `/api/entities` | The same change to several tables: `{ids, changes}`, one undo |
