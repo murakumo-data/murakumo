@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.0 (unreleased)
+
+Everything the CLI does, in the canvas: run builds and checks as jobs with live output, set the
+project up, load data, see what ran, and test a change before it is merged.
+
+- **Jobs and Activity**: builds, verify, Python runs, backfills, migrations, clones and exports run
+  in the background as the same `murakumo` commands, with their output as it comes, the command to
+  copy, and **Stop**. The canvas names a kind of job and its options, and the server checks each
+  before it builds the command line. `POST /api/jobs`, `GET /api/jobs/{id}`.
+- **Settings**: the project's choices (warehouse, orchestrator, pattern, Python pipeline, plain
+  SQL, run log, parent branch, personal schemas), saved to `murakumo.yaml` keeping its comments,
+  and undoable; and **This machine**, the `murakumo setup` checklist with how to fix each item.
+- **Build and load data**: a **Build** dialog (files, made-up rows, environment, schedule, run date,
+  prefix) that shows its command; files are added to `data/`, which git ignores; dictionaries are
+  uploaded for import from **Sources**. Rows a file could not fit are reported as rejected, in the
+  terminal too.
+- **Runs**: the run log by day, runs, loads and failed tests. Each schedule shows when it last ran
+  and how it ended (the evidence a schedule ran), with **Run now**. Backfill cumulative tables
+  from the inspector, and run the pipeline as Polars or PySpark from **Activity**.
+- **Test my change**: copy production into a pull-request prefix, apply this branch's migrations,
+  build and test there, drop it, one step at a time. **Compare with** any branch shows the impact
+  report, ready to copy into a pull request. **Export as plain SQL** from Activity.
+- **Fixes**:
+  - Scheduled builds skipped relationship tests between two of their own tables (dbt applies
+    cautious selection per criterion). Selectors now select a tag per schedule, and models
+    carry `schedule_<name>` tags.
+  - A table named like the staging model generated for a raw table (`stg_<source>__<table>`) is
+    now caught by validation (MK107) instead of failing in dbt.
+  - Job output has no colour codes or spinner frames; DuckDB is read without taking a build's lock.
+- Docs: the canvas page's **Running the project**, the new endpoints, and an **In the canvas** note
+  beside each terminal step of the end-to-end test.
+
 ## 0.5.0 (2026-11-04)
 
 A canvas made for large models, modelled on dedicated data-modelling tools: undo, an Explorer,

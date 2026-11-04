@@ -30,6 +30,7 @@ def test_every_run_records_itself(tmp_path):
     )
     result = build(project, sample=20, data={"taxi_zone_lookup": str(zones)}, schedule="daily")
     assert result.loaded["taxi_zone_lookup"] == 2
+    assert result.rejected["taxi_zone_lookup"][0] == 1 and "nope" in result.rejected["taxi_zone_lookup"][1]
     con = duckdb.connect(str(project.root / "taxi.duckdb"), read_only=True)
     rows = con.execute("select table_name, rows_ingested, rows_rejected from audit.row_counts").fetchall()
     loads = {name: (ingested, rejected) for name, ingested, rejected in rows}
@@ -40,10 +41,20 @@ def test_every_run_records_itself(tmp_path):
         "select engine, schedule, models_ok + models_failed, tests_passed + tests_failed from audit.run_log"
     ).fetchone()
     assert run == ("dbt", "daily", 4, len(con.execute("select * from audit.dq_results").fetchall()))
+    tests = [name for (name,) in con.execute("select test from audit.dq_results").fetchall()]
+    assert sum(t.startswith("relationships_") for t in tests) == 4  # a schedule runs the tests between its tables
     counts = dict(con.execute("select model, rows_in_table from audit.model_runs").fetchall())
     assert counts["dim_taxi_zone"] == 2 and counts["stg_nyc_tlc__taxi_zone_lookup"] is None  # a view is not counted
     day = con.execute("select rows_ingested, rows_rejected from audit.daily_summary").fetchone()
     assert day == (22, 1)
     con.close()
+    from murakumo import runlog
+
+    log = runlog.read(project)
+    # Failed: the made-up trips point at zones the two-row file does not have, and the
+    # schedule now runs the relationship tests between its tables.
+    assert log["recorded"] and log["schedules"]["daily"]["status"] == "failed"
+    assert {f["test"].split("_")[0] for f in log["failed"]} == {"relationships"}
+    assert log["loads"][0]["table"] in ("taxi_zone_lookup", "yellow_tripdata") and log["days"][0]["rows_rejected"] == 1
     shown = runner.invoke(app, ["runs", "-p", str(project.root)], env={"COLUMNS": "160"})
     assert shown.exit_code == 0 and "taxi_zone_lookup" in shown.output and "By day" in shown.output

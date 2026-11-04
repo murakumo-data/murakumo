@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import Body, FastAPI, Header, HTTPException
+from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -51,6 +51,10 @@ REVISION_HEADER = "X-Murakumo-Revision"
 PREVIEW_HEADER = "X-Murakumo-Preview"  # on an edit: say what it would reach, without saving it
 PREVIEW: ContextVar[bool] = ContextVar("preview", default=False)
 LOCAL_HOSTS = ["localhost", "127.0.0.1"]
+UPLOADS_DIR = "data"
+UPLOAD_NAME = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
+UPLOAD_TYPES = {".csv", ".parquet", ".json", ".jsonl", ".xlsx", ".xls", ".tsv"}
+UPLOAD_LIMIT = 2_000_000_000  # 2 GB: a month of NYC taxi trips is 50 MB
 
 Revision = Annotated[str | None, Header(alias=REVISION_HEADER)]
 Changes = Annotated[dict[str, Any], Body()]
@@ -101,6 +105,24 @@ class NewRelationship(BaseModel):
 
 class Layout(BaseModel):
     positions: dict[UUID, Position]
+
+
+class SettingsBody(BaseModel):
+    """What `murakumo config` and murakumo.yaml's switches set; only the fields given change."""
+
+    warehouse: Warehouse | None = None
+    orchestrator: str | None = None
+    pattern: str | None = None
+    python_engine: str | None = Field(default=None, pattern="^(pyspark|polars|none)$")
+    plain_sql: bool | None = None
+    run_log: bool | None = None
+    base_branch: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[\w./-]+$")
+    personal_schemas: bool | None = None
+
+
+class JobBody(BaseModel):
+    kind: str
+    options: dict[str, Any] = Field(default_factory=dict)
 
 
 class CopyColumns(BaseModel):
@@ -705,6 +727,231 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 return {**written, "run": checks.run.as_dict()}
             except ci_module.CIError as exc:
                 raise HTTPException(409, {"message": str(exc)}) from None
+
+    def settings() -> dict[str, Any]:
+        from murakumo.manifest import ModellingPattern, Orchestrator
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        m = project.manifest
+        return {
+            "warehouse": m.targets.warehouse.type.value,
+            "orchestrator": m.generation.orchestrator.value,
+            "pattern": m.modelling.pattern.value,
+            "python_engine": m.generation.python_engine,
+            "plain_sql": m.generation.plain_sql,
+            "run_log": m.quality.run_log,
+            "base_branch": m.collaboration.base_branch,
+            "personal_schemas": m.collaboration.personal_schemas,
+            "choices": {
+                "warehouses": [w.value for w in Warehouse],
+                "orchestrators": [o.value for o in Orchestrator],
+                "patterns": [p.value for p in ModellingPattern],
+                "python_engines": ["none", "polars", "pyspark"],
+            },
+        }
+
+    @app.get("/api/settings")
+    def get_settings() -> dict[str, Any]:
+        return settings()
+
+    @app.put("/api/settings")
+    def put_settings(body: SettingsBody) -> dict[str, Any]:
+        """Change the project's settings in murakumo.yaml, keeping its comments; undoable."""
+        from murakumo.manifest import ModellingPattern, Orchestrator
+        from murakumo.manifest_edit import ManifestEditError, write_section
+        from murakumo.scaffold import configure_project
+
+        given = body.model_dump(exclude_unset=True)
+        with lock:
+            before = history_module.take(root)
+            try:
+                changed = configure_project(
+                    root,
+                    body.warehouse,
+                    Orchestrator(body.orchestrator) if body.orchestrator else None,
+                    ModellingPattern(body.pattern) if body.pattern else None,
+                )
+                paths = {
+                    "python_engine": ("generation", "python_engine"),
+                    "plain_sql": ("generation", "plain_sql"),
+                    "run_log": ("quality", "run_log"),
+                    "base_branch": ("collaboration", "base_branch"),
+                    "personal_schemas": ("collaboration", "personal_schemas"),
+                }
+                current = settings()
+                for key, path in paths.items():
+                    if key in given and given[key] is not None and given[key] != current[key]:
+                        try:
+                            write_section(root, path, given[key])
+                        except ManifestEditError:  # no such section yet: add it, with just this key
+                            write_section(root, path[:1], {path[1]: given[key]})
+                        changed.append(f"{key.replace('_', ' ')}: {current[key]} → {given[key]}")
+            except (ValueError, ManifestEditError) as exc:
+                raise HTTPException(400, {"message": str(exc)}) from None
+            if changed:
+                history.record("settings: " + "; ".join(changed), before, history_module.take(root))
+            return {**settings(), "changed": changed, "state": state(root)}
+
+    @app.get("/api/setup")
+    def get_setup(connect: bool = False) -> dict[str, Any]:
+        """What this project needs on this machine (`murakumo setup`): each check, and how to fix it."""
+        from murakumo.guide import Status, run_checks
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        checks = run_checks(project, connect=connect)
+        return {"ready": not any(c.status is Status.TODO for c in checks), "checks": [c.as_dict() for c in checks]}
+
+    # Files added from the canvas: data to load, dictionaries to import. They go to data/ in the
+    # project, which git ignores, so nobody commits a client's data by accident.
+    data_dir = root / UPLOADS_DIR
+
+    def upload_path(name: str) -> Path:
+        if not UPLOAD_NAME.match(name) or name.startswith("."):
+            raise HTTPException(400, {"message": "name the file with letters, digits, dots, dashes and underscores"})
+        if Path(name).suffix.lower() not in UPLOAD_TYPES:
+            raise HTTPException(400, {"message": f"add {', '.join(sorted(UPLOAD_TYPES))} files"})
+        return data_dir / name
+
+    def ignore_uploads() -> None:
+        ignore = root / ".gitignore"
+        text = ignore.read_text(encoding="utf-8") if ignore.is_file() else ""
+        if not any(line.strip() in (f"{UPLOADS_DIR}/", UPLOADS_DIR, f"/{UPLOADS_DIR}/") for line in text.splitlines()):
+            ignore.write_text(
+                text
+                + ("" if text.endswith("\n") or not text else "\n")
+                + f"# Files added from the canvas (data to load, dictionaries)\n{UPLOADS_DIR}/\n",
+                encoding="utf-8",
+            )
+
+    def describe(path: Path) -> dict[str, Any]:
+        return {"name": path.name, "path": f"{UPLOADS_DIR}/{path.name}", "size": path.stat().st_size}
+
+    @app.get("/api/uploads")
+    def list_uploads() -> dict[str, Any]:
+        files = sorted(p for p in data_dir.glob("*") if p.is_file()) if data_dir.is_dir() else []
+        return {"files": [describe(p) for p in files if p.suffix.lower() in UPLOAD_TYPES]}
+
+    @app.put("/api/uploads/{name}")
+    async def put_upload(name: str, request: Request) -> dict[str, Any]:
+        """Add a file, sent as its raw bytes. Only application/octet-stream is accepted, which a page
+        on another site cannot send here without the server's consent."""
+        if request.headers.get("content-type", "").split(";")[0].strip() != "application/octet-stream":
+            raise HTTPException(415, {"message": "send the file as application/octet-stream"})
+        path = upload_path(name)
+        data_dir.mkdir(exist_ok=True)
+        ignore_uploads()
+        partial = path.with_name(f".{path.name}.part")
+        size = 0
+        with partial.open("wb") as out:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > UPLOAD_LIMIT:
+                    out.close()
+                    partial.unlink(missing_ok=True)
+                    raise HTTPException(413, {"message": f"files up to {UPLOAD_LIMIT // 1_000_000} MB"})
+                out.write(chunk)
+        partial.replace(path)
+        return describe(path)
+
+    @app.delete("/api/uploads/{name}")
+    def delete_upload(name: str) -> dict[str, Any]:
+        path = upload_path(name)
+        path.unlink(missing_ok=True)
+        return list_uploads()
+
+    from murakumo import jobs as jobs_module
+
+    @app.get("/api/env")
+    def get_env(environment: str | None = None, prefix: str | None = None) -> dict[str, Any]:
+        """Where an environment's builds go (`murakumo env`): the prefix, and each schema's tables."""
+        from murakumo.environments import EnvError, connect, describe, developer, prefix_for
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        if prefix and not jobs_module.PREFIX.match(prefix):
+            raise HTTPException(400, {"message": "a schema prefix is lower case and ends in _"})
+        warehouse = project.manifest.targets.warehouse.type
+        name = environment or (project.manifest.targets.environments or ["dev"])[0]
+        chosen = prefix_for(project, name, warehouse, prefix)
+        out: dict[str, Any] = {
+            "developer": developer(),
+            "environment": name,
+            "prefix": chosen,
+            "warehouse": warehouse.value,
+            "schemas": [],
+        }
+        try:
+            connection = connect(project, read_only=True)
+        except EnvError as exc:
+            return {**out, "reason": str(exc)}
+        try:
+            out["schemas"] = describe(project, connection, chosen)
+        finally:
+            connection.close()
+        return out
+
+    @app.get("/api/diff")
+    def get_diff(ref: str = "") -> dict[str, Any]:
+        """What changed in the model since a branch, tag or commit (`murakumo diff`), and what it reaches."""
+        from murakumo import gitsync, impact
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        if ref and not re.match(r"^[\w./~^-]{1,200}$", ref):
+            raise HTTPException(400, {"message": "name a branch, tag or commit"})
+        try:
+            w = gitsync.where(project)
+            against = ref or w.ref
+            old = gitsync.model_at(project, w, against)
+        except gitsync.GitError as exc:
+            raise HTTPException(409, {"message": str(exc)}) from None
+        result = impact.report(project, old, project.model)
+        return {"against": against, **result.as_dict(), "markdown": impact.markdown(result, against)}
+
+    @app.get("/api/runs")
+    def get_runs(environment: str | None = None, prefix: str | None = None, limit: int = 20) -> dict[str, Any]:
+        """What the runs recorded in the audit schema: by day, each run, loads, failed tests, and
+        when each schedule last ran."""
+        from murakumo import runlog
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        if prefix and not jobs_module.PREFIX.match(prefix):
+            raise HTTPException(400, {"message": "a schema prefix is lower case and ends in _"})
+        return runlog.read(project, environment, prefix, max(1, min(limit, 200)))
+
+    jobs = jobs_module.Jobs(root)
+
+    def job_call(action: Callable[[], Any]) -> Any:
+        try:
+            return action()
+        except jobs_module.JobError as exc:
+            raise HTTPException(409, {"message": str(exc)}) from None
+
+    @app.post("/api/jobs")
+    def start_job(body: JobBody) -> dict[str, Any]:
+        """Start a long command (build, verify, backfill...) in the background; follow it with GET."""
+        return job_call(lambda: jobs.start(body.kind, body.options).as_dict())
+
+    @app.get("/api/jobs")
+    def list_jobs() -> dict[str, Any]:
+        return {"jobs": [{**j.as_dict(), "lines": j.lines[-3:]} for j in reversed(jobs.jobs)]}
+
+    @app.get("/api/jobs/{job_id}")
+    def get_job(job_id: str, since: int = 0) -> dict[str, Any]:
+        """The job and its output from line `since` on, so the canvas fetches only what is new."""
+        return job_call(lambda: jobs.get(job_id).as_dict(since))
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    def cancel_job(job_id: str) -> dict[str, Any]:
+        return job_call(lambda: jobs.cancel(job_id).as_dict())
 
     @app.post("/api/ci/run")
     def run_ci() -> dict[str, Any]:

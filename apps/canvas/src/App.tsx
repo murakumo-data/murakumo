@@ -14,6 +14,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
+  Activity,
   AlignLeft,
   BookOpen,
   CalendarClock,
@@ -22,6 +23,7 @@ import {
   Database,
   FileCode2,
   GitBranch,
+  History,
   ImageDown,
   KeyRound,
   LayoutGrid,
@@ -31,6 +33,7 @@ import {
   Redo2,
   Rows3,
   Search as SearchIcon,
+  Settings2,
   SlidersHorizontal,
   Spline,
   SquarePlus,
@@ -52,12 +55,14 @@ import {
   type ReactNode,
 } from 'react'
 
-import { api, ApiError, type Entity, type Generated, type Layer, type LineageResult, type Note, type Position, type State } from './api'
+import { api, ApiError, type Entity, type Job, type RunLog, type Generated, type Layer, type LineageResult, type Note, type Position, type State } from './api'
 import { CIPanel } from './CI'
 import { GitPanel } from './Git'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
+import { ActivityPanel } from './Activity'
 import { arrange, exportImage, type Direction } from './arrange'
+import { BuildDialog, PythonRunDialog } from './Build'
 import { BulkBar } from './BulkBar'
 import { DiagramTabs } from './Diagrams'
 import { EntityNode, tableHandle, type EntityNodeType } from './EntityNode'
@@ -79,7 +84,10 @@ import { LineageBar, LineageEdge, type LineageEdgeType } from './Lineage'
 import { NewRelationship } from './NewRelationship'
 import { NoteNode, type NoteNodeType } from './Notes'
 import { SchedulesPanel } from './Schedules'
+import { RunsPanel } from './Runs'
 import { Search } from './Search'
+import { TestChange } from './TestChange'
+import { SettingsPanel } from './Settings'
 import { SourcesPanel } from './Sources'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
@@ -125,10 +133,10 @@ const CARDINALITY: Record<string, string> = {
 }
 
 type Selection = { kind: 'entity' | 'relationship'; id: string } | null
-type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git'
+type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git' | 'activity' | 'settings' | 'runs'
 type Theme = 'system' | 'light' | 'dark'
 
-const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git']
+const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git', 'activity', 'settings', 'runs']
 
 function savedSide(): Side | null {
   const saved = recall('murakumo.side')
@@ -207,6 +215,13 @@ function Canvas() {
   const [menu, setMenu] = useState<'arrange' | 'export' | 'help' | null>(null)
   const [shortcuts, setShortcuts] = useState(false)
   const [touring, setTouring] = useState(false)
+  const [jobFocus, setJobFocus] = useState<string | null>(null)
+  const [jobRunning, setJobRunning] = useState(false)
+  const [building, setBuilding] = useState(false)
+  const [jobsDone, setJobsDone] = useState(0)
+  const [runningPython, setRunningPython] = useState(false)
+  const [testing, setTesting] = useState<string | null>(null)
+  const [scheduleRuns, setScheduleRuns] = useState<RunLog['schedules'] | null>(null)
   const canvasRef = useRef<State['canvas']>({})
   const addNoteRef = useRef<() => void>(() => {})
   const busy = useRef(0)
@@ -281,6 +296,43 @@ function Canvas() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Long commands run as jobs: start one, show it in Activity, and refresh when it ends.
+  const startJob = useCallback(async (kind: string, options: Record<string, unknown> = {}) => {
+    try {
+      const job = await api.startJob(kind, options)
+      setJobFocus(job.id)
+      setJobRunning(true)
+      setSide('activity')
+      return job
+    } catch (e) {
+      setMessage({ text: e instanceof Error ? e.message : String(e), tone: 'info' })
+      return null
+    }
+  }, [])
+  const jobFinished = useCallback(
+    (job: Job) => {
+      setJobRunning(false)
+      setJobsDone((n) => n + 1)
+      if (job.kind === 'generate' || job.kind === 'export') loadGenerated()
+    },
+    [loadGenerated],
+  )
+  useEffect(() => {
+    api
+      .jobs()
+      .then((r) => setJobRunning(r.jobs.some((j) => j.state === 'running')))
+      .catch(() => {})
+  }, [])
+
+  // When each schedule last ran, for the Schedules panel: read when it opens and after each job.
+  useEffect(() => {
+    if (side !== 'schedules') return
+    api.runs().then(
+      (log) => setScheduleRuns(log.schedules),
+      () => setScheduleRuns(null),
+    )
+  }, [side, jobsDone])
 
   // The first time the canvas opens, a short tour; the help button starts it again.
   const loaded = state !== null
@@ -882,6 +934,13 @@ function Canvas() {
     { id: 'schedules', label: 'Schedules', icon: <CalendarClock size={18} /> },
     { id: 'git', label: 'Team', icon: <GitBranch size={18} /> },
     { id: 'ci', label: 'CI', icon: <Workflow size={18} /> },
+    { id: 'runs', label: 'Runs', icon: <History size={18} /> },
+    {
+      id: 'activity',
+      label: 'Activity',
+      icon: <Activity size={18} />,
+      badge: jobRunning ? <span className="rail__dot rail__dot--pending rail__dot--pulse" /> : null,
+    },
     {
       id: 'changes',
       label: 'Changes',
@@ -901,7 +960,7 @@ function Canvas() {
     remember('murakumo.side', next ?? '')
     if (id === 'schedules' && next === null) setScheduleShown(null)
   }
-  const drawerTitle = side === 'domains' ? 'Domains' : panels.find((p) => p.id === side)?.label
+  const drawerTitle = side === 'domains' ? 'Domains' : side === 'settings' ? 'Settings' : panels.find((p) => p.id === side)?.label
 
   return (
     <div className="app">
@@ -1091,6 +1150,9 @@ function Canvas() {
             ))}
           </div>
           <div className="rail__group rail__group--end">
+            <RailButton label="Settings" active={side === 'settings'} onClick={() => toggleSide('settings')}>
+              <Settings2 size={18} />
+            </RailButton>
             <a className="rail__button" href="/api/pipeline-docs" target="_blank" rel="noreferrer" title="Pipeline docs" aria-label="Pipeline docs">
               <BookOpen size={18} />
             </a>
@@ -1168,14 +1230,40 @@ function Canvas() {
               {side === 'sources' && (
                 <SourcesPanel state={state} run={run} onMessage={(text) => setMessage({ text, tone: 'info' })} />
               )}
-              {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} />}
+              {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} onTestChange={setTesting} />}
               {side === 'ci' && <CIPanel onMessage={showMessage} />}
+              {side === 'runs' && (
+                <RunsPanel
+                  refresh={jobsDone}
+                  onModel={(name) => {
+                    const entity = entities.find((e) => e.name.toLowerCase() === name.toLowerCase())
+                    if (entity) focus(entity)
+                  }}
+                />
+              )}
+              {side === 'settings' && <SettingsPanel revision={state.revision} onState={setState} onMessage={showMessage} />}
+              {side === 'activity' && (
+                <ActivityPanel
+                  focus={jobFocus}
+                  onFinished={jobFinished}
+                  actions={[
+                    { label: 'Build…', title: 'Load data and build every model and test into the warehouse (murakumo build)', onClick: () => setBuilding(true) },
+                    { label: 'Verify', title: 'Build the project on DuckDB with made-up rows and run every test, twice (murakumo verify)', onClick: () => startJob('verify', { rows: 200 }) },
+                    { label: 'Run as Python…', title: 'Run the pipeline as Polars or PySpark jobs (murakumo run)', onClick: () => setRunningPython(true) },
+                    { label: 'Generate', title: 'Write generated/ (murakumo generate)', onClick: () => startJob('generate') },
+                    { label: 'Test my change…', title: 'Copy production, apply the migrations, build and test there, then drop it', onClick: () => setTesting('change') },
+                    { label: 'Export as plain SQL', title: 'Write the project as plain SQL scripts to export/ (murakumo export sql)', onClick: () => startJob('export') },
+                  ]}
+                />
+              )}
               {side === 'schedules' && (
                 <SchedulesPanel
                   state={state}
                   run={run}
                   highlighted={scheduleShown?.name ?? null}
                   onHighlight={(s) => setScheduleShown(s ? { name: s.name, entities: s.entities } : null)}
+                  lastRuns={scheduleRuns}
+                  onRunNow={(schedule) => startJob('build', { schedule })}
                 />
               )}
               {side === 'domains' && <DomainsPanel state={state} run={run} filter={domainFilter} onFilter={setDomainFilter} />}
@@ -1342,6 +1430,7 @@ function Canvas() {
                 generatedRevision={generated?.revision ?? ''}
                 lineageOf={lineageOf}
                 onLineage={setLineageOf}
+                onJob={startJob}
               />
             )}
             {selectedRelationship && (
@@ -1363,6 +1452,35 @@ function Canvas() {
         />
       )}
       {shortcuts && <Shortcuts onClose={() => setShortcuts(false)} />}
+      {testing && (
+        <TestChange
+          branch={testing}
+          onClose={() => setTesting(null)}
+          onOpenJob={(id) => {
+            setTesting(null)
+            setJobFocus(id)
+            setSide('activity')
+          }}
+        />
+      )}
+      {runningPython && (
+        <PythonRunDialog
+          state={state}
+          onClose={() => setRunningPython(false)}
+          onStart={async (options) => {
+            if (await startJob('run', options)) setRunningPython(false)
+          }}
+        />
+      )}
+      {building && (
+        <BuildDialog
+          state={state}
+          onClose={() => setBuilding(false)}
+          onStart={async (options) => {
+            if (await startJob('build', options)) setBuilding(false)
+          }}
+        />
+      )}
       {touring && (
         <Tour
           onClose={() => {

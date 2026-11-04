@@ -110,6 +110,84 @@ export type Orchestration = {
   pipelines: string // where `murakumo generate` writes the orchestrator's pipelines
 }
 
+export type Settings = {
+  warehouse: string
+  orchestrator: string
+  pattern: string
+  python_engine: string
+  plain_sql: boolean
+  run_log: boolean
+  base_branch: string
+  personal_schemas: boolean
+  choices: { warehouses: string[]; orchestrators: string[]; patterns: string[]; python_engines: string[] }
+  changed?: string[]
+  state?: State
+}
+
+// One thing `murakumo setup` checks on this machine, and how to put it right.
+export type SetupCheck = {
+  area: string
+  title: string
+  status: 'ok' | 'todo' | 'warn' | 'info'
+  detail: string | null
+  steps: string[]
+  sql: string | null
+  sql_where: string | null
+  docs: string[]
+}
+
+export type RunLog = {
+  audit: string
+  recorded: boolean
+  reason?: string
+  days: { day: string; runs: number; rows_ingested: number; rows_rejected: number; models_failed: number; tests_failed: number }[]
+  runs: {
+    run_id: string
+    started_at: string
+    finished_at: string | null
+    engine: string
+    environment: string
+    schedule: string | null
+    invoked_by: string | null
+    status: string
+    models_ok: number
+    models_failed: number
+    tests_passed: number
+    tests_failed: number
+  }[]
+  loads: { loaded_at: string; source: string; table: string; rows_ingested: number; rows_rejected: number; reason: string | null }[]
+  failed: { model: string; test: string; column: string | null; failures: number; severity: string }[]
+  schedules: Record<string, { started_at: string; finished_at: string | null; status: string }>
+}
+
+// Where an environment's builds go, and what each of its schemas holds.
+export type EnvInfo = {
+  developer: string
+  environment: string
+  prefix: string
+  warehouse: string
+  schemas: { schema: string; exists: boolean; tables: number }[]
+  reason?: string
+}
+
+export type Upload = { name: string; path: string; size: number }
+
+export type JobState = 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+// A long command (build, verify, backfill...) the server runs in the background.
+export type Job = {
+  id: string
+  kind: string
+  title: string
+  command: string
+  state: JobState
+  started: number
+  finished: number | null
+  code: number | null
+  next: number // the line to ask for next
+  lines: string[]
+}
+
 export type ColourLabel = { name: string; colour: string; description?: string | null }
 export type Note = { id: string; text: string; x: number; y: number; width: number; colour?: string | null; diagram?: string | null }
 export type Diagram = { id: string; name: string; entities: string[] }
@@ -315,6 +393,44 @@ export const api = {
   revision: () => request<{ revision: string; generated: string }>('GET', '/revision', undefined, false),
   currentRevision: () => revision,
   undo: () => request<State>('POST', '/undo'),
+  settings: () => request<Settings>('GET', '/settings', undefined, false),
+  saveSettings: (changes: Partial<Settings>) => request<Settings>('PUT', '/settings', changes, false),
+  setup: (connect = false) =>
+    request<{ ready: boolean; checks: SetupCheck[] }>('GET', `/setup?connect=${connect}`, undefined, false),
+  uploads: () => request<{ files: Upload[] }>('GET', '/uploads', undefined, false),
+  deleteUpload: (name: string) => request<{ files: Upload[] }>('DELETE', `/uploads/${encodeURIComponent(name)}`, undefined, false),
+  /** Add a file to the project's data/ folder (ignored by git), sent as its bytes. */
+  upload: async (file: File): Promise<Upload> => {
+    const name = file.name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '')
+    let response: Response
+    try {
+      response = await fetch(`/api/uploads/${encodeURIComponent(name)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: file,
+      })
+    } catch {
+      throw new ApiError(0, 'Cannot reach the Murakumo server. Is `murakumo canvas` running?')
+    }
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new ApiError(response.status, data.message ?? response.statusText)
+    return data as Upload
+  },
+  env: (environment?: string, prefix?: string) =>
+    request<EnvInfo>(
+      'GET',
+      `/env?${new URLSearchParams({ ...(environment ? { environment } : {}), ...(prefix ? { prefix } : {}) })}`,
+      undefined,
+      false,
+    ),
+  diff: (ref: string) =>
+    request<ImpactReport & { against: string; markdown: string }>('GET', `/diff?ref=${encodeURIComponent(ref)}`, undefined, false),
+  runs: (environment?: string) =>
+    request<RunLog>('GET', `/runs${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`, undefined, false),
+  startJob: (kind: string, options: Record<string, unknown> = {}) => request<Job>('POST', '/jobs', { kind, options }, false),
+  jobs: () => request<{ jobs: Job[] }>('GET', '/jobs', undefined, false),
+  job: (id: string, since = 0) => request<Job>('GET', `/jobs/${id}?since=${since}`, undefined, false),
+  cancelJob: (id: string) => request<Job>('POST', `/jobs/${id}/cancel`, undefined, false),
   saveCanvas: (settings: CanvasSettings & { label?: string }) => request<State>('PUT', '/canvas', settings),
   redo: () => request<State>('POST', '/redo'),
 

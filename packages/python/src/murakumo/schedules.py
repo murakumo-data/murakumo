@@ -212,8 +212,26 @@ def dbt_models(plan, entities: list[Entity]) -> list[str]:
     return sorted({name for e in entities for name in models.get(e.name.lower(), [])})
 
 
+def tag(schedule: str) -> str:
+    """The dbt tag on every model and snapshot a schedule refreshes."""
+    return f"schedule_{schedule}"
+
+
+def schedule_tags(project: Project, plan) -> dict[str, list[str]]:
+    """dbt model or snapshot name -> the tags of the schedules that refresh it."""
+    try:
+        resolved = resolve(project)
+    except ScheduleError:
+        return {}
+    tags: dict[str, list[str]] = defaultdict(list)
+    for entry in resolved:
+        for name in dbt_models(plan, entry.entities):
+            tags[name].append(tag(entry.schedule.name))
+    return dict(tags)
+
+
 def dbt_selectors(project: Project, plan) -> dict[str, Any]:
-    """``selectors.yml``: one selector per schedule, naming the dbt models of its entities."""
+    """``selectors.yml``: one selector per schedule, by the tag on the models it refreshes."""
     timezone = project.manifest.orchestration.timezone
     selectors = []
     resolved_all = resolve(project)
@@ -225,10 +243,12 @@ def dbt_selectors(project: Project, plan) -> dict[str, Any]:
         }
         # Each schedule runs the tests whose tables it builds (cautious): a relationship test whose
         # other table belongs to another schedule would otherwise fail before that table exists.
+        # One criterion (the tag) selects all of them, so a test between two of its tables runs:
+        # dbt applies cautious selection per criterion, and one criterion per model would miss it.
         # The schedule that refreshes the rest runs every relationship test, so all still run.
-        union: list[dict[str, Any]] = [
-            {"method": "fqn", "value": name, "indirect_selection": "cautious"} for name in names
-        ]
+        union: list[dict[str, Any]] = (
+            [{"method": "tag", "value": tag(entry.schedule.name), "indirect_selection": "cautious"}] if names else []
+        )
         if entry.catch_all and len(resolved_all) > 1:
             union.append({"method": "test_name", "value": "relationships"})
         if not union:  # dbt needs a definition; this one selects nothing

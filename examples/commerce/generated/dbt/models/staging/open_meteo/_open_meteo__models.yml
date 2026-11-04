@@ -3,6 +3,9 @@ version: 2
 models:
   - name: stg_open_meteo__weather_daily
     description: Daily aggregated historical weather per location from the Open-Meteo archive API.
+    config:
+      tags:
+        - schedule_nightly
     columns:
       - name: location_key
         description: Our identifier for the requested point, e.g. a borough centroid; the API itself is queried by coordinates.
@@ -77,6 +80,9 @@ models:
               - observed_date
   - name: stg_open_meteo__weather_hourly
     description: Hourly historical weather observations (reanalysis) per location from the Open-Meteo archive API.
+    config:
+      tags:
+        - schedule_nightly
     columns:
       - name: location_key
         description: Our identifier for the requested point, e.g. a borough centroid; the API itself is queried by coordinates.

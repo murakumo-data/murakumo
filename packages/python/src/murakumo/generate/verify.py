@@ -56,6 +56,7 @@ class VerifyResult:
     warehouse: str = "duckdb"
     nodes: list[NodeResult] = field(default_factory=list)
     loaded: dict[str, int] = field(default_factory=dict)  # raw table -> rows
+    rejected: dict[str, tuple[int, str | None]] = field(default_factory=dict)  # raw table -> rows refused, why
     folder: Path | None = None
     location: str | None = None  # where the built tables are, when kept
     error: str | None = None
@@ -524,6 +525,8 @@ def verify(
                         result.loaded[entity.name] = backend.load_location(schema, entity, location, limit)
                     else:
                         result.loaded[entity.name] = backend.load_rows(schema, entity, synthetic[entity.name])
+                    if backend.last_load and backend.last_load[1]:
+                        result.rejected[entity.name] = backend.last_load[1:]
                     if project.manifest.quality.run_log:
                         counts = backend.last_load or (result.loaded[entity.name] - before, 0, None)
                         backend.record_load(backend.prefix, entity.source or "raw", entity, counts)
@@ -662,6 +665,8 @@ def build(
                         result.loaded[entity.name] = backend.load_rows(schema, entity, synthetic[entity.name])
                     elif sample:
                         result.skipped.append(entity.name)
+                    if backend.last_load and backend.last_load[1]:
+                        result.rejected[entity.name] = backend.last_load[1:]
                     if entity.name in result.loaded and project.manifest.quality.run_log:
                         counts = backend.last_load or (result.loaded[entity.name] - before, 0, None)
                         backend.record_load(schema_prefix, entity.source or "raw", entity, counts)

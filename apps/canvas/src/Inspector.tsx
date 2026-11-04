@@ -49,9 +49,10 @@ type EntityProps = {
   generatedRevision: string
   lineageOf: LineageTarget
   onLineage: (target: LineageTarget) => void
+  onJob: (kind: string, options: Record<string, unknown>) => void // start a long command (backfill)
 }
 
-export function EntityPanel({ state, entity, run, diagnostics, generatedRevision, lineageOf, onLineage }: EntityProps) {
+export function EntityPanel({ state, entity, run, diagnostics, generatedRevision, lineageOf, onLineage, onJob }: EntityProps) {
   const [tab, setTab] = useState<'model' | 'code'>('model')
   const issues = diagnostics.filter((d) => d.entity_id === entity.id)
   return (
@@ -65,7 +66,7 @@ export function EntityPanel({ state, entity, run, diagnostics, generatedRevision
         </button>
       </div>
       {tab === 'model' ? (
-        <EntityForm state={state} entity={entity} run={run} issues={issues} lineageOf={lineageOf} onLineage={onLineage} />
+        <EntityForm state={state} entity={entity} run={run} issues={issues} lineageOf={lineageOf} onLineage={onLineage} onJob={onJob} />
       ) : (
         <>
           <div className="panel__heading">
@@ -87,9 +88,10 @@ type FormProps = {
   issues: Diagnostic[]
   lineageOf: LineageTarget
   onLineage: (target: LineageTarget) => void
+  onJob: (kind: string, options: Record<string, unknown>) => void
 }
 
-function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormProps) {
+function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }: FormProps) {
   const { choices, editable } = state
   const disabled = !editable
   const save = (changes: Record<string, unknown>) => careful(run, () => api.updateEntity(entity.id, changes))
@@ -231,6 +233,7 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormPr
                 }}
               />
             </Row>
+            {entity.cumulative && <Backfill entity={entity} onJob={onJob} />}
           </>
         )}
         <Row label="Refreshed">
@@ -970,5 +973,28 @@ function Relationships({ state, entity, run }: { state: State; entity: Entity; r
         </form>
       )}
     </section>
+  )
+}
+
+/** Fill a cumulative table for a range of days, one day after another, as its daily runs would have. */
+function Backfill({ entity, onJob }: { entity: Entity; onJob: (kind: string, options: Record<string, unknown>) => void }) {
+  const [range, setRange] = useState({ from: '', to: '' })
+  const ok = range.from && range.to && range.from <= range.to
+  return (
+    <Row label="Backfill">
+      <div className="backfill">
+        <input className="input" type="date" aria-label="First day" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} />
+        <span className="muted">to</span>
+        <input className="input" type="date" aria-label="Last day" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} />
+        <button
+          className="button button--small"
+          disabled={!ok}
+          title={ok ? `murakumo backfill ${entity.name} --from ${range.from} --to ${range.to}` : 'Choose the first and last day'}
+          onClick={() => onJob('backfill', { table: entity.name, from: range.from, to: range.to })}
+        >
+          Backfill
+        </button>
+      </div>
+    </Row>
   )
 }

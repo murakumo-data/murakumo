@@ -51,10 +51,11 @@ two schedules that both refresh "the rest" (MK603), and tables no schedule refre
 warning) are reported too. The canvas's **Schedules** panel edits the same list, says each time in
 words with its next run, and highlights the tables a schedule refreshes.
 
-Each schedule becomes a dbt selector in `generated/dbt/selectors.yml`, naming its models, so
-`dbt build --selector hourly_sales` runs exactly that schedule. A schedule runs the tests on the
-tables it builds; the schedule that refreshes the rest also runs every relationship test, so a
-test between tables in different schedules still runs once a day.
+Each schedule becomes a dbt selector in `generated/dbt/selectors.yml`: its models carry a tag
+(`schedule_hourly_sales`) and the selector selects that tag, so `dbt build --selector hourly_sales`
+runs exactly that schedule. A schedule runs the tests on the tables it builds, including
+relationship tests between two of them; the schedule that refreshes the rest also runs every
+relationship test, so a test between tables in different schedules still runs once a day.
 
 ## Pipelines
 

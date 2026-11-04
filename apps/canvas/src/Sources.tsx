@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { api, ApiError, type BrowseSchema, type ImportReport, type SourceInfo, type State } from './api'
+import { UploadButton } from './Build'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
 
@@ -170,6 +171,22 @@ function AddSource({ run, onDone }: { run: Run; onDone: () => void }) {
         />
       </label>
       <p className="muted small">{kind.help}</p>
+      {['csv', 'excel', 'file'].includes(draft.kind) && (
+        <div className="sources__upload">
+          <UploadButton
+            label="Choose a file from this computer…"
+            accept={draft.kind === 'excel' ? '.xlsx,.xls' : draft.kind === 'csv' ? '.csv,.tsv' : '.csv,.tsv,.parquet,.json,.jsonl,.xlsx'}
+            onAdded={(upload) =>
+              setDraft({
+                ...draft,
+                location: upload.path,
+                name: draft.name || upload.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9_]+/g, '_'),
+              })
+            }
+          />
+          <span className="muted small">It is copied into data/ (ignored by git) and read from there.</span>
+        </div>
+      )}
       <div className="dialog__actions">
         <button type="button" className="button button--small" onClick={onDone}>
           Cancel

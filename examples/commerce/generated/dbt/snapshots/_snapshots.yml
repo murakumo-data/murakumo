@@ -8,3 +8,5 @@ snapshots:
       unique_key: customer_id
       strategy: check
       check_cols: all
+      tags:
+        - schedule_hourly_sales

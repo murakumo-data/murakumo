@@ -143,6 +143,13 @@ def _report(result, files: dict[str, str]) -> None:
         source = {k.lower(): v for k, v in files.items()}.get(table.lower())
         how = f"from {source}" if source else "synthetic"
         console.print(f"  loaded {table}: {count} rows ({how})")
+        refused, why = getattr(result, "rejected", {}).get(table, (0, None))
+        if refused:
+            console.print(
+                f"  [yellow]{refused} row(s) of {table} rejected[/yellow]: {why or 'they did not fit the columns'}"
+                " (counted in audit.row_counts)",
+                markup=True,
+            )
     for node in result.nodes:
         if node.status not in ("success", "pass"):
             colour = "yellow" if node.status == "warn" else "red"
@@ -576,55 +583,57 @@ def runs_command(
     """The latest runs, loads and failed tests, from the audit tables every run writes."""
     from rich.table import Table
 
-    from murakumo.environments import EnvError, connect, prefix_for
+    from murakumo import runlog
 
     project = open_project(project_path)
-    warehouse = project.manifest.targets.warehouse.type
-    name = environment or (project.manifest.targets.environments or ["dev"])[0]
-    chosen = prefix_for(project, name, warehouse, prefix)
-    try:
-        connection = connect(project)
-    except EnvError as exc:
-        fail(str(exc))
-        raise typer.Exit(1) from None
-    audit = f"{chosen}audit" if warehouse is Warehouse.DUCKDB else f"{connection.database}.{chosen}audit"
-    try:
-        if f"{chosen}audit" not in connection.schemas():
-            console.print(f"No runs recorded yet in {chosen}audit: build the project first (`murakumo build`).")
-            return
-        days = connection.execute(f"select * from {audit}.daily_summary order by day desc limit 7", fetch=True)
-        runs = connection.execute(
-            "select started_at, engine, environment, schedule, status, models_ok, models_failed, tests_passed, "
-            f"tests_failed from {audit}.run_log order by started_at desc limit {int(limit)}",
-            fetch=True,
-        )
-        loads = connection.execute(
-            f"select loaded_at, table_name, rows_ingested, rows_rejected, reason from {audit}.row_counts "
-            f"order by loaded_at desc limit {int(limit)}",
-            fetch=True,
-        )
-        failed = connection.execute(
-            f"select d.model, d.test, d.failures from {audit}.dq_results d join ("
-            f"select run_id from {audit}.run_log order by started_at desc limit 1) r on d.run_id = r.run_id "
-            "where d.status in ('fail', 'error') order by d.model, d.test",
-            fetch=True,
-        )
-    finally:
-        connection.close()
+    log = runlog.read(project, environment, prefix, limit, read_only=False)
+    if not log["recorded"]:
+        console.print(log["reason"])
+        return
 
-    def table(title: str, columns: list[str], rows: list[tuple]) -> None:
+    def table(title: str, columns: list[str], keys: list[str], rows: list[dict]) -> None:
         view = Table(title=title, title_justify="left", box=None, pad_edge=False)
         for column in columns:
             view.add_column(column)
         for row in rows:
-            view.add_row(*["" if v is None else str(v)[:60] for v in row])
+            view.add_row(*["" if row[k] is None else str(row[k])[:60] for k in keys])
         console.print(view)
 
-    table("By day", ["Day", "Runs", "Rows in", "Rejected", "Models failed", "Tests failed"], days)
-    table("Runs", ["Started", "Engine", "Env", "Schedule", "Status", "Models ok", "Failed", "Tests ok", "Failed"], runs)
-    table("Loads", ["Loaded", "Table", "Rows in", "Rejected", "Why rejected"], loads)
-    if failed:
-        table("Failed tests in the last run", ["Model", "Test", "Failing rows"], failed)
+    table(
+        "By day",
+        ["Day", "Runs", "Rows in", "Rejected", "Models failed", "Tests failed"],
+        ["day", "runs", "rows_ingested", "rows_rejected", "models_failed", "tests_failed"],
+        log["days"][:7],
+    )
+    table(
+        "Runs",
+        ["Started", "Engine", "Env", "Schedule", "Status", "Models ok", "Failed", "Tests ok", "Failed"],
+        [
+            "started_at",
+            "engine",
+            "environment",
+            "schedule",
+            "status",
+            "models_ok",
+            "models_failed",
+            "tests_passed",
+            "tests_failed",
+        ],
+        log["runs"],
+    )
+    table(
+        "Loads",
+        ["Loaded", "Table", "Rows in", "Rejected", "Why rejected"],
+        ["loaded_at", "table", "rows_ingested", "rows_rejected", "reason"],
+        log["loads"],
+    )
+    if log["failed"]:
+        table(
+            "Failed tests in the last run",
+            ["Model", "Test", "Failing rows"],
+            ["model", "test", "failures"],
+            log["failed"],
+        )
 
 
 def backfill_command(

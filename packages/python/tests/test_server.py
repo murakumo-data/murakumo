@@ -291,3 +291,58 @@ def test_lineage(client):
     result = client.get("/api/lineage", params={"entity": "dim_taxi_zone", "column": "borough"}).json()
     assert {"entity": "taxi_zone_lookup", "column": "Borough", "layer": "raw", "depth": -1} in result["nodes"]
     assert client.get("/api/lineage", params={"entity": "nope"}).status_code == 404
+
+
+def test_settings_change_murakumo_yaml_keeping_comments_and_can_be_undone(client, project):
+    path = project.root / "murakumo.yaml"
+    path.write_text("# my notes about this project\n" + path.read_text())
+    settings = client.get("/api/settings").json()
+    assert settings["warehouse"] == "duckdb" and "polars" in settings["choices"]["python_engines"]
+
+    changed = client.put(
+        "/api/settings", json={"python_engine": "polars", "run_log": False, "orchestrator": "dagster"}
+    ).json()
+    assert changed["python_engine"] == "polars" and changed["run_log"] is False and changed["orchestrator"] == "dagster"
+    assert len(changed["changed"]) == 3
+    assert path.read_text().startswith("# my notes about this project")
+    assert changed["state"]["history"]["undo"].startswith("settings: ")
+
+    client.post("/api/undo")
+    assert client.get("/api/settings").json()["python_engine"] == "none"
+    assert client.put("/api/settings", json={"python_engine": "bash"}).status_code == 422
+    assert client.put("/api/settings", json={"base_branch": "dev; rm"}).status_code == 422
+
+
+def test_setup_lists_checks(client):
+    setup = client.get("/api/setup").json()
+    assert setup["checks"] and {"area", "title", "status", "steps"} <= set(setup["checks"][0])
+
+
+def test_uploads_go_to_an_ignored_data_folder(client, project):
+    put = client.put(
+        "/api/uploads/zones.csv",
+        content=b"LocationID,Zone\n1,Newark\n",
+        headers={"Content-Type": "application/octet-stream"},
+    )
+    assert put.status_code == 200 and put.json() == {"name": "zones.csv", "path": "data/zones.csv", "size": 25}
+    assert (project.root / "data" / "zones.csv").read_text().startswith("LocationID")
+    assert "data/" in (project.root / ".gitignore").read_text().splitlines()
+    assert client.get("/api/uploads").json()["files"][0]["name"] == "zones.csv"
+
+    def put_as(name, content_type="application/octet-stream"):
+        return client.put(f"/api/uploads/{name}", content=b"x", headers={"Content-Type": content_type}).status_code
+
+    assert put_as("zones.csv", "text/plain") == 415  # a form or a fetch without consent cannot send this
+    assert put_as("..%2Fescape.csv") in (400, 404)
+    assert put_as(".hidden.csv") == 400
+    assert put_as("script.sh") == 400
+    assert client.delete("/api/uploads/zones.csv").json() == {"files": []}
+
+
+def test_env_and_diff(client, project):
+    env = client.get("/api/env").json()
+    assert env["prefix"] == "" and env["warehouse"] == "duckdb"  # a DuckDB file is already personal
+    assert "build the project first" in env["reason"]
+    assert client.get("/api/env?prefix=PROD").status_code == 400
+    assert client.get("/api/diff?ref=main;rm").status_code == 400
+    assert client.get("/api/diff?ref=main").status_code == 409  # not a git repository
