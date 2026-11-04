@@ -18,8 +18,8 @@ murakumo canvas path/to/project --port 9000 --no-open
   **redo**, whether the generated code is up to date, and the problems.
 - **The tool rail**, on the left: add a table (T), a relationship (R) or a note (N), arrange the
   tables, export the canvas as an image; then the panels (Explorer, Sources, Stack, Schedules,
-  Team, CI, Runs, Activity, Changes, Problems), settings, the pipeline docs, light or dark, and
-  help.
+  Bus matrix, Team, CI, Runs, Guide, Activity, Changes, Problems), settings, the pipeline docs,
+  light or dark, and help.
   Hover an icon for its name.
 - **The Explorer** lists every table by domain, layer, colour label and source, each opening to
   its tables and their columns; its search box finds tables and columns. Click a table to go to
@@ -189,9 +189,23 @@ runs at a time; **Stop** stops it. The last twenty are kept with their output.
     commands and who runs it. **Run Murakumo's steps** runs the warehouse ones (`murakumo stack
     deploy --apply`).
   - **Decisions:** the log, newest first, and **Record it** for a decision of your own.
+- **Guide** (the book with a tick) is the [replication guide](guide.md): every step to rebuild the
+  platform by hand, chapter by chapter, each with why, its SQL or commands (with a copy button) and
+  what you should see. Tick the steps you have done; the ticks stay in this browser. **Check it
+  rebuilds the project** runs `murakumo guide --check`.
+- **Bus matrix** (the grid) has two tabs, from the [modelling patterns](modelling-patterns.md):
+  - **Bus matrix:** a row per fact, a column per dimension, a tick where the fact uses it, which
+    dimensions are conformed, and the problems (MK316, MK317). Click a name to go to its table.
+  - **Exposures:** the dashboards, notebooks and apps that read the marts, with their owner, link,
+    maturity and the tables they read. **Save exposures** writes `model/exposures.yaml`.
+- **Modelling patterns** (in the inspector): a dimension's **Unknown row** (as the project, yes or
+  no) and **Conformed**; a modelled table's **Access** (private, protected, public); and a table
+  of kind *accumulating*'s grain, **Milestones** and **Time in**.
 - **Settings** (the gear): **Project** sets the warehouse, orchestrator and modelling pattern (as
   `murakumo config`), the Python pipeline, plain-SQL output, the run log, the parent branch and
-  personal schemas, each saved to `murakumo.yaml` at once with its comments kept, and undoable.
+  personal schemas, unknown rows in dimensions, the replication guide, and **Personal data**: what
+  PII, confidential and restricted columns show on Snowflake, and the roles that see them as they
+  are. Each is saved to `murakumo.yaml` at once with its comments kept, and undoable.
   **This machine** is `murakumo setup`: what the project needs here (drivers, variables, key
   files, connections) and how to fix each, with **Test the connections**. Passwords and keys are
   never typed into the canvas: they stay in environment variables and key files.
@@ -300,6 +314,9 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | POST | `/api/sources/table-from-records` | Make or update a raw table from records: `{source, table, records, path}` |
 | GET | `/api/stack/deploy?env=` | The steps to deploy an environment, with their SQL or commands |
 | GET, POST | `/api/decisions` | The decisions log; `POST {what, why}` adds one |
+| GET | `/api/guide` | The replication guide's chapters and steps, as the model is now |
+| GET | `/api/bus` | The bus matrix: dimensions, facts and the dimensions each uses, and conformed problems |
+| PUT | `/api/exposures` | `{exposures: [...]}` replaces `model/exposures.yaml` (undoable) |
 | GET, PUT | `/api/settings` | The project's settings and their choices; change any of `warehouse`, `orchestrator`, `pattern`, `python_engine`, `plain_sql`, `run_log`, `raw_text`, `base_branch`, `personal_schemas`, `personal_database`, `environments: [{name, database, branch}]` |
 | POST | `/api/git/start` | Create the environments' missing branches from main (`murakumo branch start`) |
 | POST | `/api/git/branch` | Start new work: `{kind, name}`; kind is feature, fix, chore or hotfix |

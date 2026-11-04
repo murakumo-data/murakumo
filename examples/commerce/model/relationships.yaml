@@ -101,3 +101,10 @@ relationships:
     keys:
       - from: part_id
         to: part_id
+  - id: da46bcd7-1f09-4757-9dc7-52292ba0e864
+    name: fct_order_fulfilment__customer
+    from: fct_order_fulfilment
+    to: dim_customer
+    keys:
+      - from: customer_id
+        to: customer_id

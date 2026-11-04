@@ -32,6 +32,50 @@ export type Entity = {
   watermark: string | null
   incremental_by: 'load_time' | 'watermark'
   lookback_hours: number
+  accumulating: { milestones: string[]; unit: 'day' | 'hour' | 'minute' } | null
+  unknown_member: boolean | null // null: as the project's modelling.unknown_members says
+  conformed: boolean
+  access: 'private' | 'protected' | 'public' | null
+}
+
+export type Exposure = {
+  id?: string
+  name: string
+  type: 'dashboard' | 'notebook' | 'analysis' | 'ml' | 'application'
+  owner: string | null
+  email: string | null
+  url: string | null
+  maturity: 'high' | 'medium' | 'low' | null
+  description: string | null
+  depends_on: string[]
+}
+
+export type BusMatrix = {
+  dimensions: { name: string; domain: string | null; conformed: boolean; description: string | null }[]
+  facts: { name: string; domain: string | null; kind: string; dimensions: string[] }[]
+  problems: { code: string; entity: string; message: string }[]
+}
+
+// The replication guide (generated/guide): chapters of steps, each with why, what to run, and what to see.
+export type GuideBlock = { lang: string; text: string; title: string | null }
+export type GuideTable = { headers: string[]; rows: string[][] }
+export type GuideStep = {
+  key: string
+  title: string
+  why: string
+  blocks: GuideBlock[]
+  expect: string | null
+  tables: GuideTable[]
+  files: string[]
+}
+export type GuideChapter = {
+  number: number
+  slug: string
+  title: string
+  intro: string
+  file: string
+  tables: GuideTable[]
+  steps: GuideStep[]
 }
 
 export type JoinKey = { from: string; to: string }
@@ -163,6 +207,10 @@ export type Settings = {
   personal_schemas: boolean
   personal_database: string | null
   environments: { name: string; database: string | null; branch: string | null }[]
+  unknown_members: boolean
+  guide: boolean
+  masking: Record<string, string>
+  unmasked_roles: string[]
   choices: { warehouses: string[]; orchestrators: string[]; patterns: string[]; python_engines: string[] }
   changed?: string[]
   state?: State
@@ -253,7 +301,7 @@ export type State = {
   revision: string
   project: string
   editable: boolean
-  model: { entities: Entity[]; relationships: Relationship[] } | null
+  model: { entities: Entity[]; relationships: Relationship[]; exposures?: Exposure[] } | null
   layout: Record<string, Position>
   canvas: CanvasSettings
   domains: Domain[]
@@ -600,6 +648,9 @@ export const api = {
   decisions: () => request<{ decisions: Decision[] }>('GET', '/decisions', undefined, false),
   addDecision: (what: string, why: string | null) =>
     request<{ decisions: Decision[] }>('POST', '/decisions', { what, why }, false),
+  guide: () => request<{ chapters: GuideChapter[]; folder: string }>('GET', '/guide', undefined, false),
+  bus: () => request<BusMatrix>('GET', '/bus', undefined, false),
+  saveExposures: (exposures: Exposure[]) => request<State>('PUT', '/exposures', { exposures }),
 }
 
 /** What an edit would reach, without making it: the edit is sent as a preview. */

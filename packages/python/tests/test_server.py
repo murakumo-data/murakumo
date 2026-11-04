@@ -360,3 +360,30 @@ def test_environments_in_settings(client, project):
     assert client.get("/api/env/provision").json()["sql"].startswith("-- Nothing to run on DuckDB")
     bad = [{"name": "prod; drop", "database": None, "branch": None}]
     assert client.put("/api/settings", json={"environments": bad}).status_code == 422
+
+
+def test_guide_bus_matrix_and_exposures(client, project):
+    guide = client.get("/api/guide").json()
+    assert [c["slug"] for c in guide["chapters"]][:3] == ["overview", "accounts", "repository"]
+    assert any(s["key"] == "model-fct_trip" for c in guide["chapters"] for s in c["steps"])
+
+    bus = client.get("/api/bus").json()
+    assert "fct_trip" in [f["name"] for f in bus["facts"]]
+    assert "dim_taxi_zone" in next(f for f in bus["facts"] if f["name"] == "fct_trip")["dimensions"]
+
+    state = client.get("/api/state").json()
+    zone = entity_id(state, "dim_taxi_zone")
+    state = client.patch(f"/api/entities/{zone}", json={"conformed": True, "access": "public"}).json()
+    entity = next(e for e in state["model"]["entities"] if e["name"] == "dim_taxi_zone")
+    assert entity["conformed"] is True and entity["access"] == "public"
+
+    exposure = {"name": "trips_board", "type": "dashboard", "owner": "Ops", "depends_on": ["fct_trip"]}
+    state = client.put("/api/exposures", json={"exposures": [exposure]}).json()
+    assert state["model"]["exposures"][0]["name"] == "trips_board"
+    assert (project.root / "model" / "exposures.yaml").is_file()
+    bad = client.put("/api/exposures", json={"exposures": [{**exposure, "depends_on": ["nope"]}]})
+    assert bad.status_code == 400 and "nope" in bad.json()["message"]
+
+    settings = client.put("/api/settings", json={"unknown_members": True, "masking": {"pii": "hash"}}).json()
+    assert settings["unknown_members"] is True and settings["masking"] == {"pii": "hash"}
+    assert load_project(project.root).project.manifest.governance.masking == {"pii": "hash"}

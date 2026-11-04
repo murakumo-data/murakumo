@@ -1,0 +1,63 @@
+id: dae2e447-038a-4cbb-be2b-bd9f7b41b5e0
+name: fct_order_fulfilment
+description: One row per order line, following it from order to shipment to receipt.
+layer: marts
+kind: accumulating
+domain: sales
+grain:
+  - order_id
+  - line_number
+load: incremental
+accumulating:
+  milestones:
+    - ordered_on
+    - shipped_on
+    - received_on
+  unit: day
+attributes:
+  - id: ead0f13f-954c-4b92-a4e4-bc6e83868bc1
+    name: order_id
+    type: bigint
+    nullable: false
+  - id: 630623a6-3d4d-4fff-8a18-69cdd3923595
+    name: line_number
+    type: integer
+    nullable: false
+  - id: 62832143-f756-4b84-b10d-00c500a24fa2
+    name: customer_id
+    type: bigint
+  - id: 409d2ea8-f893-4bb8-a792-51df47e5c709
+    name: ordered_on
+    type: date
+  - id: 2c485bf2-7cc4-4c09-a7a4-62dc929de91e
+    name: committed_on
+    description: When the line was promised to ship.
+    type: date
+  - id: 53385f73-c61e-4a3d-8297-6b1bb000eb33
+    name: shipped_on
+    type: date
+  - id: b35555f8-d4b3-4da4-af97-c00b09240157
+    name: received_on
+    type: date
+mappings:
+  - target: order_id
+    sources:
+      - lineitem.l_orderkey
+  - target: line_number
+    sources:
+      - lineitem.l_linenumber
+  - target: customer_id
+    sources:
+      - orders.o_custkey
+  - target: ordered_on
+    sources:
+      - orders.o_orderdate
+  - target: committed_on
+    sources:
+      - lineitem.l_commitdate
+  - target: shipped_on
+    sources:
+      - lineitem.l_shipdate
+  - target: received_on
+    sources:
+      - lineitem.l_receiptdate

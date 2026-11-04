@@ -23,7 +23,7 @@ from murakumo.ir.model import (
     Layer,
     LoadPattern,
 )
-from murakumo.project import METRICS_FILE, RELATIONSHIPS_FILE, Project
+from murakumo.project import EXPOSURES_FILE, METRICS_FILE, RELATIONSHIPS_FILE, Project
 
 SNAKE_CASE = re.compile(r"^[a-z_][a-z0-9_]*$")
 # partition_by accepts a column or a transform of one: day(pickup_at), bucket(16, customer_id).
@@ -220,6 +220,39 @@ def validate_project(project: Project) -> list[Diagnostic]:
                     )
                 )
 
+    # Conformed dimensions and masking ----------------------------------------------------------
+
+    from murakumo import masking
+    from murakumo.bus import conformed_problems
+
+    for code, name, message in conformed_problems(model):
+        entity = model.entity(name)
+        out.append(warning(code, message, file_of(entity.id) if entity else None))
+    for code, where, message in masking.problems(project):
+        if code == "MK704":
+            out.append(error(code, message, manifest_file, "governance.masking"))
+        else:
+            entity = model.entity(where.split(".")[0])
+            out.append(
+                warning(code, message, file_of(entity.id) if entity else None, f"attributes[{where.split('.')[1]}]")
+            )
+
+    # Exposures ----------------------------------------------------------------------------------
+
+    for name in _duplicates(x.name for x in model.exposures):
+        out.append(error("MK109", f"exposure name {name!r} is used more than once", root / EXPOSURES_FILE))
+    for exposure in model.exposures:
+        for name in exposure.depends_on:
+            if absent(name):
+                out.append(
+                    error(
+                        "MK209",
+                        f"exposure {exposure.name} reads {name!r}, which does not exist",
+                        root / EXPOSURES_FILE,
+                        f"exposures[{exposure.name}]",
+                    )
+                )
+
     # Metrics ------------------------------------------------------------------------------------
 
     for metric in model.metrics:
@@ -287,6 +320,29 @@ def _check_entity(
             )
         if not entity.grain:
             out.append(error("MK312", "a cumulative table needs a grain: the key it accumulates per", file, "grain"))
+    if entity.kind is EntityKind.ACCUMULATING:
+        if entity.accumulating is None:
+            out.append(
+                error(
+                    "MK314",
+                    "an accumulating snapshot needs `accumulating: {milestones: [placed_at, shipped_at]}`",
+                    file,
+                    "accumulating",
+                )
+            )
+        else:
+            for name in entity.accumulating.milestones:
+                attribute = entity.attribute(name)
+                if attribute is None or attribute.logical_type.family not in ("date", "timestamp"):
+                    out.append(
+                        error("MK315", f"milestone {name!r} must be a date or timestamp column", file, "accumulating")
+                    )
+        if not entity.grain and not entity.primary_key:
+            out.append(error("MK314", "an accumulating snapshot needs a grain: the key of each row", file, "grain"))
+    if entity.access == "private" and not entity.domain:
+        out.append(
+            warning("MK706", "private access needs a domain: only models in its domain's group may use it", file)
+        )
     if entity.kind is EntityKind.DIMENSION and not entity.primary_key:
         out.append(warning("MK304", "a dimension should have a primary key", file))
     if entity.load is LoadPattern.INCREMENTAL and not entity.watermark and entity.layer is Layer.RAW:

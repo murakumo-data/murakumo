@@ -3,6 +3,7 @@ name: dim_part
 description: Parts we sell.
 layer: marts
 kind: dimension
+conformed: true
 domain: product
 history: scd1
 attributes:

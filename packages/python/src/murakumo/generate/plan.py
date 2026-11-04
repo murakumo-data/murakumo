@@ -378,7 +378,7 @@ class Planner:
         if len(unique_columns) > 1 and not history:
             tests.append(Test("murakumo_unique_combination", None, {"columns": unique_columns}))
 
-        incremental = entity.load is LoadPattern.INCREMENTAL and not history
+        incremental = (entity.load is LoadPattern.INCREMENTAL or entity.kind is EntityKind.ACCUMULATING) and not history
         model = DbtModel(
             name=entity.name,
             layer=entity.layer.value,
@@ -412,7 +412,10 @@ class Planner:
                     f"{self.mapping_sql(entity, watermark, aliases)} > "
                     f"(select coalesce(max({self.quote(entity.watermark)}), {floor}) from {{{{ this }}}})"
                 )
+        if entity.kind is EntityKind.ACCUMULATING:
+            return [self.accumulating(entity, model)]
         if not history:
+            model.extra["unknown"] = self.unknown_row(entity, model.columns)
             return [model]
         return self.scd2(entity, model)
 
@@ -510,6 +513,7 @@ class Planner:
         versions.folder = f"intermediate/{snake(entity.domain or 'core')}"
         versions.materialized = "view"
         versions.contract = False
+        versions.config = {k: v for k, v in versions.config.items() if k != "post_hook"}  # masking: the table's
         versions.tests = []
         versions.columns = [c for c in versions.columns if c.name not in ("_updated_at", "_loaded_at")]
         for column in versions.columns:  # one row per key before the snapshot adds versions
@@ -546,6 +550,8 @@ class Planner:
             ),
             self.updated_at(),
         ]
+        timestamps = {"valid_from": self.cast("'1900-01-01'", timestamp), "is_current": "true"}
+        unknown = self.unknown_row(entity, columns, timestamps)
         dimension = DbtModel(
             name=entity.name,
             layer=entity.layer.value,
@@ -559,8 +565,110 @@ class Planner:
             contract=self.contracts and entity.layer is Layer.MARTS,
             description=entity.description,
             config=self.warehouse_config(entity),
+            extra={"unknown": unknown},
         )
         return [versions, dimension]
+
+    # unknown members --------------------------------------------------------------------------
+
+    def has_unknown(self, entity: Entity) -> bool:
+        """Whether a dimension has an unknown member: its own setting, else modelling.unknown_members."""
+        if entity.kind is not EntityKind.DIMENSION or not self.keys_of(entity):
+            return False
+        wanted = entity.unknown_member
+        return self.project.manifest.modelling.unknown_members if wanted is None else wanted
+
+    def keys_of(self, entity: Entity) -> list[str]:
+        return [a.name for a in entity.primary_key] or [a.name for a in entity.attributes if a.key is KeyRole.NATURAL]
+
+    def unknown_value(self, attribute: Attribute | None, key: bool) -> str:
+        """What the unknown member holds in a column: -1 for its key, "Unknown" for its text."""
+        if attribute is None:
+            return "null"
+        family = attribute.logical_type.family
+        if key:
+            return "-1" if family in ("integer", "number") else "'-1'"
+        if family == "text" and not attribute.accepted_values:
+            return "'Unknown'"
+        if attribute.nullable or attribute.accepted_values:
+            return "null"
+        return {"integer": "0", "number": "0", "boolean": "false", "date": "'1900-01-01'"}.get(
+            family, "'1900-01-01'" if family.startswith("timestamp") else "null"
+        )
+
+    def unknown_row(self, entity: Entity, columns: list[Column], fixed: dict[str, str] | None = None) -> list[str]:
+        """The unknown member's row, a value per column (in order), or none for a table without one."""
+        if not self.has_unknown(entity):
+            return []
+        keys = {k.lower() for k in self.keys_of(entity)}
+        values = []
+        for column in columns:
+            if fixed and column.name in fixed:
+                values.append(fixed[column.name])
+                continue
+            if column.name == "_updated_at":
+                value = "current_timestamp"
+            else:
+                value = self.unknown_value(entity.attribute(column.name), column.name.lower() in keys)
+            values.append(self.cast(value, column.data_type))
+        return values
+
+    def unknown_keys(self) -> None:
+        """Facts point at a dimension's unknown member when their key to it is missing."""
+        built = {m.entity.name.lower(): m for m in self.plan.models if m.layer != "intermediate"}
+        for rel in self.model.relationships:
+            child, parent = built.get(rel.from_.lower()), built.get(rel.to.lower())
+            if child is None or parent is None or len(rel.keys) != 1 or not self.has_unknown(parent.entity):
+                continue
+            if child.entity.kind is EntityKind.DIMENSION:
+                continue  # a snowflaked dimension keeps its own nulls
+            column = next((c for c in child.columns if c.name.lower() == rel.keys[0].from_.lower()), None)
+            target = parent.entity.attribute(rel.keys[0].to)
+            if column is None or target is None or column.sql.startswith("coalesce("):
+                continue
+            missing = self.cast(self.unknown_value(target, key=True), column.data_type)
+            column.sql = f"coalesce({column.sql}, {missing})"
+            column.description = (column.description + " " if column.description else "") + (
+                f"-1 (the unknown {parent.name}) when it is missing."
+            )
+
+    # accumulating snapshots -------------------------------------------------------------------
+
+    def accumulating(self, entity: Entity, model: DbtModel) -> DbtModel:
+        """One row per key, updated as it passes each milestone: a milestone once reached keeps its
+        date, and the time between consecutive milestones is computed."""
+        settings = entity.accumulating
+        keys = list(entity.grain) or [a.name for a in entity.primary_key]
+        if settings is None or not keys:
+            raise _Skip  # reported by validate (MK314)
+        milestones = []
+        for name in settings.milestones:
+            attribute = entity.attribute(name)
+            if attribute is None:
+                raise _Skip  # reported by validate (MK315)
+            milestones.append(attribute.name)
+        unit = settings.unit
+        number = self.target.physical_name("bigint")
+        base = list(model.columns)
+        derived = []
+        for start, end in zip(milestones, milestones[1:], strict=False):
+            derived.append(
+                Column(
+                    f"{start}_to_{end}_{unit}s",
+                    f"{{{{ dbt.datediff('merged.{self.quote(start)}', 'merged.{self.quote(end)}', '{unit}') }}}}",
+                    number,
+                    f"{unit.capitalize()}s from {start} to {end}; null until both are reached.",
+                )
+            )
+        text = self.target.physical_name("string")
+        reached = " ".join(f"when merged.{self.quote(m)} is not null then '{m}'" for m in reversed(milestones))
+        derived.append(Column("current_milestone", f"case {reached} end", text, "The latest milestone it has reached."))
+        model.columns = base + derived
+        model.materialized = "incremental"
+        model.unique_key = keys
+        model.template = "accumulating.sql.j2"
+        model.extra = {"base": base, "derived": derived, "milestones": milestones, "keys": keys}
+        return model
 
     def referenced_entities(self, entity: Entity) -> list[Entity]:
         """The entities an entity's mappings read, in first-use order."""
@@ -669,6 +777,13 @@ class Planner:
 
     def warehouse_config(self, entity: Entity) -> dict:
         config: dict = {}
+        if self.target.dialect == "snowflake":
+            from murakumo import masking
+
+            columns = {m.column: m.rule for m in masking.masked_columns(self.project) if m.entity is entity}
+            if columns:
+                roles = [r.upper() for r in self.project.manifest.governance.unmasked_roles]
+                config["post_hook"] = [f"{{{{ murakumo_masking({columns!r}, {roles!r}) }}}}"]
         if entity.partition_by and self.target.dialect in ("databricks", "bigquery"):
             config["partition_by"] = entity.partition_by
         if entity.cluster_by and self.target.dialect in ("snowflake", "databricks", "bigquery"):
@@ -736,6 +851,7 @@ class Planner:
             except _Skip:
                 continue
         self.relationship_tests()
+        self.unknown_keys()
         return self.plan
 
 

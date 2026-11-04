@@ -39,7 +39,7 @@ id: 0e3b910a-721e-4b22-9dd0-50bf65e8b966
 name: fct_trip
 description: One row per yellow taxi trip.
 layer: marts                    # raw | staging | intermediate | marts | semantic
-kind: fact                      # table | fact | dimension | bridge | hub | link | satellite | event | cumulative | reference
+kind: fact                      # table | fact | dimension | bridge | hub | link | satellite | event | cumulative | accumulating | reference
 domain: mobility                # must be listed under project.domains
 source: nyc_tlc                 # for raw tables: the source system
 grain: [trip_id]                # the columns that make a row unique
@@ -51,6 +51,7 @@ lookback_hours: 0               # an incremental table also re-reads this many h
 partition_by: [day(pickup_at)]  # a column, or a transform: day(), month(), year(), hour(), bucket(n, col)
 cluster_by: []
 freshness: { warn_after_hours: 24, error_after_hours: 48 }
+access: public                  # private | protected | public: who may build on it (dbt model access)
 tags: []
 attributes:
   - name: trip_id
@@ -164,6 +165,12 @@ latest day with activity. `murakumo backfill customer_order_activity --from 2024
 they have no history to join. On the canvas, a table of kind cumulative gets the same settings in
 the inspector.
 
+### Modelling patterns
+
+Unknown members, accumulating snapshots, conformed dimensions, access levels, exposures
+(`model/exposures.yaml`) and masking policies have a page of their own:
+[modelling patterns](modelling-patterns.md).
+
 ## Relationship
 
 ```yaml
@@ -219,6 +226,7 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK103 | error | Two objects share an id |
 | MK104–106 | error | Two sources, metrics or relationships have the same name |
 | MK107 | error | A table has the name of the staging model generated for a raw table (`stg_<source>__<table>`) |
+| MK109 | error | Two exposures have the same name |
 | MK108 | warning | Two tables of different layers (or a table and an audit table) share a name, so they would collide in someone's own schema on a shared warehouse |
 | MK201 | error | An entity's source is not declared |
 | MK202 | error | An entity's domain is not in `project.domains` |
@@ -228,6 +236,7 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK206 | error | A mapping targets a column the entity does not have |
 | MK207 | error | A mapping reads from an entity or column that does not exist |
 | MK208 | error | A metric's entity does not exist |
+| MK209 | error | An exposure reads an entity that does not exist |
 | MK301 | warning | A join compares different types, so it will need a cast |
 | MK302 | warning | The one side of a relationship is not joined on its primary or natural key |
 | MK303 | warning | A fact table has no grain |
@@ -241,6 +250,10 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK311 | warning | A primary key column is nullable |
 | MK312 | error | A cumulative table has no grain |
 | MK313 | warning | A table is built incrementally by its watermark (`incremental_by: watermark`) but has no watermark column, so it is rebuilt in full |
+| MK314 | error | An accumulating snapshot has no `accumulating:` setting, or no grain |
+| MK315 | error | An accumulating snapshot's milestone is not a date or timestamp column |
+| MK316 | warning | A fact uses another domain's dimension that is not marked `conformed: true` |
+| MK317 | warning | A dimension has the same key as a conformed one: a copy of it |
 | MK401 | error | An import would overwrite a table that belongs to another source or layer |
 | MK402 | error | A dictionary row has no table or column name, or the file has no rows |
 | MK403 | warning | A dictionary value could not be used (type, classification, foreign key) |

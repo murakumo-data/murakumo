@@ -61,6 +61,10 @@ def render(plan: Plan) -> dict[str, str]:
             {"version": 2, "models": [_model_yaml(m, plan, tags.get(m.name)) for m in models]}
         )
 
+    exposures = _exposures(plan)
+    if exposures:
+        files["models/_exposures.yml"] = _yaml({"version": 2, "exposures": exposures})
+
     groups = _groups(plan)
     if groups:
         files["models/_groups.yml"] = _yaml({"version": 2, "groups": groups})
@@ -142,6 +146,25 @@ def selectors(project, plan: Plan) -> str:
         return _yaml({"selectors": []})
 
 
+def _exposures(plan: Plan) -> list[dict]:
+    """The dashboards, notebooks and apps that read the models (model/exposures.yaml)."""
+    out = []
+    for exposure in plan.project.model.exposures:
+        built = [n for n in exposure.depends_on if plan.model(n) is not None]
+        entry: dict[str, Any] = {"name": exposure.name, "type": exposure.type}
+        if exposure.description:
+            entry["description"] = exposure.description
+        if exposure.url:
+            entry["url"] = exposure.url
+        if exposure.maturity:
+            entry["maturity"] = exposure.maturity
+        owner = {k: v for k, v in (("name", exposure.owner), ("email", exposure.email)) if v}
+        entry["owner"] = owner or {"name": plan.project.manifest.project.owner or "unknown"}
+        entry["depends_on"] = [f"ref('{n}')" for n in built]
+        out.append(entry)
+    return out
+
+
 def _groups(plan: Plan) -> list[dict]:
     """One dbt group per domain that has models, owned by the domain's owner."""
     used = {(m.entity.domain or "").lower() for m in plan.models}
@@ -167,6 +190,8 @@ def _model_yaml(model: DbtModel, plan: Plan, tags: list[str] | None = None) -> d
         config["meta"] = {"domain": domain.name}
     if model.contract:
         config["contract"] = {"enforced": True}
+    if model.entity.access and model.name == model.entity.name:
+        config["access"] = model.entity.access  # who may ref() it: private (its group), protected, public
     if tags:
         config["tags"] = tags  # the schedules that refresh it: their selectors select by tag
     if config:

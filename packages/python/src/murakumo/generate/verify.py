@@ -556,6 +556,8 @@ def _run_dbt(
 def _collect(run, result: VerifyResult) -> None:
     for node_result in getattr(run.result, "results", None) or []:
         node = node_result.node
+        if str(getattr(node.resource_type, "value", node.resource_type)) == "exposure":
+            continue  # nothing to build: dbt lists it as a no-op
         result.nodes.append(
             NodeResult(
                 name=getattr(node, "name", node.unique_id),

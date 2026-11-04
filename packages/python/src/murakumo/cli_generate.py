@@ -418,6 +418,73 @@ def docs_command(
         webbrowser.open(page.as_uri())
 
 
+def guide_command(
+    project_path: Path = ProjectOption,
+    check: bool = typer.Option(
+        False, "--check", help="Rebuild the project from the guide's SQL alone, on DuckDB, and compare it with a build."
+    ),
+    rows: int = typer.Option(50, "--rows", help="--check: sample rows per raw table."),
+    open_browser: bool = typer.Option(False, "--open", help="Open the guide's page in the browser."),
+) -> None:
+    """The replication guide: every step to rebuild the platform by hand, without Murakumo.
+
+    Writes generated/guide/: a chapter per part of the platform (accounts, sources, raw tables,
+    every model, schedules, CI, the data dictionary and the decisions log), with the SQL and
+    commands in full, and the scripts they run. `murakumo generate` keeps it up to date too.
+    """
+    import webbrowser
+
+    from murakumo.generate import replication
+
+    project = open_project(project_path)
+    if check:
+        from murakumo.generate.rebuild import check as rebuild
+
+        console.print("Rebuilding from the guide alone, on DuckDB, then with Murakumo, twice over...")
+        result = rebuild(project, rows=rows)
+        if result.error:
+            fail(result.error)
+            raise typer.Exit(1)
+        for name, guided, built in result.mismatched:
+            console.print(f"  [red]differs[/red] {name}: the guide built {guided}, Murakumo {built} (rows, checksum)")
+        for test, failing in result.failed_tests:
+            console.print(f"  [red]test failed[/red] {escape(test)}: {failing} row(s)")
+        for name, before, after in result.changed_on_rerun:
+            console.print(f"  [red]not safe to run again[/red] {name}: {before} then {after}")
+        if not result.ok:
+            fail("the guide does not rebuild the project as Murakumo does")
+            raise typer.Exit(1)
+        tables = len({name.split(" (run ")[0] for name, _, _ in result.tables})
+        console.print(
+            f"[green]The guide rebuilds the project:[/green] all {tables} tables match a Murakumo build, in rows "
+            f"and values, after each of {result.rounds} runs of new files; every test passes, and running it again "
+            f"changes nothing ({result.scripts} scripts run)."
+        )
+        return
+
+    output = generate(project)
+    folder = project.root / GENERATED_DIR
+    files = {p: c for p, c in output.files.items() if p.startswith(f"{replication.FOLDER}/")}
+    if not project.manifest.generation.guide:
+        files = {
+            f"{replication.FOLDER}/{p}": c for p, c in replication.render(project, output.plan, output.files).items()
+        }
+        files = {p.split("/", 1)[1]: c for p, c in files.items()}
+    for path, content in files.items():
+        target = folder / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists() or target.read_text(encoding="utf-8") != content:
+            target.write_text(content, encoding="utf-8")
+    chapters = replication.chapters(project, output.plan, output.files)
+    for chapter in chapters:
+        console.print(f"  {chapter.number:>2}. {chapter.title} ({len(chapter.steps)} step(s))")
+    steps = sum(len(c.steps) for c in chapters)
+    page = folder / replication.FOLDER / "index.html"
+    console.print(f"The guide: {GENERATED_DIR}/{replication.FOLDER}/README.md, {steps} steps; one page: {page}")
+    if open_browser:
+        webbrowser.open(page.as_uri())
+
+
 def ci_command(
     project_path: Path = ProjectOption,
     provider: str = typer.Option("github", "--provider", help="github (GitHub Actions) or gitlab."),

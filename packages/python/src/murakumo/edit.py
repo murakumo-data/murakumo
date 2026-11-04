@@ -200,6 +200,10 @@ ENTITY_FIELDS = {
     "tags",
     "grain",
     "cumulative",
+    "accumulating",
+    "unknown_member",
+    "conformed",
+    "access",
 }
 COLUMN_FIELDS = {"description", "type", "nullable", "key", "pii", "classification", "unit", "example", "business_term"}
 RELATIONSHIP_FIELDS = {"name", "cardinality", "optional", "role", "description", "keys"}

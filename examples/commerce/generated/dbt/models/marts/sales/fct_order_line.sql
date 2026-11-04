@@ -16,8 +16,8 @@ orders as (
 select
     cast(lineitem.l_orderkey as BIGINT) as order_id,
     cast(lineitem.l_linenumber as INTEGER) as line_number,
-    cast(orders.o_custkey as BIGINT) as customer_id,
-    cast(lineitem.l_partkey as BIGINT) as part_id,
+    coalesce(cast(orders.o_custkey as BIGINT), cast(-1 as BIGINT)) as customer_id,
+    coalesce(cast(lineitem.l_partkey as BIGINT), cast(-1 as BIGINT)) as part_id,
     cast(orders.o_orderdate as DATE) as ordered_on,
     cast(orders.o_orderstatus as VARCHAR) as order_status,
     cast(lineitem.l_quantity as DECIMAL(15,2)) as quantity,

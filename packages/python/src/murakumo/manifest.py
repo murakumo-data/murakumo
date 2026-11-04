@@ -332,6 +332,8 @@ class Modelling(Section):
     # text: raw tables keep every column as text, exactly as it arrived; staging converts the types,
     # and a value that does not convert becomes null and is counted (a warning) instead of failing the load.
     raw_columns: str = Field(default="typed", pattern="^(typed|text)$")
+    # Dimensions get an "unknown" row (key -1) that facts point at when their key is missing.
+    unknown_members: bool = False
 
 
 class Conventions(Section):
@@ -411,6 +413,7 @@ class Generation(Section):
     python_engine: str = Field(default="none", pattern="^(pyspark|polars|none)$")
     orchestrator: Orchestrator = Orchestrator.AIRFLOW
     plain_sql: bool = False  # also write the project as plain SQL scripts, under generated/sql/
+    guide: bool = True  # the replication guide, under generated/guide/: how to rebuild it all by hand
     streaming: Streaming | None = None
     infrastructure: str | None = None
     semantic_layer: str | None = None
@@ -443,7 +446,10 @@ class Contracts(Section):
 
 class Governance(Section):
     classification_tags: list[str] = Field(default_factory=lambda: ["pii", "confidential"])
+    # Masking policies (Snowflake): what a column marked pii, or with a classification, shows to
+    # roles not in unmasked_roles: {pii: redact, restricted: hash, confidential: partial}.
     masking: dict[str, str] = Field(default_factory=dict)
+    unmasked_roles: list[str] = Field(default_factory=list)
     retention_days: dict[str, int] = Field(default_factory=dict)
     lineage: str | None = "openlineage"
     catalog_sync: str | None = None

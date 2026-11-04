@@ -131,7 +131,12 @@ grants. Then grant the developer role to each person and each deployer role to t
 - **Snowpipe:** with `stack.load: snowpipe`, each file that lands in S3 is loaded by a pipe.
   `murakumo stack deploy --env prod --apply` creates the integration, stage and pipes.
 
-All of this is described in [stack.md](stack.md).
+- **Masking policies:** `governance.masking: {pii: redact}` masks personal and classified
+  columns for every role outside `governance.unmasked_roles`. dbt sets the policies after each
+  build; see [modelling patterns](modelling-patterns.md#masking-policies).
+
+All of this is described in [stack.md](stack.md). [The replication guide](guide.md) has every step
+to set it up by hand.
 
 ## Verify
 

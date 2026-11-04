@@ -44,7 +44,9 @@ def test_every_run_records_itself(tmp_path):
     tests = [name for (name,) in con.execute("select test from audit.dq_results").fetchall()]
     assert sum(t.startswith("relationships_") for t in tests) == 4  # a schedule runs the tests between its tables
     counts = dict(con.execute("select model, rows_in_table from audit.model_runs").fetchall())
-    assert counts["dim_taxi_zone"] == 2 and counts["stg_nyc_tlc__taxi_zone_lookup"] is None  # a view is not counted
+    assert (
+        counts["dim_taxi_zone"] == 3 and counts["stg_nyc_tlc__taxi_zone_lookup"] is None
+    )  # 2 and the unknown; a view is not counted
     day = con.execute("select rows_ingested, rows_rejected from audit.daily_summary").fetchone()
     assert day == (22, 1)
     con.close()

@@ -93,7 +93,7 @@ function ProjectSettings({ onState, onMessage }: { onState: (state: State) => vo
       ))}
     </select>
   )
-  const toggle = (key: 'plain_sql' | 'run_log' | 'personal_schemas' | 'raw_text') => (
+  const toggle = (key: 'plain_sql' | 'run_log' | 'personal_schemas' | 'raw_text' | 'unknown_members' | 'guide') => (
     <input type="checkbox" checked={settings[key]} disabled={saving} onChange={(e) => save({ [key]: e.target.checked })} />
   )
   return (
@@ -132,6 +132,56 @@ function ProjectSettings({ onState, onMessage }: { onState: (state: State) => vo
         <label className="settings__check">
           {toggle('raw_text')} Keep raw columns as text, as they arrived: staging converts them, and values that do
           not convert become null and are counted, instead of failing the load
+        </label>
+        <label className="settings__check">
+          {toggle('unknown_members')} Give dimensions an unknown row (key -1) that facts point at when their key is
+          missing, so no fact row is lost
+        </label>
+        <label className="settings__check">
+          {toggle('guide')} Write the replication guide (generated/guide): every step to rebuild it all by hand
+        </label>
+      </fieldset>
+      <fieldset className="settings__group">
+        <legend>Personal data</legend>
+        <p className="muted small">
+          On Snowflake, columns marked PII or classified get a masking policy: what roles outside the list below see in
+          them. Other warehouses have no masking policies here.
+        </p>
+        {(['pii', 'confidential', 'restricted'] as const).map((kind) => (
+          <label key={kind} className="settings__row">
+            <span>{kind === 'pii' ? 'PII columns' : `${kind[0].toUpperCase()}${kind.slice(1)} columns`}</span>
+            <select
+              className="input"
+              value={settings.masking[kind] ?? ''}
+              disabled={saving}
+              onChange={(e) => {
+                const masking = { ...settings.masking }
+                if (e.target.value) masking[kind] = e.target.value
+                else delete masking[kind]
+                save({ masking })
+              }}
+            >
+              <option value="">shown as they are</option>
+              <option value="redact">redacted (***)</option>
+              <option value="partial">all but the last 4 characters hidden</option>
+              <option value="hash">hashed (same value, same hash)</option>
+              <option value="null">null</option>
+            </select>
+          </label>
+        ))}
+        <label className="settings__row">
+          <span>Roles that see them</span>
+          <input
+            className="input"
+            key={settings.unmasked_roles.join(',')}
+            defaultValue={settings.unmasked_roles.join(', ')}
+            placeholder="ANALYST_PII, DATA_PROTECTION"
+            disabled={saving}
+            onBlur={(e) => {
+              const roles = e.target.value.split(',').map((r) => r.trim()).filter(Boolean)
+              if (roles.join(',') !== settings.unmasked_roles.join(',')) save({ unmasked_roles: roles })
+            }}
+          />
         </label>
       </fieldset>
       <fieldset className="settings__group">

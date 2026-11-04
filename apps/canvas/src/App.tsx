@@ -17,12 +17,14 @@ import {
   Activity,
   AlignLeft,
   BookOpen,
+  BookOpenCheck,
   CalendarClock,
   CircleHelp,
   Cloud,
   Database,
   FileCode2,
   GitBranch,
+  Grid3x3,
   History,
   ImageDown,
   KeyRound,
@@ -85,6 +87,8 @@ import { LineageBar, LineageEdge, type LineageEdgeType } from './Lineage'
 import { NewRelationship } from './NewRelationship'
 import { NoteNode, type NoteNodeType } from './Notes'
 import { SchedulesPanel } from './Schedules'
+import { GuidePanel } from './Guide'
+import { MartsPanel } from './Marts'
 import { RunsPanel } from './Runs'
 import { Search } from './Search'
 import { TestChange } from './TestChange'
@@ -135,7 +139,21 @@ const CARDINALITY: Record<string, string> = {
 }
 
 type Selection = { kind: 'entity' | 'relationship'; id: string } | null
-type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'stack' | 'schedules' | 'ci' | 'git' | 'activity' | 'settings' | 'runs'
+type Side =
+  | 'explorer'
+  | 'issues'
+  | 'changes'
+  | 'domains'
+  | 'sources'
+  | 'stack'
+  | 'schedules'
+  | 'ci'
+  | 'git'
+  | 'activity'
+  | 'settings'
+  | 'runs'
+  | 'guide'
+  | 'marts'
 type Theme = 'system' | 'light' | 'dark'
 
 const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git', 'activity', 'settings', 'runs']
@@ -946,9 +964,11 @@ function Canvas() {
     { id: 'sources', label: 'Sources', icon: <Database size={18} />, badge: state.sources.length || null },
     { id: 'stack', label: 'Stack', icon: <Layers size={18} /> },
     { id: 'schedules', label: 'Schedules', icon: <CalendarClock size={18} /> },
+    { id: 'marts', label: 'Bus matrix', icon: <Grid3x3 size={18} /> },
     { id: 'git', label: 'Team', icon: <GitBranch size={18} /> },
     { id: 'ci', label: 'CI', icon: <Workflow size={18} /> },
     { id: 'runs', label: 'Runs', icon: <History size={18} /> },
+    { id: 'guide', label: 'Guide', icon: <BookOpenCheck size={18} /> },
     {
       id: 'activity',
       label: 'Activity',
@@ -1245,6 +1265,20 @@ function Canvas() {
                 <SourcesPanel state={state} run={run} startJob={startJob} onMessage={(text) => setMessage({ text, tone: 'info' })} />
               )}
               {side === 'stack' && <StackPanel revision={state.revision} onState={setState} onMessage={showMessage} startJob={startJob} />}
+              {side === 'guide' && (
+                <GuidePanel project={state.project} revision={state.revision} onMessage={showMessage} startJob={startJob} />
+              )}
+              {side === 'marts' && (
+                <MartsPanel
+                  state={state}
+                  onState={setState}
+                  onMessage={showMessage}
+                  onFocus={(name) => {
+                    const entity = entities.find((e) => e.name === name)
+                    if (entity) focus(entity)
+                  }}
+                />
+              )}
               {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} onTestChange={setTesting} />}
               {side === 'ci' && <CIPanel onMessage={showMessage} />}
               {side === 'runs' && (

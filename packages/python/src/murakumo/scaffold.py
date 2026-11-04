@@ -63,6 +63,7 @@ modelling:
   pattern: {pattern:<20}# kimball | datavault | obt | 3nf | mixed
   default_scd: 2
   surrogate_keys: hash
+  unknown_members: true        # dimensions get an "unknown" row (-1) that facts point at when a key is missing
 
 generation:
   transform: dbt

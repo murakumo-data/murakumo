@@ -24,7 +24,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from murakumo.diagnostics import Diagnostic, error, warning
-from murakumo.ir.model import Entity, Metric, Model, Relationship, SourceSystem
+from murakumo.ir.model import Entity, Exposure, Metric, Model, Relationship, SourceSystem
 from murakumo.manifest import MANIFEST_FILE, Manifest
 
 MODEL_DIR = "model"
@@ -34,6 +34,7 @@ RELATIONSHIPS_FILE = f"{MODEL_DIR}/relationships.yaml"
 METRICS_FILE = f"{MODEL_DIR}/metrics.yaml"
 LAYOUT_FILE = f"{MODEL_DIR}/layout.yaml"
 DECISIONS_FILE = f"{MODEL_DIR}/decisions.yaml"
+EXPOSURES_FILE = f"{MODEL_DIR}/exposures.yaml"
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -190,6 +191,7 @@ def load_project(root: Path) -> LoadResult:
     for key, filename, model, target in (
         ("relationships", RELATIONSHIPS_FILE, Relationship, project.model.relationships),
         ("metrics", METRICS_FILE, Metric, project.model.metrics),
+        ("exposures", EXPOSURES_FILE, Exposure, project.model.exposures),
     ):
         path = root / filename
         if path.is_file():
@@ -198,7 +200,13 @@ def load_project(root: Path) -> LoadResult:
             missing += file_missing
 
     model_dir = root / MODEL_DIR
-    known = {root / RELATIONSHIPS_FILE, root / METRICS_FILE, root / LAYOUT_FILE, root / DECISIONS_FILE}
+    known = {
+        root / RELATIONSHIPS_FILE,
+        root / METRICS_FILE,
+        root / LAYOUT_FILE,
+        root / DECISIONS_FILE,
+        root / EXPOSURES_FILE,
+    }
     for path in sorted(model_dir.rglob("*.yml")) if model_dir.is_dir() else []:
         diagnostics.append(warning("MK004", "ignored: model files must end in .yaml", path))
     for path in sorted(model_dir.glob("*.yaml")) if model_dir.is_dir() else []:
@@ -320,6 +328,7 @@ def save_model(project: Project, prune: bool = False) -> list[Path]:
     for key, filename, items in (
         ("relationships", RELATIONSHIPS_FILE, project.model.relationships),
         ("metrics", METRICS_FILE, project.model.metrics),
+        ("exposures", EXPOSURES_FILE, project.model.exposures),
     ):
         path = root / filename
         if items:

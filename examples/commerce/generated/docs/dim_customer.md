@@ -20,3 +20,4 @@ Customers, with every change to their segment, balance or country kept as a new 
 **Relationships**
 
 - fct_order_line → dim_customer: many_to_one, fct_order_line.customer_id = dim_customer.customer_id
+- fct_order_fulfilment → dim_customer: many_to_one, fct_order_fulfilment.customer_id = dim_customer.customer_id

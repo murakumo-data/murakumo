@@ -102,6 +102,24 @@ def plan(project: Project, environment: str) -> list[DeployStep]:
                 role=role_for(environment) or f"SNOWFLAKE_ROLE_{environment.upper()} is not set: your default role",
             )
         )
+    if warehouse is Warehouse.SNOWFLAKE:
+        from murakumo.generate.ingestion import _environment_databases
+        from murakumo.masking import policy_sql
+
+        database = dict(_environment_databases(project)).get(environment)
+        policies = policy_sql(project, database)
+        if policies:
+            out.append(
+                DeployStep(
+                    "masking",
+                    f"Create the masking policies in {environment}",
+                    "What roles outside governance.unmasked_roles see in personal and classified columns. dbt sets"
+                    " them on the marts after each build; this creates them first, and sets them on marts that exist.",
+                    "sql",
+                    f"use database {database};\n" + policies,
+                    role=role_for(environment) or f"SNOWFLAKE_ROLE_{environment.upper()} is not set: your default role",
+                )
+            )
     if stack.ci != "none":
         from murakumo import ci
 

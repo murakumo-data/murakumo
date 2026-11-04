@@ -1,0 +1,13 @@
+exposures:
+  - id: daab10b9-4a5f-4ed3-9b12-cc1bb065ee31
+    name: sales_dashboard
+    description: Weekly revenue and late shipments, by customer segment.
+    type: dashboard
+    owner: Sales analytics
+    email: sales-analytics@example.com
+    url: https://bi.example.com/dashboards/sales
+    maturity: high
+    depends_on:
+      - fct_order_line
+      - fct_order_fulfilment
+      - dim_customer

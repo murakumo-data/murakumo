@@ -287,4 +287,4 @@ commands, then **Run Murakumo's steps**. The run happens in the background, in *
 - every step to set the platform up by hand, with the SQL and commands in full;
 - the decisions log.
 
-It is the start of the full replication guide (0.9).
+The full step-by-step rebuild is the [replication guide](guide.md), in `generated/guide/`.

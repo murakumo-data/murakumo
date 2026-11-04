@@ -63,6 +63,10 @@ def generate(project: Project, warehouse: Warehouse | str | None = None) -> Outp
     for path, content in ddl.render(plan, statements).items():
         output.files[f"ddl/{target.warehouse.value}/{path}"] = content
     output.ddl = statements.blocks
+    if project.manifest.generation.guide:
+        from murakumo.generate import replication
+
+        output.files.update(replication.render(project, plan, output.files))
     output.owners = _owners(plan)
     return output
 

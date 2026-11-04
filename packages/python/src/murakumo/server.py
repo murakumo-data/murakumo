@@ -121,6 +121,14 @@ class SettingsBody(BaseModel):
     personal_schemas: bool | None = None
     personal_database: str | None = Field(default=None, max_length=255, pattern=r"^[\w.$-]*$")
     environments: list[EnvironmentBody] | None = None
+    unknown_members: bool | None = None
+    guide: bool | None = None
+    masking: dict[str, str] | None = None
+    unmasked_roles: list[str] | None = None
+
+
+class ExposuresBody(BaseModel):
+    exposures: list[dict[str, Any]]
 
 
 class EnvironmentBody(BaseModel):
@@ -794,6 +802,10 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             "personal_schemas": m.collaboration.personal_schemas,
             "personal_database": m.collaboration.personal_database,
             "environments": [e.model_dump() for e in m.targets.environments],
+            "unknown_members": m.modelling.unknown_members,
+            "guide": m.generation.guide,
+            "masking": m.governance.masking,
+            "unmasked_roles": m.governance.unmasked_roles,
             "choices": {
                 "warehouses": [w.value for w in Warehouse],
                 "orchestrators": [o.value for o in Orchestrator],
@@ -830,6 +842,10 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                     "base_branch": ("collaboration", "base_branch"),
                     "personal_schemas": ("collaboration", "personal_schemas"),
                     "personal_database": ("collaboration", "personal_database"),
+                    "unknown_members": ("modelling", "unknown_members"),
+                    "guide": ("generation", "guide"),
+                    "masking": ("governance", "masking"),
+                    "unmasked_roles": ("governance", "unmasked_roles"),
                 }
                 current = settings()
                 if "raw_text" in given and given["raw_text"] is not None and given["raw_text"] != current["raw_text"]:
@@ -1002,6 +1018,51 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         with lock:
             stack_module.record(root, body.what, why=body.why)
         return {"decisions": stack_module.decisions(root)}
+
+    # The replication guide, the bus matrix and exposures -------------------------------------------
+
+    @app.get("/api/guide")
+    def get_guide() -> dict[str, Any]:
+        """The replication guide's chapters (generated/guide), as the model is now."""
+        from murakumo.generate import generate as generate_files
+        from murakumo.generate import replication
+
+        project = loaded()
+        output = generate_files(project)
+        chapters = replication.chapters(project, output.plan, output.files)
+        return {"chapters": [c.as_dict() for c in chapters], "folder": f"generated/{replication.FOLDER}"}
+
+    @app.get("/api/bus")
+    def get_bus() -> dict[str, Any]:
+        """The bus matrix: which facts use which dimensions, and which dimensions are conformed."""
+        from murakumo.bus import bus_matrix, conformed_problems
+
+        project = loaded()
+        problems = [{"code": c, "entity": e, "message": m} for c, e, m in conformed_problems(project.model)]
+        return {**bus_matrix(project.model).as_dict(), "problems": problems}
+
+    @app.put("/api/exposures")
+    def put_exposures(body: ExposuresBody, rev: Revision = None) -> dict[str, Any]:
+        """The dashboards, notebooks and apps that read the model (model/exposures.yaml), all at once."""
+        from pydantic import ValidationError
+
+        from murakumo.ir.model import Exposure
+
+        def action(project: Project) -> None:
+            try:
+                exposures = [Exposure.model_validate(x) for x in body.exposures]
+            except ValidationError as exc:
+                raise edit.EditError(str(exc.errors()[0].get("msg"))) from None
+            names = [x.name.lower() for x in exposures]
+            if len(names) != len(set(names)):
+                raise edit.EditError("each exposure needs a name of its own")
+            for exposure in exposures:
+                missing = [n for n in exposure.depends_on if project.model.entity(n) is None]
+                if missing:
+                    raise edit.EditError(f"{exposure.name} reads {', '.join(missing)}, which do not exist")
+            project.model.exposures = exposures
+
+        return change(action, rev)
 
     @app.get("/api/env/provision")
     def get_provision() -> dict[str, str]:
