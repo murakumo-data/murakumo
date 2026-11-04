@@ -19,3 +19,18 @@ select
     versions.dbt_valid_to is null as is_current,
     cast(current_timestamp as TIMESTAMPTZ) as _updated_at
 from versions
+
+union all
+
+-- The unknown member: the row facts point at when their key to it is missing.
+select
+    cast(-1 as BIGINT),
+    cast('Unknown' as VARCHAR),
+    cast('Unknown' as VARCHAR),
+    cast('Unknown' as VARCHAR),
+    cast(null as VARCHAR),
+    cast(null as DECIMAL(18,4)),
+    cast('1900-01-01' as TIMESTAMP),
+    cast(null as TIMESTAMP),
+    true,
+    cast(current_timestamp as TIMESTAMPTZ)

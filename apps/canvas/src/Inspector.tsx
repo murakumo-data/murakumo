@@ -291,6 +291,82 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
             {entity.cumulative && <Backfill entity={entity} onJob={onJob} />}
           </>
         )}
+        {entity.kind === 'accumulating' && (
+          <>
+            <Row label="Per">
+              <TextField
+                label="Grain"
+                value={entity.grain.join(', ') || null}
+                placeholder="the key of each row, e.g. order_id"
+                disabled={disabled}
+                onSave={(text) => save({ grain: (text ?? '').split(',').map((t) => t.trim()).filter(Boolean) })}
+              />
+            </Row>
+            <Row label="Milestones">
+              <TextField
+                label="Milestones"
+                value={entity.accumulating?.milestones.join(', ') || null}
+                placeholder="its date columns, in order: placed_at, shipped_at, delivered_at"
+                disabled={disabled}
+                onSave={(text) => {
+                  const milestones = (text ?? '').split(',').map((t) => t.trim()).filter(Boolean)
+                  save({ accumulating: milestones.length ? { milestones, unit: entity.accumulating?.unit ?? 'day' } : null })
+                }}
+              />
+            </Row>
+            <Row label="Time in">
+              <SelectField
+                label="Unit of the time between milestones"
+                value={entity.accumulating?.unit ?? 'day'}
+                options={['day', 'hour', 'minute']}
+                disabled={disabled || !entity.accumulating}
+                onSave={(unit) => unit && save({ accumulating: { milestones: entity.accumulating!.milestones, unit } })}
+              />
+            </Row>
+            <p className="muted small inspector__hint">
+              One row per key, updated as it passes each milestone. A milestone once reached keeps its date, and the time
+              between consecutive milestones is a column of its own.
+            </p>
+          </>
+        )}
+        {entity.kind === 'dimension' && entity.layer !== 'raw' && (
+          <>
+            <Row label="Unknown row">
+              <SelectField
+                label="Unknown member"
+                value={entity.unknown_member === null ? 'as the project' : entity.unknown_member ? 'yes' : 'no'}
+                options={['as the project', 'yes', 'no']}
+                disabled={disabled}
+                onSave={(choice) => save({ unknown_member: choice === 'yes' ? true : choice === 'no' ? false : null })}
+              />
+            </Row>
+            <Row label="Conformed">
+              <SelectField
+                label="Conformed: shared by every domain"
+                value={entity.conformed ? 'yes' : 'no'}
+                options={['no', 'yes']}
+                disabled={disabled}
+                onSave={(choice) => save({ conformed: choice === 'yes' })}
+              />
+            </Row>
+            <p className="muted small inspector__hint">
+              The unknown row (key -1) is what facts point at when their key to this table is missing, so no fact row is
+              lost. A conformed dimension is one table every domain's facts use, instead of a copy each.
+            </p>
+          </>
+        )}
+        {entity.layer !== 'raw' && entity.layer !== 'staging' && (
+          <Row label="Access">
+            <SelectField
+              label="Who may build on it (dbt access)"
+              value={entity.access}
+              options={['private', 'protected', 'public']}
+              allowEmpty
+              disabled={disabled}
+              onSave={(access) => save({ access })}
+            />
+          </Row>
+        )}
         <Row label="Refreshed">
           <span className="small">
             {(state.orchestration?.schedules ?? [])

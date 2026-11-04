@@ -1,6 +1,6 @@
 {
   "warehouse": "duckdb",
-  "migration": 3,
+  "migration": 4,
   "tables": [
     {
       "id": "772ed744-3320-4d78-af94-2f50516ae545",
@@ -42,6 +42,74 @@
           "id": "772ed744-3320-4d78-af94-2f50516ae545:snapshot_date",
           "name": "snapshot_date",
           "type": "DATE"
+        }
+      ]
+    },
+    {
+      "id": "dae2e447-038a-4cbb-be2b-bd9f7b41b5e0",
+      "kind": "incremental",
+      "schema": "marts",
+      "name": "fct_order_fulfilment",
+      "columns": [
+        {
+          "id": "ead0f13f-954c-4b92-a4e4-bc6e83868bc1",
+          "name": "order_id",
+          "type": "BIGINT"
+        },
+        {
+          "id": "630623a6-3d4d-4fff-8a18-69cdd3923595",
+          "name": "line_number",
+          "type": "INTEGER"
+        },
+        {
+          "id": "62832143-f756-4b84-b10d-00c500a24fa2",
+          "name": "customer_id",
+          "type": "BIGINT"
+        },
+        {
+          "id": "409d2ea8-f893-4bb8-a792-51df47e5c709",
+          "name": "ordered_on",
+          "type": "DATE"
+        },
+        {
+          "id": "2c485bf2-7cc4-4c09-a7a4-62dc929de91e",
+          "name": "committed_on",
+          "type": "DATE"
+        },
+        {
+          "id": "53385f73-c61e-4a3d-8297-6b1bb000eb33",
+          "name": "shipped_on",
+          "type": "DATE"
+        },
+        {
+          "id": "b35555f8-d4b3-4da4-af97-c00b09240157",
+          "name": "received_on",
+          "type": "DATE"
+        },
+        {
+          "id": "dae2e447-038a-4cbb-be2b-bd9f7b41b5e0:_updated_at",
+          "name": "_updated_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "dae2e447-038a-4cbb-be2b-bd9f7b41b5e0:_loaded_at",
+          "name": "_loaded_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "dae2e447-038a-4cbb-be2b-bd9f7b41b5e0:ordered_on_to_shipped_on_days",
+          "name": "ordered_on_to_shipped_on_days",
+          "type": "BIGINT"
+        },
+        {
+          "id": "dae2e447-038a-4cbb-be2b-bd9f7b41b5e0:shipped_on_to_received_on_days",
+          "name": "shipped_on_to_received_on_days",
+          "type": "BIGINT"
+        },
+        {
+          "id": "dae2e447-038a-4cbb-be2b-bd9f7b41b5e0:current_milestone",
+          "name": "current_milestone",
+          "type": "VARCHAR"
         }
       ]
     },

@@ -1,5 +1,6 @@
 dist/
-build/
+/build/
+packages/*/build/
 *.egg-info/
 __pycache__/
 .venv/

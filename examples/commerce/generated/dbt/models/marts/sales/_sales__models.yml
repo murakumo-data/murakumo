@@ -99,6 +99,83 @@ models:
             columns:
               - customer_id
               - valid_from
+  - name: fct_order_fulfilment
+    description: One row per order line, following it from order to shipment to receipt.
+    config:
+      group: sales
+      meta:
+        domain: sales
+      contract:
+        enforced: true
+      tags:
+        - schedule_hourly_sales
+    columns:
+      - name: order_id
+        data_type: BIGINT
+        meta:
+          lineage:
+            - lineitem.l_orderkey
+        data_tests:
+          - not_null
+      - name: line_number
+        data_type: INTEGER
+        meta:
+          lineage:
+            - lineitem.l_linenumber
+        data_tests:
+          - not_null
+      - name: customer_id
+        description: -1 (the unknown dim_customer) when it is missing.
+        data_type: BIGINT
+        meta:
+          lineage:
+            - orders.o_custkey
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_id
+      - name: ordered_on
+        data_type: DATE
+        meta:
+          lineage:
+            - orders.o_orderdate
+      - name: committed_on
+        description: When the line was promised to ship.
+        data_type: DATE
+        meta:
+          lineage:
+            - lineitem.l_commitdate
+      - name: shipped_on
+        data_type: DATE
+        meta:
+          lineage:
+            - lineitem.l_shipdate
+      - name: received_on
+        data_type: DATE
+        meta:
+          lineage:
+            - lineitem.l_receiptdate
+      - name: _updated_at
+        data_type: TIMESTAMPTZ
+      - name: _loaded_at
+        description: When its source row was loaded.
+        data_type: TIMESTAMPTZ
+      - name: ordered_on_to_shipped_on_days
+        description: Days from ordered_on to shipped_on; null until both are reached.
+        data_type: BIGINT
+      - name: shipped_on_to_received_on_days
+        description: Days from shipped_on to received_on; null until both are reached.
+        data_type: BIGINT
+      - name: current_milestone
+        description: The latest milestone it has reached.
+        data_type: VARCHAR
+    data_tests:
+      - murakumo_unique_combination:
+          arguments:
+            columns:
+              - order_id
+              - line_number
   - name: fct_order_line
     description: One row per order line, with its net amount after discount.
     config:
@@ -125,6 +202,7 @@ models:
         data_tests:
           - not_null
       - name: customer_id
+        description: -1 (the unknown dim_customer) when it is missing.
         data_type: BIGINT
         meta:
           lineage:
@@ -136,6 +214,7 @@ models:
                 to: ref('dim_customer')
                 field: customer_id
       - name: part_id
+        description: -1 (the unknown dim_part) when it is missing.
         data_type: BIGINT
         meta:
           lineage:

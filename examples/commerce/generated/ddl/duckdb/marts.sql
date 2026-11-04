@@ -44,6 +44,28 @@ CREATE TABLE IF NOT EXISTS marts.dim_part (
 COMMENT ON TABLE marts.dim_part IS 'Parts we sell.';
 COMMENT ON COLUMN marts.dim_part._loaded_at IS 'When its source row was loaded.';
 
+CREATE TABLE IF NOT EXISTS marts.fct_order_fulfilment (
+    order_id BIGINT NOT NULL,
+    line_number INTEGER NOT NULL,
+    customer_id BIGINT,
+    ordered_on DATE,
+    committed_on DATE,
+    shipped_on DATE,
+    received_on DATE,
+    _updated_at TIMESTAMPTZ,
+    _loaded_at TIMESTAMPTZ,
+    ordered_on_to_shipped_on_days BIGINT,
+    shipped_on_to_received_on_days BIGINT,
+    current_milestone VARCHAR
+);
+COMMENT ON TABLE marts.fct_order_fulfilment IS 'One row per order line, following it from order to shipment to receipt.';
+COMMENT ON COLUMN marts.fct_order_fulfilment.customer_id IS '-1 (the unknown dim_customer) when it is missing.';
+COMMENT ON COLUMN marts.fct_order_fulfilment.committed_on IS 'When the line was promised to ship.';
+COMMENT ON COLUMN marts.fct_order_fulfilment._loaded_at IS 'When its source row was loaded.';
+COMMENT ON COLUMN marts.fct_order_fulfilment.ordered_on_to_shipped_on_days IS 'Days from ordered_on to shipped_on; null until both are reached.';
+COMMENT ON COLUMN marts.fct_order_fulfilment.shipped_on_to_received_on_days IS 'Days from shipped_on to received_on; null until both are reached.';
+COMMENT ON COLUMN marts.fct_order_fulfilment.current_milestone IS 'The latest milestone it has reached.';
+
 CREATE TABLE IF NOT EXISTS marts.fct_order_line (
     order_id BIGINT NOT NULL,
     line_number INTEGER NOT NULL,
@@ -57,6 +79,8 @@ CREATE TABLE IF NOT EXISTS marts.fct_order_line (
     _loaded_at TIMESTAMPTZ
 );
 COMMENT ON TABLE marts.fct_order_line IS 'One row per order line, with its net amount after discount.';
+COMMENT ON COLUMN marts.fct_order_line.customer_id IS '-1 (the unknown dim_customer) when it is missing.';
+COMMENT ON COLUMN marts.fct_order_line.part_id IS '-1 (the unknown dim_part) when it is missing.';
 COMMENT ON COLUMN marts.fct_order_line.net_amount IS 'Extended price after discount, before tax.';
 COMMENT ON COLUMN marts.fct_order_line._loaded_at IS 'When its source row was loaded.';
 

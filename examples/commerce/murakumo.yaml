@@ -20,6 +20,7 @@ modelling:
   pattern: kimball             # kimball | datavault | obt | 3nf | mixed
   default_scd: 2
   surrogate_keys: hash
+  unknown_members: true        # dimensions get an "unknown" row (-1) that facts point at
 
 generation:
   transform: dbt
@@ -43,3 +44,8 @@ orchestration:
       description: Order lines and customers, every hour
     - name: nightly
       cron: 0 6 * * *
+
+governance:
+  masking:                     # what roles outside unmasked_roles see (Snowflake masking policies)
+    pii: redact
+  unmasked_roles: [analyst_pii]

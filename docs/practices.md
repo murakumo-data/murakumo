@@ -2,7 +2,7 @@
 
 A review of Murakumo against the practices data teams rely on, from four sources: Kimball's
 dimensional modelling, dbt's own guidance, Snowflake's, and the principles in *Designing
-Data-Intensive Applications*. Each practice says what Murakumo does about it today (0.8) and,
+Data-Intensive Applications*. Each practice says what Murakumo does about it today (0.9) and,
 where it falls short, what would close the gap. The review works from the published practices;
 it does not quote the books.
 
@@ -18,10 +18,10 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Slowly changing dimensions (type 1, 2) | `history: scd1 | scd2` per entity; SCD2 by dbt snapshot, with `valid_from`, `valid_to`, `is_current` | Done |
 | Types 3, 4 and 6 | Accepted (`history: scd3 | scd4 | scd6`); 3 and 4 are built as type 1 (overwritten), 6 as type 2 without its current-value columns | Partly |
 | Role-playing dimensions (pickup and drop-off zone) | Relationships carry a `role`; one dimension joined twice | Done |
-| Conformed dimensions shared across facts and domains | A dimension can be used by facts in any domain; nothing marks it as conformed or checks two domains agree | Partly: a `conformed: true` flag and a check (0.9) |
-| Bus matrix (which facts use which dimensions) | Not drawn; the relationships hold the information | Not yet: a view in the pipeline docs (0.9) |
-| Fact table types: transaction, periodic snapshot, accumulating snapshot | Transaction facts; cumulative tables (a periodic, per-key history) | Partly: accumulating snapshots (milestone dates on one row) not generated (0.9) |
-| Late-arriving dimensions: an "unknown" member, so facts never lose rows | Facts left-join dimensions; a missing member gives a null key, and the relationship test reports it | Partly: an unknown (-1) row per dimension and a `coalesce` in facts (0.9) |
+| Conformed dimensions shared across facts and domains | `conformed: true` on a dimension; a fact using another domain's dimension that is not conformed is reported (MK316), and so is a copy of a conformed one (MK317) (0.9) | Done |
+| Bus matrix (which facts use which dimensions) | Drawn from the relationships, in the replication guide and the canvas's **Bus matrix** panel (0.9) | Done |
+| Fact table types: transaction, periodic snapshot, accumulating snapshot | Transaction facts; cumulative tables (a periodic, per-key history); accumulating snapshots, a row per key that keeps each milestone's date and the time between them (0.9) | Done |
+| Late-arriving dimensions: an "unknown" member, so facts never lose rows | An unknown (-1) row in each dimension, and facts point a missing key at it (`modelling.unknown_members`, on for new projects; per dimension too) (0.9). A key that is present but not yet in the dimension is still reported by the relationship test | Done |
 | Late-arriving facts | Picked up by load time since 0.7 (`incremental_by: load_time`), with a look-back | Done |
 | Degenerate dimensions (an order number on the fact) | A fact column with no dimension behind it | Done |
 | Junk dimensions (flags gathered into one small dimension) | Not generated | Not yet |
@@ -36,10 +36,10 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Sources declared, with freshness | `sources.yml` per source, `loaded_at_field: _ingested_at`, freshness from the model | Done |
 | Every model tested: unique and not-null keys, relationships, accepted values | Generated from keys, relationships and column rules | Done |
 | Model contracts on what others read | Enforced on marts (`contracts.enforce_on`) | Done |
-| Groups and access (private, protected, public) | A dbt group per domain; access levels not set | Partly: `access:` per entity (0.9) |
+| Groups and access (private, protected, public) | A dbt group per domain, and `access:` per table (0.9) | Done |
 | Incremental models that are idempotent | `delete+insert` by unique key; load-time increments re-run safely | Done |
 | Snapshots for history | Generated for SCD2 entities | Done |
-| Exposures (dashboards and apps that read the marts) | Not generated | Not yet (0.9, with the pipeline documentation) |
+| Exposures (dashboards and apps that read the marts) | `model/exposures.yaml`, written into dbt, lineage and the guide; edited in the canvas (0.9) | Done |
 | Semantic layer (metrics defined once) | Metrics in `model/metrics.yaml`; dbt semantic models not generated | Partly |
 | Slim CI: build only what changed (`state:modified+ --defer`) | CI verifies everything on DuckDB; previews build the whole project | Not yet: worthwhile once projects are large |
 | Documentation that stays current | `murakumo docs` and the pipeline docs, from the model | Done |
@@ -59,7 +59,7 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Time travel and fail-safe settings per layer | `targets.warehouse.time_travel_days` per layer, set on raw tables and by dbt after each build; MK703 when a transient layer asks for more than a day (0.8) | Done |
 | Transient tables for what can be rebuilt (staging, intermediate) | `transient_layers` (staging and intermediate by default); marts and snapshots kept permanent, where dbt alone would make every table transient (0.8) | Done |
 | Clustering keys on large tables | `cluster_by:` on an entity | Done |
-| Masking and row-access policies for personal data | PII and classification on columns; governance settings exist; no policies generated | Not yet (0.9) |
+| Masking and row-access policies for personal data | Masking policies from PII and classification (`governance.masking`), set after each build, with the roles that see the real values (0.9). Row-access policies are not generated | Partly: masking done; row access not yet |
 | Loading with COPY and Snowpipe | COPY for files from the build; with `stack.load: snowpipe`, a pipe per raw table from an S3 stage through a storage integration (0.8) | Done |
 
 ## Designing data-intensive applications
@@ -86,11 +86,11 @@ The gaps fell in three groups:
   - retention and time travel per layer
   - transient tables for rebuildable layers
   - Snowpipe
-- **Modelling patterns** the generator does not write yet (0.9):
+- **Modelling patterns**, closed in 0.9 with the replication guide:
   - unknown members for late-arriving dimensions
   - accumulating snapshots
   - conformed dimensions and the bus matrix
   - access levels
   - exposures
-  - masking policies
+  - masking policies (row-access policies are still to come)
 - **Scale**, for when projects are large: Slim CI that builds only what changed.

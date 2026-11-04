@@ -309,5 +309,8 @@ folder has nothing to check, so migrations are opt-in: the first `murakumo migra
 | MK701 | error | Two choices in the stack do not go together (Snowpipe on DuckDB, Lambda landing in a folder) |
 | MK702 | warning | A source's connection fills a table that is not a raw table in the model |
 | MK703 | warning | A transient layer asks for more than 1 day of time travel, which Snowflake refuses |
+| MK704 | error | `governance.masking` names a rule that does not exist |
+| MK705 | warning | A column to mask is not text: masking policies here mask text columns |
+| MK706 | warning | A table with `access: private` has no domain, so no group may use it |
 
 An entity with an error is skipped; the rest of the project is still generated.

@@ -15,3 +15,14 @@ select
     cast(current_timestamp as TIMESTAMPTZ) as _updated_at,
     cast(part._ingested_at as TIMESTAMPTZ) as _loaded_at
 from part
+
+union all
+
+-- The unknown member: the row facts point at when their key to it is missing.
+select
+    cast(-1 as BIGINT),
+    cast('Unknown' as VARCHAR),
+    cast('Unknown' as VARCHAR),
+    cast(null as DECIMAL(18,4)),
+    cast(current_timestamp as TIMESTAMPTZ),
+    cast(null as TIMESTAMPTZ)

@@ -28,3 +28,13 @@ left join {{ join.alias }}
 where {{ model.incremental_filter }}
 {{ '{%' }} endif {{ '%}' }}
 {%- endif %}
+{%- if model.extra.get('unknown') %}
+
+union all
+
+-- The unknown member: the row facts point at when their key to it is missing.
+select
+{%- for value in model.extra['unknown'] %}
+    {{ value }}{{ "," if not loop.last }}
+{%- endfor %}
+{%- endif %}

@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.9.0 (unreleased)
+
+The replication guide: everything it takes to rebuild the platform by hand, without Murakumo. And
+the modelling patterns the practices review left for 0.9.
+
+- **The replication guide** (`generated/guide/`, written by `murakumo generate` and `murakumo
+  guide`):
+  - Twelve chapters, in the order you build:
+    - overview, with the tools and versions;
+    - accounts and access, with the key pair, provisioning, the service user and the variables;
+    - repository and environments;
+    - sources, with how to reach each by hand and fetch it;
+    - the raw layer, with a data dictionary and the load SQL per table;
+    - transformations: every model as dbt and as plain SQL, where each column comes from, and its
+      tests;
+    - running it, quality and observability, CI/CD;
+    - reference: the bus matrix, lineage, the marts' dictionary, exposures and masking;
+    - the decisions log, and troubleshooting.
+  - Every step has **why**, the commands or SQL in full, **you should see**, and a box to tick.
+  - As Markdown, and as one HTML page that keeps your ticks. Beside them, the scripts it runs:
+    `sql/build`, `sql/load`, `sql/tests`, `sql/masking.sql`, and `rebuild.sh` to run them all.
+  - **Loading without Murakumo:** a SQL script per raw table, for DuckDB and Snowflake, loads the
+    landed files the table's own way (full, append or incremental), each file once.
+  - **`murakumo guide --check`** proves the guide is complete. In a scratch folder it rebuilds the
+    project on DuckDB from the guide's scripts alone, then with Murakumo, after each of two runs
+    of new files, and compares every table in rows and values. It also checks that every test
+    passes, and that running it all again changes nothing.
+  - **In the canvas:** a **Guide** panel with the chapters, the ticks, and **Check it rebuilds the
+    project**.
+- **Unknown members**:
+  - Dimensions get a row with key -1 and "Unknown" text, and facts point a missing key at it, so
+    no fact row is lost.
+  - `modelling.unknown_members`, on for new projects, and `unknown_member:` per dimension.
+- **Accumulating snapshots** (`kind: accumulating`):
+  - One row per key, with a date column per milestone. A milestone once reached keeps its date,
+    and the time between milestones is computed, with `current_milestone`.
+  - **MK314** and **MK315** check the settings.
+- **Conformed dimensions and the bus matrix**:
+  - `conformed: true` on a dimension. **MK316** reports a fact using another domain's dimension
+    that is not conformed; **MK317** reports a copy of a conformed dimension.
+  - The bus matrix is in the guide, and in the canvas's new **Bus matrix** panel.
+- **Access levels**: `access: private | protected | public` per table, as dbt model access.
+  **MK706** reports a private table without a domain.
+- **Exposures** (`model/exposures.yaml`):
+  - The dashboards, notebooks and apps that read the marts, written into dbt and the guide.
+  - **MK209** and **MK109** check them.
+  - **In the canvas:** **Bus matrix** → **Exposures**.
+- **Masking policies** (Snowflake):
+  - `governance.masking` maps `pii` or a classification to a rule: redact, partial, hash or null.
+    `governance.unmasked_roles` see the real values.
+  - dbt sets the policies on the marts after each build. `ddl/snowflake/masking.sql` has the same
+    SQL, and `stack deploy` has a **masking** step.
+  - **MK704** and **MK705** check the settings.
+  - **In the canvas:** **Settings** → **Personal data**.
+- **In the canvas**, the inspector sets each table's unknown row, conformed, access and
+  milestones.
+- **Fixes**: `verify` and `build` no longer count dbt's exposures as failed nodes.
+- **Verified**:
+  - `guide --check` on the commerce example and on a new project.
+  - The commerce example on DuckDB, with an accumulating snapshot, unknown members, conformed
+    dimensions, an exposure and masking settings.
+  - Live on Snowflake in scratch schemas, removed afterwards: the whole example built, 96 of 96
+    tests passing. The policies masked the PII columns for a role outside the list, and showed
+    them to one in it. The guide's `masking.sql` ran as written.
+- **Not verified**: the guide's cloud chapters (Lambda, Glue, Auto Loader, an S3-fed Snowpipe)
+  followed for real.
+
 ## 0.8.0 (2026-11-04)
 
 Choosing the stack: how data is fetched, landed and loaded, the code for each tool, the platform's

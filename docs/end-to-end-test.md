@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.8.0
+# End-to-end test: Murakumo 0.9.0
 
-A step-by-step test of Murakumo 0.8.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 0.9.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -15,7 +15,8 @@ should see.
 | 15 | The checks a CI pipeline would run, CI from the canvas, working with a teammate in the git flow | 25 min |
 | 16 | Optional: the same project on Snowflake: environments, your own schema, production, a pull request's clone | 35 min |
 | 17 | Choosing the stack: connecting an API in the canvas, fetching and loading, the code for another stack, the decisions log | 25 min |
-| 18 | Cleaning up | 2 min |
+| 18 | The replication guide: reading it, proving it, loading by hand; unknown rows, the bus matrix, exposures, access and masking | 20 min |
+| 19 | Cleaning up | 2 min |
 
 ## How to use this script
 
@@ -120,10 +121,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.8.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 0.9.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.8.0.
+☐ Version 0.9.0.
 
 ---
 
@@ -1743,11 +1744,161 @@ The decision is listed in the terminal, and in the platform page of the pipeline
 
 ---
 
-## Part 18: Clean up
+## Part 18: The replication guide, and the modelling patterns
 
-**18.1** In the canvas tab, press **Ctrl+C** to stop it.
+Everything Murakumo built so far can be rebuilt by hand, without it: the replication guide says how,
+step by step. Here you read it, prove it is complete, follow a few steps yourself, and try the
+modelling patterns it documents. Work in `~/murakumo-e2e/taxi_platform`, with the canvas running
+([guide.md](guide.md) and [modelling-patterns.md](modelling-patterns.md) describe everything here).
 
-**18.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
+**18.1** Write the guide and look at it:
+
+```bash
+murakumo guide
+ls generated/guide generated/guide/sql
+```
+
+You should see the chapters listed with how many steps each has, from `0. Overview` to
+`11. Troubleshooting`, and the path of the guide's page. The folder has a Markdown file per chapter,
+`README.md`, `index.html`, `rebuild.sh`, and `sql/` with `build`, `load` and `tests`.
+
+☐ The guide is written.
+
+**18.2** Open it as one page:
+
+```bash
+murakumo guide --open
+```
+
+Your browser opens *Rebuilding taxi_platform by hand*:
+
+- the chapters down the side, with *0 of N steps done*;
+- each step with **Why:**, the commands or SQL in full (each with a **Copy** button), **You should
+  see:**, and a **Done** box.
+
+Tick the box under **0.1 Read the architecture**. The count goes up by one. Reload the page: it
+is still ticked.
+
+Open **5. Transformations**, then **Build fct_trip**. You should see:
+
+- a table of its columns: where each comes from, and its expression;
+- its dbt SQL;
+- the same model as plain SQL;
+- its tests, as queries.
+
+☐ The guide reads well, and the ticks stay.
+
+**18.3** Prove the guide is complete:
+
+```bash
+murakumo guide --check
+```
+
+It takes about a minute. It rebuilds the project in a scratch folder from the guide's scripts alone,
+then with Murakumo, twice, and compares them. You should see:
+
+*The guide rebuilds the project: all N tables match a Murakumo build, in rows and values, after each
+of 2 runs of new files; every test passes, and running it again changes nothing.*
+
+☐ The check passes.
+
+**18.4** Follow a few steps by hand, with the DuckDB command-line client. If `duckdb --version`
+says the command is not found, install it first (`brew install duckdb`, or see
+<https://duckdb.org/docs/installation>). Then build the raw tables, and load the weather that
+Part 17 fetched, into a new file:
+
+```bash
+duckdb handmade.duckdb < generated/guide/sql/build/00_landing.sql
+duckdb handmade.duckdb < generated/guide/sql/load/00_audit.sql
+duckdb handmade.duckdb < generated/guide/sql/load/*weather_hourly.sql
+duckdb handmade.duckdb -c "select count(*) from raw_open_meteo.weather_hourly"
+```
+
+You should see `168`. Murakumo took no part: this is the guide's own SQL. Run the load line again,
+then the count: still `168`, because the file was already loaded. `audit.loaded_files` remembers
+it:
+
+```bash
+duckdb handmade.duckdb -c "select table_name, path, rows_ingested from audit.loaded_files"
+```
+
+Then delete the file: `rm handmade.duckdb`.
+
+☐ The raw table loads by hand, once.
+
+**18.5** Unknown members. Open `generated/dbt/models/marts/mobility/dim_taxi_zone.sql`, and scroll
+to the end:
+
+```bash
+tail -12 generated/dbt/models/marts/mobility/dim_taxi_zone.sql
+grep -n coalesce generated/dbt/models/marts/mobility/fct_trip.sql
+```
+
+You should see:
+
+- `union all`, then a row with `-1` and `'Unknown'`: the zone that trips point at when their zone
+  is missing;
+- in `fct_trip`, `coalesce(..., cast(-1 as INTEGER))` for `pickup_zone_id` and `dropoff_zone_id`.
+
+New projects have this on (`unknown_members: true` in `murakumo.yaml`). In the canvas, click
+`dim_taxi_zone`: the inspector has **Unknown row** (*as the project*) and **Conformed**.
+
+☐ Dimensions have an unknown row, and facts point at it.
+
+**18.6** The bus matrix and an exposure. Open **Bus matrix** on the rail (the grid icon):
+
+- **Bus matrix** shows `fct_trip` with a tick under `dim_taxi_zone`.
+- **Exposures** → **+ Add an exposure**: name `trips_dashboard`, owner `Ops`, link
+  `https://bi.example.com/trips`, and tick `fct_trip` and `dim_taxi_zone` under **Reads**. Click
+  **Save exposures**.
+
+Then:
+
+```bash
+cat model/exposures.yaml
+murakumo generate
+cat generated/dbt/models/_exposures.yml
+```
+
+You should see `trips_dashboard` in both, the second with `depends_on: ref('fct_trip')` and
+`ref('dim_taxi_zone')`. The guide's architecture diagram and reference chapter list it too.
+
+☐ The exposure is saved and generated.
+
+**18.7** Access and masking, in the canvas:
+
+- Click `fct_trip`. In the inspector, set **Access** to `public`. `model/entities/marts/fct_trip.yaml`
+  now has `access: public`.
+- Open **Settings** → **Personal data**. Set **PII columns** to *redacted (\*\*\*)*, and type
+  `ANALYST_PII` in **Roles that see them**. `murakumo.yaml` now has a `governance:` section with
+  both.
+
+The masking policies are for Snowflake. To see them (nothing is run):
+
+```bash
+murakumo generate --warehouse snowflake --check
+```
+
+It reports files out of date, including `ddl/snowflake/masking.sql`: the policies a Snowflake
+project would get. Then put the canvas back: **Access** to empty, and **PII columns** to *shown as
+they are*.
+
+☐ Access and masking are saved from the canvas.
+
+**18.8** In the canvas, open **Guide** on the rail (the book with a tick). The same chapters as
+the page, as the model is now. The tick you made in 18.2 is not here: the page and the canvas keep
+their ticks in different places. Click **Check it rebuilds the project**: **Activity** runs
+`murakumo guide --check`, and ends with the same message as 18.3.
+
+☐ The guide is in the canvas.
+
+---
+
+## Part 19: Clean up
+
+**19.1** In the canvas tab, press **Ctrl+C** to stop it.
+
+**19.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
 
 ```bash
 rm -rf ~/murakumo-e2e
@@ -1802,7 +1953,8 @@ output or a screenshot.
 | 15 CI checks, CI from the canvas, git flow with a teammate, impact | | |
 | 16 Snowflake (optional): environments, own schema, pull-request clone | | |
 | 17 Stack: connect an API, fetch, load, another stack's code, decisions | | |
-| 18 Clean up | | |
+| 18 Replication guide: read, check, load by hand; unknown rows, bus matrix, exposures, access, masking | | |
+| 19 Clean up | | |
 
 Also note anything that was confusing, slow or surprising, even if it worked. That is as useful
 as a failure.

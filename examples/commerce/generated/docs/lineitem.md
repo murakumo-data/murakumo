@@ -6,7 +6,7 @@ Order lines: one row per part on an order.
 
 **Layer:** raw · **Kind:** table · **Source:** tpch_erp · **Refreshed:** hourly_sales: every hour, on the hour
 
-sources → **lineitem** → [fct_order_line](fct_order_line.md)
+sources → **lineitem** → [fct_order_fulfilment](fct_order_fulfilment.md), [fct_order_line](fct_order_line.md)
 
 | Column | Type | About | Comes from |
 | --- | --- | --- | --- |

@@ -1,0 +1,68 @@
+{%- set x = model.extra -%}
+{{ header }}
+{{ '{{' }} config({{ config }}) {{ '}}' }}
+-- An accumulating snapshot: one row per {{ x['keys'] | join(', ') }}, updated as it passes each
+-- milestone ({{ x['milestones'] | join(', ') }}). A milestone once reached keeps its date, even when
+-- a later run does not see it again.
+
+with {{ model.alias }} as (
+
+    select * from {{ model.relation }}
+
+){% for join in model.joins %},
+
+{{ join.alias }} as (
+
+    select * from {{ join.relation }}
+
+){% endfor %},
+
+incoming as (
+
+    select
+{%- for column in x['base'] %}
+        {{ column.sql }} as {{ quote(column.name) }}{{ "," if not loop.last }}
+{%- endfor %}
+    from {{ model.alias }}
+{%- for join in model.joins %}
+    left join {{ join.alias }}
+        on {{ join.on }}
+{%- endfor %}
+{%- if model.incremental_filter %}
+{{ '{%' }} if is_incremental() {{ '%}' }}
+    where {{ model.incremental_filter }}
+{{ '{%' }} endif {{ '%}' }}
+{%- endif %}
+
+),
+
+merged as (
+
+    select
+{%- for column in x['base'] %}
+{%- if column.name in x['milestones'] %}
+{{ '{%' }} if is_incremental() {{ '%}' }}
+        coalesce(incoming.{{ quote(column.name) }}, reached.{{ quote(column.name) }}) as {{ quote(column.name) }},
+{{ '{%' }} else {{ '%}' }}
+        incoming.{{ quote(column.name) }},
+{{ '{%' }} endif {{ '%}' }}
+{%- else %}
+        incoming.{{ quote(column.name) }}{{ "," if not loop.last }}
+{%- endif %}
+{%- endfor %}
+    from incoming
+{{ '{%' }} if is_incremental() {{ '%}' }}
+    left join {{ '{{' }} this {{ '}}' }} as reached
+        on {% for key in x['keys'] %}{% if not loop.first %} and {% endif %}reached.{{ quote(key) }} = incoming.{{ quote(key) }}{% endfor %}
+{{ '{%' }} endif {{ '%}' }}
+
+)
+
+select
+{%- for column in x['base'] %}
+    merged.{{ quote(column.name) }},
+{%- endfor %}
+{%- for column in x['derived'] %}
+    {{ column.sql }} as {{ quote(column.name) }}{{ "," if not loop.last }}
+{%- endfor %}
+from merged

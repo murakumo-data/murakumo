@@ -96,7 +96,7 @@ class Plain:
             is_incremental=lambda: incremental,
             var=lambda name, default=None: self.variables.get(name, default),
             murakumo_record_hash=self.record_hash,
-            dbt=SimpleNamespace(dateadd=self.dateadd),
+            dbt=SimpleNamespace(dateadd=self.dateadd, datediff=self.datediff),
         )
         return re.sub(r"\n{3,}", "\n\n", rendered).strip()
 
@@ -111,6 +111,15 @@ class Plain:
             unit=exp.Var(this=part.upper()),
         )
         return added.sql(dialect=self.dialect)
+
+    def datediff(self, first: str, second: str, part: str) -> str:
+        """dbt.datediff, in this warehouse's SQL: the time between an accumulating snapshot's milestones."""
+        difference = exp.DateDiff(
+            this=sqlglot.parse_one(second, read=self.dialect),
+            expression=sqlglot.parse_one(first, read=self.dialect),
+            unit=exp.Var(this=part.upper()),
+        )
+        return difference.sql(dialect=self.dialect)
 
     def create(self, kind: str, name: str, select: str) -> str:
         target = self.relation(name)

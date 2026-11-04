@@ -32,7 +32,7 @@ PREFIX = re.compile(r"^[a-z][a-z0-9_]*_$")
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # a terminal spinner redraws one line; captured, each frame is a line
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")  # colours and cursor moves, which a log page cannot show
 ENGINES = ("polars", "pyspark")
-DEPLOY_STEPS = ("provision", "integration", "pipes", "ci")  # the steps Murakumo runs itself
+DEPLOY_STEPS = ("provision", "integration", "pipes", "masking", "ci")  # the steps Murakumo runs itself
 
 
 class JobError(Exception):
@@ -169,6 +169,9 @@ def command(root: Path, kind: str, options: dict[str, Any]) -> tuple[str, list[s
         return "Export as plain SQL", ["export", "sql"]
     if kind == "generate":
         return "Generate", ["generate"]
+    if kind == "guide-check":
+        rows = str(_count(options.get("rows", 50), "the number of made-up rows"))
+        return "Check the guide rebuilds the project", ["guide", "--check", "--rows", rows]
     raise JobError(f"no job {kind!r}")
 
 

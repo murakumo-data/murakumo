@@ -3951,3 +3951,153 @@ button.tree-row__label:not(:disabled) {
 .connection {
   overflow-x: hidden;
 }
+
+/* The replication guide (Guide.tsx) */
+
+.guide__progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.guide__bar {
+  flex: 1;
+  height: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 3px;
+}
+
+.guide__bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.guide__chapters,
+.guide__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide__chapter {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.guide__chapter .deploy__head {
+  width: 100%;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.guide__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.guide__body p {
+  margin: 0;
+}
+
+.guide__step-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.guide__step-head .link-button {
+  text-align: left;
+}
+
+.guide__step--done .guide__step-head .link-button {
+  color: var(--text-muted);
+}
+
+.guide__step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 4px 22px;
+  min-width: 0;
+}
+
+.guide__step-body p {
+  margin: 0;
+}
+
+.guide__expect {
+  padding-left: 8px;
+  border-left: 3px solid var(--accent);
+}
+
+.guide__code {
+  position: relative;
+  min-width: 0;
+}
+
+.guide__copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 3px;
+  background: var(--surface);
+}
+
+.guide__table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.guide__table table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.guide__table th,
+.guide__table td {
+  min-width: 7em;
+  max-width: 22em;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+/* The bus matrix and exposures (Marts.tsx) */
+
+.bus th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bus th .badge {
+  margin-left: 4px;
+}
+
+.bus__cell {
+  text-align: center !important;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.marts__reads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.guide > *,
+.marts > *,
+.guide__chapter,
+.guide__step {
+  min-width: 0;
+}

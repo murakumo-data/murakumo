@@ -61,6 +61,7 @@ class EntityKind(StrEnum):
     SATELLITE = "satellite"
     EVENT = "event"
     CUMULATIVE = "cumulative"
+    ACCUMULATING = "accumulating"
     REFERENCE = "reference"
 
 
@@ -253,6 +254,19 @@ class Cumulative(IRModel):
         return value
 
 
+class Accumulating(IRModel):
+    """How an accumulating snapshot tracks a process: one row per key, a date column per milestone.
+
+    ``milestones`` are the entity's date or timestamp columns, in the order the process passes
+    them (``placed_at``, ``shipped_at``, ``delivered_at``). Each run updates the row: a milestone
+    once reached keeps its date, and the time between consecutive milestones is computed, in
+    ``unit``s, as ``<from>_to_<to>_<unit>s``.
+    """
+
+    milestones: list[Name] = Field(min_length=2)
+    unit: str = Field(default="day", pattern="^(day|hour|minute)$")
+
+
 class Entity(Node):
     """A table in the logical model: a source table, a staging model, a dimension, a fact..."""
 
@@ -274,6 +288,12 @@ class Entity(Node):
     cluster_by: list[Name] = Field(default_factory=list)
     freshness: Freshness | None = None
     cumulative: Cumulative | None = None  # for kind: cumulative
+    accumulating: Accumulating | None = None  # for kind: accumulating
+    # A dimension gets a row for "unknown" (key -1), and facts point at it instead of a missing key;
+    # None follows modelling.unknown_members.
+    unknown_member: bool | None = None
+    conformed: bool = False  # a dimension shared by every domain: facts use it, not copies of it
+    access: str | None = Field(default=None, pattern="^(private|protected|public)$")  # dbt model access
     tags: list[str] = Field(default_factory=list)
     attributes: list[Attribute] = Field(default_factory=list)
     mappings: list[Mapping] = Field(default_factory=list)
@@ -336,6 +356,18 @@ class Metric(Node):
     filters: list[str] = Field(default_factory=list)
 
 
+class Exposure(Node):
+    """Something outside the warehouse that reads the model: a dashboard, a notebook, an app."""
+
+    name: Name
+    type: str = Field(default="dashboard", pattern="^(dashboard|notebook|analysis|ml|application)$")
+    owner: str | None = None
+    email: str | None = None
+    url: str | None = None
+    maturity: str | None = Field(default=None, pattern="^(high|medium|low)$")
+    depends_on: list[Name] = Field(default_factory=list)  # the entities it reads
+
+
 class Model(IRModel):
     """The whole logical model of a project."""
 
@@ -343,6 +375,7 @@ class Model(IRModel):
     entities: list[Entity] = Field(default_factory=list)
     relationships: list[Relationship] = Field(default_factory=list)
     metrics: list[Metric] = Field(default_factory=list)
+    exposures: list[Exposure] = Field(default_factory=list)
 
     def entity(self, name: str) -> Entity | None:
         lowered = name.lower()
