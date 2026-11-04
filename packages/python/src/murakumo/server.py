@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import re
 import threading
 from collections.abc import Callable
 from contextvars import ContextVar
@@ -100,6 +101,10 @@ class NewRelationship(BaseModel):
 
 class Layout(BaseModel):
     positions: dict[UUID, Position]
+
+
+class CopyColumns(BaseModel):
+    columns: list[str] = Field(min_length=1)  # entity.column
 
 
 class BulkChange(BaseModel):
@@ -244,7 +249,22 @@ def _diagnostic(d: Diagnostic, project: Project | None, root: Path) -> dict[str,
         "file": str(file) if file is not None else None,
         "where": d.where,
         "entity_id": entity_id,
+        "column_id": _column_of(d, project, entity_id),
     }
+
+
+_COLUMN_WHERE = re.compile(r"^(?:attributes|mappings)\[([^\]]+)\]")
+
+
+def _column_of(d: Diagnostic, project: Project | None, entity_id: str | None) -> str | None:
+    """The column a problem is about, from where it was found (``attributes[name]``, ``mappings[name]``),
+    so the canvas can mark the column itself."""
+    match = _COLUMN_WHERE.match(d.where or "")
+    if project is None or entity_id is None or match is None:
+        return None
+    entity = next((e for e in project.model.entities if str(e.id) == entity_id), None)
+    column = entity and next((a for a in entity.attributes if a.name.lower() == match.group(1).lower()), None)
+    return str(column.id) if column else None
 
 
 HISTORIES: dict[Path, history_module.History] = {}  # one undo history per project the server edits
@@ -566,6 +586,34 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.delete("/api/entities/{entity_id}")
     def remove_entity(entity_id: UUID, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_entity(p, entity_name(p, entity_id)), rev, prune=True, previewable=True)
+
+    @app.post("/api/entities/{entity_id}/columns/copy")
+    def copy_columns(entity_id: UUID, body: CopyColumns, rev: Revision = None) -> dict[str, Any]:
+        """Bring in columns of other tables: same names, types, descriptions and keys' nullability,
+        each mapped to where it comes from (raw tables are loaded, not mapped). One change, one undo."""
+
+        def action(project: Project) -> None:
+            name = entity_name(project, entity_id)
+            target = project.model.entity(name)
+            have = {a.name.lower() for a in target.attributes}
+            for ref in body.columns:
+                source_entity, _, column_name = ref.partition(".")
+                source = project.model.entity(source_entity)
+                if source is None:
+                    raise edit.EditError(f"there is no table {source_entity}")
+                column = next((a for a in source.attributes if a.name.lower() == column_name.lower()), None)
+                if column is None:
+                    raise edit.EditError(f"{source_entity} has no column {column_name}")
+                if column.name.lower() in have:
+                    continue
+                have.add(column.name.lower())
+                edit.add_column(
+                    project, name, column.name, str(column.type), False, None, column.description, column.pii, None
+                )
+                if target.layer.value != "raw":
+                    edit.set_mapping(project, name, column.name, [f"{source.name}.{column.name}"])
+
+        return change(action, rev)
 
     @app.post("/api/entities/{entity_id}/columns")
     def add_column(entity_id: UUID, body: NewColumn, rev: Revision = None) -> dict[str, Any]:

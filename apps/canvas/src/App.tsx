@@ -188,6 +188,7 @@ function Canvas() {
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
   const [domainFilter, setDomainFilter] = useState<string | null>(null)
   const [layoutUndo, setLayoutUndo] = useState<Record<string, Position> | null>(null)
+  const [flash, setFlash] = useState<{ entity: string; column: string } | null>(null)
   const [lineageOf, setLineageOf] = useState<{ entity: string; column: string | null } | null>(null)
   const [lineage, setLineage] = useState<LineageResult | null>(null)
   const [generated, setGenerated] = useState<Generated | null>(null)
@@ -377,6 +378,17 @@ function Canvas() {
     positions.current = placed
     const issues = (id: string, level: 'error' | 'warning') =>
       diagnostics.filter((d) => d.entity_id === id && d.level === level).length
+    const columnIssues = new Map<string, Map<string, { level: 'error' | 'warning'; text: string }>>()
+    for (const d of diagnostics) {
+      if (!d.entity_id || !d.column_id) continue
+      const byColumn = columnIssues.get(d.entity_id) ?? new Map()
+      const seen = byColumn.get(d.column_id)
+      byColumn.set(d.column_id, {
+        level: seen?.level === 'error' ? 'error' : d.level,
+        text: [seen?.text, `${d.code}: ${d.message}`].filter(Boolean).join('\n'),
+      })
+      columnIssues.set(d.entity_id, byColumn)
+    }
     const domainNames = state.domains.map((d) => d.name)
     const canvas = state.canvas ?? {}
     canvasRef.current = canvas
@@ -428,6 +440,8 @@ function Canvas() {
             errors: issues(entity.id, 'error'),
             warnings: issues(entity.id, 'warning'),
             view,
+            columnIssues: columnIssues.get(entity.id),
+            flash: flash?.entity === entity.id ? flash.column : null,
             collapsed: isCollapsed(entity, canvas),
             onToggleCollapsed: state.editable ? toggleCollapsed : undefined,
             labelName: canvas.colours?.[entity.id],
@@ -438,7 +452,14 @@ function Canvas() {
       return [...notes, ...tables]
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- saveNote and removeNote read canvasRef
-  }, [state, entities, relationships, diagnostics, hidden, domainFilter, labelFilter, diagram, showDomains, setNodes, view, run])
+  }, [state, entities, relationships, diagnostics, hidden, domainFilter, labelFilter, diagram, showDomains, setNodes, view, run, flash])
+
+  // A column pointed out stays marked for a moment.
+  useEffect(() => {
+    if (!flash) return
+    const timer = window.setTimeout(() => setFlash(null), 2600)
+    return () => window.clearTimeout(timer)
+  }, [flash])
 
   const edges = useMemo<(RelationshipEdgeType | LineageEdgeType)[]>(() => {
     const shown = new Map(tableNodes.map((n) => [n.id, n]))
@@ -449,7 +470,7 @@ function Canvas() {
     }
     // A column that is not shown (collapsed table, keys only) is joined at the table's header.
     const visible = new Map(
-      tableNodes.map((n) => [n.id, new Set(visibleColumns(n.data.entity, n.data.view, n.data.collapsed, n.data.foreignKeys).map((a) => a.id))]),
+      tableNodes.map((n) => [n.id, new Set(visibleColumns(n.data.entity, n.data.view, n.data.collapsed, n.data.foreignKeys, n.data.flash).map((a) => a.id))]),
     )
     const handle = (entityId: string, columnId: string, side: 'in' | 'out') =>
       visible.get(entityId)?.has(columnId) ? handleId(columnId, side) : tableHandle(entityId, side)
@@ -1139,11 +1160,20 @@ function Canvas() {
                           <button
                             className={`issue issue--${d.level} issue--button`}
                             disabled={!entity}
-                            onClick={() => entity && focus(entity)}
+                            onClick={() => {
+                              if (!entity) return
+                              focus(entity)
+                              if (d.column_id) setFlash({ entity: entity.id, column: d.column_id })
+                            }}
                           >
                             <span className="issue__code">{d.code}</span>
                             <span>
-                              {entity && <strong>{entity.name}: </strong>}
+                              {entity && (
+                                <strong>
+                                  {entity.name}
+                                  {d.column_id && `.${entity.attributes.find((a) => a.id === d.column_id)?.name ?? ''}`}:{' '}
+                                </strong>
+                              )}
                               {d.message}
                               {!entity && d.file && <span className="issue__where"> ({d.file})</span>}
                             </span>
@@ -1297,7 +1327,8 @@ function Canvas() {
           onClose={() => setSearching(false)}
           onPick={(hit) => {
             focus(hit.entity)
-            if (hit.column) setLineageOf(null)
+            const column = hit.column && hit.entity.attributes.find((a) => a.name === hit.column)
+            if (column) setFlash({ entity: hit.entity.id, column: column.id })
           }}
         />
       )}

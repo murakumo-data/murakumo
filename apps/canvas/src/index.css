@@ -1870,15 +1870,33 @@ textarea.input {
   }
 }
 
+/* Labels on lines (relationship roles, lineage expressions) are drawn over the tables, never under. */
+.react-flow__edgelabel-renderer {
+  z-index: 1100;
+}
+
 .lineage-label {
   position: absolute;
-  padding: 2px 6px;
+  max-width: 420px;
+  padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface);
+  box-shadow: var(--shadow);
   font-size: 11px;
+  line-height: 1.4;
   pointer-events: none;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.entity__calc {
+  margin-left: 4px;
+  font-family: var(--mono);
+  font-style: italic;
+  font-weight: 700;
+  color: var(--intermediate);
+  cursor: help;
 }
 
 .lineage-bar {
@@ -2935,4 +2953,65 @@ button.tree-row__label:not(:disabled) {
 
 .banner__action {
   margin-left: 10px;
+}
+
+/* Problems and pointed-out columns ------------------------------------------------------------ */
+
+.entity__column--error {
+  box-shadow: inset 3px 0 0 var(--error);
+  background: color-mix(in srgb, var(--error-bg) 70%, transparent);
+}
+
+.entity__column--warning {
+  box-shadow: inset 3px 0 0 var(--warning);
+  background: color-mix(in srgb, var(--warning-bg) 70%, transparent);
+}
+
+.entity__issue {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+.entity__issue--error { background: var(--error); }
+.entity__issue--warning { background: var(--warning); }
+
+.entity__column--flash {
+  animation: flash 2.4s ease-out;
+}
+
+@keyframes flash {
+  0%,
+  40% {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+}
+
+.callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 10px 12px;
+  background: var(--info-bg);
+  border-radius: var(--radius);
+}
+
+.picker__heading {
+  margin: 4px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.picker__item--have {
+  opacity: 0.55;
 }

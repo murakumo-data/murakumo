@@ -51,6 +51,7 @@ export type Diagnostic = {
   file: string | null
   where: string | null
   entity_id: string | null
+  column_id?: string | null // the column it is about, when it is about one
 }
 
 export type Position = { x: number; y: number }
@@ -323,6 +324,8 @@ export const api = {
   removeEntity: (id: string) => request<State>('DELETE', `/entities/${id}`),
   updateEntities: (ids: string[], changes: Record<string, unknown>) => request<State>('PATCH', '/entities', { ids, changes }),
   removeEntities: (ids: string[]) => request<State>('POST', '/entities/remove', { ids }),
+  copyColumns: (entityId: string, columns: string[]) =>
+    request<State>('POST', `/entities/${entityId}/columns/copy`, { columns }),
 
   addColumn: (entityId: string, body: { name: string; type: string; primary_key?: boolean }) =>
     request<State>('POST', `/entities/${entityId}/columns`, body),

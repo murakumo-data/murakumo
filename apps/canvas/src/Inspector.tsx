@@ -283,12 +283,20 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormPr
                 }}
                 aria-expanded={picking}
               >
-                + From another table
+                + From a source table
               </button>
             </div>
           )}
         </div>
         {picking && <CopyColumns state={state} entity={entity} run={run} onDone={() => setPicking(false)} />}
+        {!picking && !calculating && entity.attributes.length === 0 && entity.layer !== 'raw' && state.editable && (
+          <div className="callout">
+            <span>No columns yet.</span>
+            <button className="button button--small button--primary" onClick={() => setPicking(true)}>
+              Pick them from its source tables
+            </button>
+          </div>
+        )}
         {calculating && <CalculatedColumn state={state} entity={entity} run={run} onDone={() => setCalculating(false)} />}
         {entity.attributes.length > 6 && (
           <input
@@ -689,8 +697,12 @@ function ColumnPicker({
   onDone,
   onCancel,
   doneLabel,
+  suggested = 0,
+  existing,
 }: {
   entities: Entity[]
+  suggested?: number // the first this many tables are where it most likely reads from
+  existing?: Set<string> // lower-case names the table already has: shown, not tickable
   initial: string[]
   onDone: (picked: Picked[]) => void
   onCancel: () => void
@@ -708,6 +720,8 @@ function ColumnPicker({
   const query = search.trim().toLowerCase()
   const shown = all.filter((c) => !query || c.key.includes(query))
   const groups = [...new Set(shown.map((c) => c.entity))]
+  const firstOther = entities[suggested]?.name
+  const has = (column: string) => existing?.has(column.toLowerCase()) ?? false
   const toggle = (keys: string[], on: boolean) => {
     const next = new Set(ticked)
     keys.forEach((k) => (on ? next.add(k) : next.delete(k)))
@@ -728,33 +742,45 @@ function ColumnPicker({
         {groups.length === 0 && <p className="muted small">No columns match.</p>}
         {groups.map((group) => {
           const columns = shown.filter((c) => c.entity === group)
-          const allOn = columns.every((c) => ticked.has(c.key))
+          const open = columns.filter((c) => !has(c.column))
+          const allOn = open.length > 0 && open.every((c) => ticked.has(c.key))
+          const heading =
+            suggested > 0 && group === entities[0]?.name
+              ? 'Where it most likely reads from'
+              : suggested > 0 && group === firstOther
+                ? 'Other tables'
+                : null
           return (
-            <fieldset key={group} className="picker__group">
+            <div key={group}>
+              {heading && !query && <p className="picker__heading">{heading}</p>}
+              <fieldset className="picker__group">
               <legend>
                 <label>
                   <input
                     type="checkbox"
                     aria-label={`All columns of ${group}`}
                     checked={allOn}
-                    onChange={(e) => toggle(columns.map((c) => c.key), e.target.checked)}
+                    disabled={open.length === 0}
+                    onChange={(e) => toggle(open.map((c) => c.key), e.target.checked)}
                   />
                   <code>{group}</code>
                 </label>
               </legend>
               {columns.map((c) => (
-                <label key={c.key} className="picker__item">
+                <label key={c.key} className={has(c.column) ? 'picker__item picker__item--have' : 'picker__item'}>
                   <input
                     type="checkbox"
                     aria-label={`${c.entity}.${c.column}`}
-                    checked={ticked.has(c.key)}
+                    checked={has(c.column) || ticked.has(c.key)}
+                    disabled={has(c.column)}
                     onChange={(e) => toggle([c.key], e.target.checked)}
                   />
                   <span>{c.column}</span>
-                  <span className="muted">{c.type}</span>
+                  <span className="muted">{has(c.column) ? 'already here' : c.type}</span>
                 </label>
               ))}
-            </fieldset>
+              </fieldset>
+            </div>
           )
         })}
       </div>
@@ -774,38 +800,53 @@ function ColumnPicker({
   )
 }
 
-/** Add columns copied from another table: same names and types, mapped to it when not raw. */
+const LAYER_ORDER = ['raw', 'staging', 'intermediate', 'marts', 'semantic']
+
+/** The tables a table most likely reads from: those its mappings and relationships already name,
+ * the one whose name it carries (stg_nyc_tlc__yellow_tripdata reads yellow_tripdata), then tables
+ * in the layers before it. */
+export function likelySources(entity: Entity, entities: Entity[], relationships: Relationship[]): Entity[] {
+  const others = entities.filter((e) => e.id !== entity.id)
+  const named = new Set(
+    entity.mappings.flatMap((m) => m.sources.map((ref) => ref.split('.')[0].toLowerCase())),
+  )
+  for (const r of relationships) if (r.from.toLowerCase() === entity.name.toLowerCase()) named.add(r.to.toLowerCase())
+  const lower = entity.name.toLowerCase()
+  const score = (e: Entity) => {
+    if (named.has(e.name.toLowerCase())) return 0
+    if (lower.includes(e.name.toLowerCase())) return 1
+    if (LAYER_ORDER.indexOf(e.layer) === LAYER_ORDER.indexOf(entity.layer) - 1) return 2
+    return 9
+  }
+  return others.filter((e) => score(e) < 9).sort((a, b) => score(a) - score(b))
+}
+
+/** Add columns copied from other tables: same names and types, mapped to where they come from. */
 function CopyColumns({ state, entity, run, onDone }: { state: State; entity: Entity; run: Run; onDone: () => void }) {
-  const others = (state.model?.entities ?? []).filter((e) => e.id !== entity.id)
+  const entities = state.model?.entities ?? []
+  const suggested = likelySources(entity, entities, state.model?.relationships ?? [])
+  const rest = entities.filter((e) => e.id !== entity.id && !suggested.includes(e))
   const existing = new Set(entity.attributes.map((a) => a.name.toLowerCase()))
   const add = async (picked: Picked[]) => {
     const fresh = picked.filter((c) => !existing.has(c.column.toLowerCase()))
-    if (fresh.length === 0) {
-      onDone()
-      return
-    }
-    const ok = await run(async () => {
-      let latest: State | null = null
-      for (const c of fresh) {
-        latest = await api.addColumn(entity.id, { name: c.column, type: c.type })
-        if (entity.layer !== 'raw') {
-          const added = latest.model?.entities
-            .find((e) => e.id === entity.id)
-            ?.attributes.find((a) => a.name.toLowerCase() === c.column.toLowerCase())
-          if (added) latest = await api.setMapping(entity.id, added.id, { sources: [`${c.entity}.${c.column}`], expression: null })
-        }
-      }
-      return latest!
-    })
-    if (ok) onDone()
+    if (fresh.length === 0) return onDone()
+    if (await run(() => api.copyColumns(entity.id, fresh.map((c) => `${c.entity}.${c.column}`)))) onDone()
   }
   return (
     <div className="copy-columns">
       <p className="muted small">
-        Tick the columns to add to <code>{entity.name}</code>. They keep their names and types
-        {entity.layer !== 'raw' ? ', and are mapped to where they come from' : ''}. Columns it already has are skipped.
+        Tick the columns to bring into <code>{entity.name}</code>. They keep their names, types and descriptions
+        {entity.layer !== 'raw' ? ', and are mapped to where they come from' : ''}. Untick what you do not need.
       </p>
-      <ColumnPicker entities={others} initial={[]} doneLabel="Add columns" onCancel={onDone} onDone={add} />
+      <ColumnPicker
+        entities={[...suggested, ...rest]}
+        suggested={suggested.length}
+        existing={existing}
+        initial={[]}
+        doneLabel="Add columns"
+        onCancel={onDone}
+        onDone={add}
+      />
     </div>
   )
 }

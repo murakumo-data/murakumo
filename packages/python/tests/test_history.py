@@ -133,3 +133,32 @@ def test_bulk_changes_are_one_undo(client):
     state = client.post("/api/undo").json()
     assert {"fct_trip", "dim_taxi_zone"} <= names(state)
     assert client.patch("/api/entities", json={"ids": ids, "changes": {"name": "x"}}).status_code == 400
+
+
+def test_problems_name_their_column(client, project):
+    state = client.get("/api/state").json()
+    trip = entity_id(state, "fct_trip")
+    state = client.post(f"/api/entities/{trip}/columns", json={"name": "BadName", "type": "string"}).json()
+    columns = next(e["attributes"] for e in state["model"]["entities"] if e["id"] == trip)
+    column = next(a["id"] for a in columns if a["name"] == "BadName")
+    found = [d for d in state["diagnostics"] if d["code"] == "MK307"]
+    assert found and found[0]["entity_id"] == trip and found[0]["column_id"] == column
+
+
+def test_copy_columns_from_a_source_in_one_change(client):
+    state = client.post("/api/entities", json={"name": "stg_zone", "layer": "staging"}).json()
+    stg = entity_id(state, "stg_zone")
+    state = client.post(
+        f"/api/entities/{stg}/columns/copy",
+        json={"columns": ["taxi_zone_lookup.LocationID", "taxi_zone_lookup.Zone", "taxi_zone_lookup.Zone"]},
+    ).json()
+    entity = next(e for e in state["model"]["entities"] if e["id"] == stg)
+    assert [(a["name"], a["type"]) for a in entity["attributes"]] == [("LocationID", "integer"), ("Zone", "string")]
+    assert {m["target"]: m["sources"] for m in entity["mappings"]} == {
+        "LocationID": ["taxi_zone_lookup.LocationID"],
+        "Zone": ["taxi_zone_lookup.Zone"],
+    }
+    state = client.post("/api/undo").json()
+    assert next(e for e in state["model"]["entities"] if e["id"] == stg)["attributes"] == []
+    response = client.post(f"/api/entities/{stg}/columns/copy", json={"columns": ["nope.x"]})
+    assert response.status_code == 400

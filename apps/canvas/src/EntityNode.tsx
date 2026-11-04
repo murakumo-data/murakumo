@@ -19,6 +19,8 @@ export type EntityData = {
   domainColour?: string // when the canvas shows domains
   lineage?: Map<string, 'focus' | 'up' | 'down'> // column ids in the lineage being shown
   faded?: boolean // not part of the lineage being shown
+  columnIssues?: Map<string, { level: 'error' | 'warning'; text: string }> // by column id
+  flash?: string | null // a column to point out: jumped to from a problem or a search
 }
 
 export type EntityNodeType = Node<EntityData, 'entity'>
@@ -28,7 +30,7 @@ export const tableHandle = (entityId: string, side: 'in' | 'out') => `${entityId
 
 export function EntityNode({ data, selected }: NodeProps<EntityNodeType>) {
   const { entity, foreignKeys, errors, warnings, linked, domainColour, lineage, faded, view, collapsed } = data
-  const columns = visibleColumns(entity, view, collapsed, foreignKeys)
+  const columns = visibleColumns(entity, view, collapsed, foreignKeys, data.flash)
   const hiddenCount = entity.attributes.length - columns.length
   const canToggle = data.onToggleCollapsed && view !== 'names' && view !== 'descriptions'
   const style: CSSProperties = {}
@@ -78,11 +80,16 @@ export function EntityNode({ data, selected }: NodeProps<EntityNodeType>) {
           {columns.map((column) => {
             const fk = foreignKeys.has(column.name.toLowerCase())
             const pk = column.key === 'primary'
+            const issue = data.columnIssues?.get(column.id)
+            const expression = entity.mappings.find((m) => m.target.toLowerCase() === column.name.toLowerCase())?.expression
             return (
               <li
                 key={column.id}
+                title={issue?.text}
                 className={[
                   'entity__column',
+                  issue ? `entity__column--${issue.level}` : '',
+                  data.flash === column.id ? 'entity__column--flash' : '',
                   linked?.has(column.id) ? 'entity__column--linked' : '',
                   lineage?.has(column.id) ? `entity__column--lineage entity__column--${lineage.get(column.id)}` : '',
                   lineage && !lineage.has(column.id) ? 'entity__column--faded' : '',
@@ -98,8 +105,16 @@ export function EntityNode({ data, selected }: NodeProps<EntityNodeType>) {
                 <span className={pk ? 'entity__column-name entity__column-name--key' : 'entity__column-name'}>
                   {column.name}
                   {!column.nullable && !pk && <span className="entity__required" title="not null">*</span>}
+                  {expression && (
+                    <span className="entity__calc" title={`Calculated: ${expression}`} aria-label="calculated">
+                      ƒ
+                    </span>
+                  )}
                 </span>
-                <span className="entity__type">{column.type}</span>
+                <span className="entity__type">
+                  {issue && <span className={`entity__issue entity__issue--${issue.level}`} aria-label={issue.text} />}
+                  {column.type}
+                </span>
                 <Handle type="source" position={Position.Right} id={handleId(column.id, 'out')} />
               </li>
             )

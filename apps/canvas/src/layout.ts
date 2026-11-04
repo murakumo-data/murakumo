@@ -26,10 +26,19 @@ export function isCollapsed(entity: Entity, canvas: CanvasSettings): boolean {
 }
 
 /** The columns a table shows: none when collapsed or names-only, keys (PK and FK) in keys mode. */
-export function visibleColumns(entity: Entity, view: ViewMode, collapsed: boolean, foreignKeys: Set<string>) {
-  if (collapsed || view === 'names' || view === 'descriptions') return []
-  if (view === 'keys') return entity.attributes.filter((a) => a.key === 'primary' || foreignKeys.has(a.name.toLowerCase()))
-  return entity.attributes
+export function visibleColumns(
+  entity: Entity,
+  view: ViewMode,
+  collapsed: boolean,
+  foreignKeys: Set<string>,
+  shown?: string | null, // a column to show however the table is drawn (one being pointed out)
+) {
+  if (view === 'names' || view === 'descriptions') return []
+  return entity.attributes.filter(
+    (a) =>
+      a.id === shown ||
+      (!collapsed && (view === 'all' || a.key === 'primary' || foreignKeys.has(a.name.toLowerCase()))),
+  )
 }
 
 export function nodeHeight(entity: Entity, shown = entity.attributes.length): number {
