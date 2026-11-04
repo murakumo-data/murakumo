@@ -337,3 +337,12 @@ def test_uploads_go_to_an_ignored_data_folder(client, project):
     assert put_as(".hidden.csv") == 400
     assert put_as("script.sh") == 400
     assert client.delete("/api/uploads/zones.csv").json() == {"files": []}
+
+
+def test_env_and_diff(client, project):
+    env = client.get("/api/env").json()
+    assert env["prefix"] == "" and env["warehouse"] == "duckdb"  # a DuckDB file is already personal
+    assert "build the project first" in env["reason"]
+    assert client.get("/api/env?prefix=PROD").status_code == 400
+    assert client.get("/api/diff?ref=main;rm").status_code == 400
+    assert client.get("/api/diff?ref=main").status_code == 409  # not a git repository

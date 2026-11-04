@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { api, ApiError, type GitStatus, type ModelChange, type State } from './api'
+import { api, ApiError, type GitStatus, type ImpactReport, type ModelChange, type State } from './api'
 
 // Working with the team through git: how this branch stands against the parent branch, what
 // would come in, this branch's own changes, and buttons to bring the parent in and to commit.
@@ -18,9 +18,14 @@ export function ChangeList({ changes, empty }: { changes: ModelChange[]; empty: 
   )
 }
 
-type Props = { onState: (state: State) => void; onMessage: (text: string, tone: 'info' | 'error') => void; revision: string }
+type Props = {
+  onState: (state: State) => void
+  onMessage: (text: string, tone: 'info' | 'error') => void
+  revision: string
+  onTestChange: (branch: string) => void
+}
 
-export function GitPanel({ onState, onMessage, revision }: Props) {
+export function GitPanel({ onState, onMessage, revision, onTestChange }: Props) {
   const [info, setInfo] = useState<GitStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState('')
@@ -187,6 +192,107 @@ export function GitPanel({ onState, onMessage, revision }: Props) {
           </form>
         )}
       </section>
+
+      <section className="section">
+        <h3 className="section__title">Test this change</h3>
+        <p className="muted small">
+          Before it is merged: copy production, apply this branch's migrations, build and test there, then drop the
+          copy, step by step.
+        </p>
+        <button className="button button--small" onClick={() => onTestChange(info.branch)}>
+          Test my change…
+        </button>
+      </section>
+
+      <Compare base={info.base} onMessage={onMessage} />
     </div>
+  )
+}
+
+/** `murakumo diff`: what changed in the model since a branch, tag or commit, and what it reaches. */
+function Compare({ base, onMessage }: { base: string; onMessage: (text: string, tone: 'info' | 'error') => void }) {
+  const [ref, setRef] = useState(base)
+  const [result, setResult] = useState<(ImpactReport & { against: string; markdown: string }) | null>(null)
+  const [busy, setBusy] = useState(false)
+  const compare = async () => {
+    setBusy(true)
+    try {
+      setResult(await api.diff(ref.trim()))
+    } catch (e) {
+      onMessage(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section className="section">
+      <h3 className="section__title">Compare with</h3>
+      <form
+        className="git__commit"
+        onSubmit={(e) => {
+          e.preventDefault()
+          compare()
+        }}
+      >
+        <input className="input" aria-label="Branch, tag or commit" placeholder="main, v0.5.0, a commit" value={ref} onChange={(e) => setRef(e.target.value)} />
+        <button className="button button--small" type="submit" disabled={busy || !ref.trim()}>
+          {busy ? 'Comparing…' : 'Compare'}
+        </button>
+      </form>
+      {result && (
+        <div className="compare">
+          <p className="small">
+            {result.impacts.length === 0 ? (
+              <>No model changes since <code>{result.against}</code>.</>
+            ) : (
+              <>
+                {result.impacts.length} change{result.impacts.length === 1 ? '' : 's'} since <code>{result.against}</code>
+                {result.worst && (
+                  <>
+                    ; the riskiest is <span className={`class-badge class-badge--${result.worst}`}>{result.worst}</span>
+                  </>
+                )}
+                .
+              </>
+            )}
+          </p>
+          <ul className="changes-list">
+            {result.impacts.map((item, i) => (
+              <li key={i}>
+                <span className={`class-badge class-badge--${item.change.class}`}>{item.change.class}</span> {item.change.summary}
+                {(item.columns.length > 0 || item.tests.length > 0 || item.schedules.length > 0) && (
+                  <div className="muted small compare__reach">
+                    Reaches {[
+                      item.columns.length && `${item.columns.length} column${item.columns.length === 1 ? '' : 's'}`,
+                      item.tests.length && `${item.tests.length} test${item.tests.length === 1 ? '' : 's'}`,
+                      item.metrics.length && `metric${item.metrics.length === 1 ? '' : 's'} ${item.metrics.join(', ')}`,
+                      item.schedules.length && `schedule${item.schedules.length === 1 ? '' : 's'} ${item.schedules.join(', ')}`,
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          {result.migration.length > 0 && <p className="small">Needs a migration: {result.migration.join('; ')}</p>}
+          {result.impacts.length > 0 && (
+            <button
+              className="link-button small"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(result.markdown)
+                  onMessage('Copied the report, ready to paste into a pull request.', 'info')
+                } catch {
+                  onMessage('The browser did not allow copying; `murakumo diff --format markdown` prints the same.', 'info')
+                }
+              }}
+            >
+              Copy the report for a pull request
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   )
 }

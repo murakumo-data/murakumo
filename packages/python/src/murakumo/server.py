@@ -865,6 +865,55 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
     from murakumo import jobs as jobs_module
 
+    @app.get("/api/env")
+    def get_env(environment: str | None = None, prefix: str | None = None) -> dict[str, Any]:
+        """Where an environment's builds go (`murakumo env`): the prefix, and each schema's tables."""
+        from murakumo.environments import EnvError, connect, describe, developer, prefix_for
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        if prefix and not jobs_module.PREFIX.match(prefix):
+            raise HTTPException(400, {"message": "a schema prefix is lower case and ends in _"})
+        warehouse = project.manifest.targets.warehouse.type
+        name = environment or (project.manifest.targets.environments or ["dev"])[0]
+        chosen = prefix_for(project, name, warehouse, prefix)
+        out: dict[str, Any] = {
+            "developer": developer(),
+            "environment": name,
+            "prefix": chosen,
+            "warehouse": warehouse.value,
+            "schemas": [],
+        }
+        try:
+            connection = connect(project, read_only=True)
+        except EnvError as exc:
+            return {**out, "reason": str(exc)}
+        try:
+            out["schemas"] = describe(project, connection, chosen)
+        finally:
+            connection.close()
+        return out
+
+    @app.get("/api/diff")
+    def get_diff(ref: str = "") -> dict[str, Any]:
+        """What changed in the model since a branch, tag or commit (`murakumo diff`), and what it reaches."""
+        from murakumo import gitsync, impact
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        if ref and not re.match(r"^[\w./~^-]{1,200}$", ref):
+            raise HTTPException(400, {"message": "name a branch, tag or commit"})
+        try:
+            w = gitsync.where(project)
+            against = ref or w.ref
+            old = gitsync.model_at(project, w, against)
+        except gitsync.GitError as exc:
+            raise HTTPException(409, {"message": str(exc)}) from None
+        result = impact.report(project, old, project.model)
+        return {"against": against, **result.as_dict(), "markdown": impact.markdown(result, against)}
+
     @app.get("/api/runs")
     def get_runs(environment: str | None = None, prefix: str | None = None, limit: int = 20) -> dict[str, Any]:
         """What the runs recorded in the audit schema: by day, each run, loads, failed tests, and

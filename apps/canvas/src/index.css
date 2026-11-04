@@ -3578,3 +3578,76 @@ button.tree-row__label:not(:disabled) {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* Test my change, compare ---------------------------------------------------------------------- */
+
+.stepper {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepper__step {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.stepper__step--succeeded {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+}
+
+.stepper__step--failed,
+.stepper__step--cancelled {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border));
+}
+
+.stepper__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stepper__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: 50%;
+}
+
+.stepper__go {
+  margin-left: auto;
+}
+
+.stepper__step p {
+  margin: 6px 0;
+}
+
+.stepper__command {
+  display: block;
+  padding: 3px 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--text-muted);
+  background: var(--code-bg);
+  border-radius: 3px;
+}
+
+.stepper__schemas {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.compare__reach {
+  margin: 2px 0 0 4px;
+}

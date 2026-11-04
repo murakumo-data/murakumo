@@ -86,6 +86,7 @@ import { NoteNode, type NoteNodeType } from './Notes'
 import { SchedulesPanel } from './Schedules'
 import { RunsPanel } from './Runs'
 import { Search } from './Search'
+import { TestChange } from './TestChange'
 import { SettingsPanel } from './Settings'
 import { SourcesPanel } from './Sources'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
@@ -219,6 +220,7 @@ function Canvas() {
   const [building, setBuilding] = useState(false)
   const [jobsDone, setJobsDone] = useState(0)
   const [runningPython, setRunningPython] = useState(false)
+  const [testing, setTesting] = useState<string | null>(null)
   const [scheduleRuns, setScheduleRuns] = useState<RunLog['schedules'] | null>(null)
   const canvasRef = useRef<State['canvas']>({})
   const addNoteRef = useRef<() => void>(() => {})
@@ -1228,7 +1230,7 @@ function Canvas() {
               {side === 'sources' && (
                 <SourcesPanel state={state} run={run} onMessage={(text) => setMessage({ text, tone: 'info' })} />
               )}
-              {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} />}
+              {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} onTestChange={setTesting} />}
               {side === 'ci' && <CIPanel onMessage={showMessage} />}
               {side === 'runs' && (
                 <RunsPanel
@@ -1249,6 +1251,8 @@ function Canvas() {
                     { label: 'Verify', title: 'Build the project on DuckDB with made-up rows and run every test, twice (murakumo verify)', onClick: () => startJob('verify', { rows: 200 }) },
                     { label: 'Run as Python…', title: 'Run the pipeline as Polars or PySpark jobs (murakumo run)', onClick: () => setRunningPython(true) },
                     { label: 'Generate', title: 'Write generated/ (murakumo generate)', onClick: () => startJob('generate') },
+                    { label: 'Test my change…', title: 'Copy production, apply the migrations, build and test there, then drop it', onClick: () => setTesting('change') },
+                    { label: 'Export as plain SQL', title: 'Write the project as plain SQL scripts to export/ (murakumo export sql)', onClick: () => startJob('export') },
                   ]}
                 />
               )}
@@ -1448,6 +1452,17 @@ function Canvas() {
         />
       )}
       {shortcuts && <Shortcuts onClose={() => setShortcuts(false)} />}
+      {testing && (
+        <TestChange
+          branch={testing}
+          onClose={() => setTesting(null)}
+          onOpenJob={(id) => {
+            setTesting(null)
+            setJobFocus(id)
+            setSide('activity')
+          }}
+        />
+      )}
       {runningPython && (
         <PythonRunDialog
           state={state}

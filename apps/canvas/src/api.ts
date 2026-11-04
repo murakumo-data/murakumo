@@ -160,6 +160,16 @@ export type RunLog = {
   schedules: Record<string, { started_at: string; finished_at: string | null; status: string }>
 }
 
+// Where an environment's builds go, and what each of its schemas holds.
+export type EnvInfo = {
+  developer: string
+  environment: string
+  prefix: string
+  warehouse: string
+  schemas: { schema: string; exists: boolean; tables: number }[]
+  reason?: string
+}
+
 export type Upload = { name: string; path: string; size: number }
 
 export type JobState = 'running' | 'succeeded' | 'failed' | 'cancelled'
@@ -406,6 +416,15 @@ export const api = {
     if (!response.ok) throw new ApiError(response.status, data.message ?? response.statusText)
     return data as Upload
   },
+  env: (environment?: string, prefix?: string) =>
+    request<EnvInfo>(
+      'GET',
+      `/env?${new URLSearchParams({ ...(environment ? { environment } : {}), ...(prefix ? { prefix } : {}) })}`,
+      undefined,
+      false,
+    ),
+  diff: (ref: string) =>
+    request<ImpactReport & { against: string; markdown: string }>('GET', `/diff?ref=${encodeURIComponent(ref)}`, undefined, false),
   runs: (environment?: string) =>
     request<RunLog>('GET', `/runs${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`, undefined, false),
   startJob: (kind: string, options: Record<string, unknown> = {}) => request<Job>('POST', '/jobs', { kind, options }, false),
