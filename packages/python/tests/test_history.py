@@ -84,3 +84,35 @@ def test_a_new_change_clears_redo(client):
     client.post("/api/undo")
     state = client.post(f"/api/entities/{trip}/columns", json={"name": "b", "type": "string"}).json()
     assert state["history"]["redo"] is None
+
+
+def test_canvas_settings_are_saved_pruned_and_undoable(client, project):
+    state = client.get("/api/state").json()
+    trip = entity_id(state, "fct_trip")
+    zone = entity_id(state, "dim_taxi_zone")
+    state = client.put(
+        "/api/canvas",
+        json={
+            "label": "colour fct_trip",
+            "labels": [{"name": "Finance", "colour": "#2457d6"}],
+            "colours": {trip: "Finance", zone: "Finance"},
+            "collapsed": {trip: True},
+            "notes": [{"id": "n1", "text": "Trips land hourly", "x": 10, "y": 20}],
+            "diagrams": [{"id": "d1", "name": "Trips", "entities": [trip, zone]}],
+        },
+    ).json()
+    assert state["canvas"]["colours"] == {trip: "Finance", zone: "Finance"}
+    assert state["history"]["undo"] == "colour fct_trip"
+    assert state["canvas"]["notes"][0]["width"] == 220
+
+    # Removing a table drops what pointed at it; removing a label uncolours its tables.
+    state = client.delete(f"/api/entities/{zone}").json()
+    assert state["canvas"]["colours"] == {trip: "Finance"}
+    assert state["canvas"]["diagrams"][0]["entities"] == [trip]
+    state = client.put("/api/canvas", json={"labels": []}).json()
+    assert "colours" not in state["canvas"] and "labels" not in state["canvas"]
+    assert state["canvas"]["collapsed"] == {trip: True}
+
+    state = client.post("/api/undo").json()
+    assert state["canvas"]["labels"][0]["name"] == "Finance"
+    assert client.put("/api/canvas", json={"labels": [{"name": "x", "colour": "blue"}]}).status_code == 422

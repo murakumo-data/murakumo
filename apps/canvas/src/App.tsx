@@ -14,6 +14,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
+  AlignLeft,
   BookOpen,
   CalendarClock,
   CircleHelp,
@@ -21,10 +22,14 @@ import {
   Database,
   FileCode2,
   GitBranch,
+  KeyRound,
   ListTree,
   Moon,
+  RectangleHorizontal,
   Redo2,
+  Rows3,
   Search as SearchIcon,
+  SlidersHorizontal,
   Spline,
   SquarePlus,
   Sun,
@@ -49,10 +54,20 @@ import { CIPanel } from './CI'
 import { GitPanel } from './Git'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
-import { EntityNode, type EntityNodeType } from './EntityNode'
+import { EntityNode, tableHandle, type EntityNodeType } from './EntityNode'
 import { Explorer } from './Explorer'
 import { EntityPanel, RelationshipPanel } from './Inspector'
-import { domainColour, ends, handleId, nodeHeight, placeEntities } from './layout'
+import {
+  domainColour,
+  ends,
+  handleId,
+  isCollapsed,
+  nodeHeight,
+  placeEntities,
+  VIEW_MODES,
+  visibleColumns,
+  type ViewMode,
+} from './layout'
 import { LineageBar, LineageEdge, type LineageEdgeType } from './Lineage'
 import { NewRelationship } from './NewRelationship'
 import { SchedulesPanel } from './Schedules'
@@ -111,6 +126,18 @@ function savedSide(): Side | null {
   return SIDES.includes(saved as Side) ? (saved as Side) : null
 }
 
+function savedView(): ViewMode {
+  const saved = recall('murakumo.view')
+  return VIEW_MODES.some((m) => m.id === saved) ? (saved as ViewMode) : 'all'
+}
+
+const VIEW_ICONS: Record<ViewMode, ReactNode> = {
+  all: <Rows3 size={15} />,
+  keys: <KeyRound size={15} />,
+  names: <RectangleHorizontal size={15} />,
+  descriptions: <AlignLeft size={15} />,
+}
+
 function savedTheme(): Theme {
   const saved = recall('murakumo.theme')
   return saved === 'light' || saved === 'dark' ? saved : 'system'
@@ -145,6 +172,8 @@ function Canvas() {
   const [searching, setSearching] = useState(false)
   const [relating, setRelating] = useState(false)
   const [theme, setTheme] = useState<Theme>(savedTheme)
+  const [view, setView] = useState<ViewMode>(savedView)
+  const [displayOpen, setDisplayOpen] = useState(false)
   const [scheduleShown, setScheduleShown] = useState<{ name: string; entities: string[] } | null>(null)
   const shownSchedule = side === 'schedules' ? scheduleShown : null // only while its panel is open
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
@@ -237,6 +266,10 @@ function Canvas() {
     if (theme === 'system') document.documentElement.removeAttribute('data-theme')
     else document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
+  const chooseView = useCallback((next: ViewMode) => {
+    remember('murakumo.view', next)
+    setView(next)
+  }, [])
   const cycleTheme = () => {
     const next: Theme = theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system'
     remember('murakumo.theme', next)
@@ -267,6 +300,11 @@ function Canvas() {
         return
       }
       if (!(event.metaKey || event.ctrlKey)) return
+      if (['1', '2', '3', '4'].includes(key)) {
+        event.preventDefault()
+        chooseView(VIEW_MODES[Number(key) - 1].id)
+        return
+      }
       const redo = (key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey)
       if (key !== 'z' && !redo) return
       event.preventDefault()
@@ -274,7 +312,7 @@ function Canvas() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [run])
+  }, [run, chooseView])
 
   // Pick up changes made in an editor or with the CLI.
   useEffect(() => {
@@ -321,6 +359,17 @@ function Canvas() {
     const issues = (id: string, level: 'error' | 'warning') =>
       diagnostics.filter((d) => d.entity_id === id && d.level === level).length
     const domainNames = state.domains.map((d) => d.name)
+    const canvas = state.canvas ?? {}
+    const labels = new Map((canvas.labels ?? []).map((l) => [l.name, l.colour]))
+    const toggleCollapsed = (entity: Entity) => {
+      const collapsed = isCollapsed(entity, canvas)
+      run(() =>
+        api.saveCanvas({
+          collapsed: { ...canvas.collapsed, [entity.id]: !collapsed },
+          label: `${collapsed ? 'expand' : 'collapse'} ${entity.name}`,
+        }),
+      )
+    }
     setNodes((previous) => {
       // Keep measured sizes, so React Flow does not have to measure every node again, and which
       // nodes are selected: several can be, to move them together.
@@ -343,11 +392,16 @@ function Canvas() {
             ),
             errors: issues(entity.id, 'error'),
             warnings: issues(entity.id, 'warning'),
+            view,
+            collapsed: isCollapsed(entity, canvas),
+            onToggleCollapsed: state.editable ? toggleCollapsed : undefined,
+            labelName: canvas.colours?.[entity.id],
+            labelColour: labels.get(canvas.colours?.[entity.id] ?? ''),
             domainColour: showDomains ? domainColour(domainNames, entity.domain) : undefined,
           },
         }))
     })
-  }, [state, entities, relationships, diagnostics, hidden, domainFilter, showDomains, setNodes])
+  }, [state, entities, relationships, diagnostics, hidden, domainFilter, showDomains, setNodes, view, run])
 
   const edges = useMemo<(RelationshipEdgeType | LineageEdgeType)[]>(() => {
     const shown = new Map(nodes.map((n) => [n.id, n]))
@@ -356,6 +410,12 @@ function Canvas() {
       const width = node.measured?.width ?? NODE_WIDTH
       return { left: node.position.x, right: node.position.x + width }
     }
+    // A column that is not shown (collapsed table, keys only) is joined at the table's header.
+    const visible = new Map(
+      nodes.map((n) => [n.id, new Set(visibleColumns(n.data.entity, n.data.view, n.data.collapsed, n.data.foreignKeys).map((a) => a.id))]),
+    )
+    const handle = (entityId: string, columnId: string, side: 'in' | 'out') =>
+      visible.get(entityId)?.has(columnId) ? handleId(columnId, side) : tableHandle(entityId, side)
     const relationshipEdges = relationships.flatMap((r) => {
       const from = byName(entities, r.from)
       const to = byName(entities, r.to)
@@ -379,8 +439,8 @@ function Canvas() {
           id: r.id,
           source: from.id,
           target: to.id,
-          sourceHandle: handleId(fromColumn.id, fromSide),
-          targetHandle: handleId(toColumn.id, toSide),
+          sourceHandle: handle(from.id, fromColumn.id, fromSide),
+          targetHandle: handle(to.id, toColumn.id, toSide),
           type: 'relationship' as const,
           selected,
           className: [r.optional ? 'edge--optional' : '', lineage ? 'edge--faded' : ''].join(' ').trim() || undefined,
@@ -405,8 +465,8 @@ function Canvas() {
           id,
           source: from.entity,
           target: to.entity,
-          sourceHandle: handleId(from.column, 'out'),
-          targetHandle: handleId(to.column, 'in'),
+          sourceHandle: handle(from.entity, from.column, 'out'),
+          targetHandle: handle(to.entity, to.column, 'in'),
           type: 'lineage' as const,
           zIndex: 1,
           data: { expression: link.expression, hovered: hovered === id },
@@ -718,6 +778,34 @@ function Canvas() {
           <kbd className="kbd">⌘K</kbd>
         </button>
         <div className="topbar__actions">
+          <div className="segmented" role="group" aria-label="Show">
+            {VIEW_MODES.map((mode, i) => (
+              <button
+                key={mode.id}
+                className={view === mode.id ? 'segmented__button segmented__button--on' : 'segmented__button'}
+                aria-pressed={view === mode.id}
+                title={`${mode.label} (⌘${i + 1})`}
+                aria-label={mode.label}
+                onClick={() => chooseView(mode.id)}
+              >
+                {VIEW_ICONS[mode.id]}
+              </button>
+            ))}
+            <span className="popover-anchor">
+              <button
+                className="segmented__button"
+                aria-expanded={displayOpen}
+                title="Collapsing tables"
+                aria-label="Collapsing tables"
+                onClick={() => setDisplayOpen(!displayOpen)}
+              >
+                <SlidersHorizontal size={15} />
+              </button>
+              {displayOpen && (
+                <DisplayOptions state={state} entities={entities} run={run} onClose={() => setDisplayOpen(false)} />
+              )}
+            </span>
+          </div>
           <div className="button-group" role="group" aria-label="History">
             <button
               className="icon-button"
@@ -1059,6 +1147,59 @@ function Canvas() {
           </form>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Collapsing tables: by default over a number of columns, or all of them at once. */
+function DisplayOptions(props: {
+  state: State
+  entities: Entity[]
+  run: (action: () => Promise<State>) => Promise<boolean>
+  onClose: () => void
+}) {
+  const { state, entities, run, onClose } = props
+  const canvas = state.canvas ?? {}
+  const [limit, setLimit] = useState(String(canvas.collapse_over ?? ''))
+  const all = (collapsed: boolean) =>
+    run(() =>
+      api.saveCanvas({
+        collapsed: Object.fromEntries(entities.map((e) => [e.id, collapsed])),
+        label: collapsed ? 'collapse every table' : 'expand every table',
+      }),
+    )
+  const saveLimit = () => {
+    const n = Number(limit)
+    if (limit !== '' && (!Number.isInteger(n) || n < 0)) return
+    if ((limit === '' ? 0 : n) === (canvas.collapse_over ?? 0)) return
+    // A new limit applies to every table again: drop the ones set one by one.
+    run(() => api.saveCanvas({ collapse_over: limit === '' ? 0 : n, collapsed: {}, label: 'change when tables collapse' }))
+  }
+  return (
+    <div className="popover" role="dialog" aria-label="Collapsing tables" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <label className="popover__row">
+        <span>Collapse tables with more than</span>
+        <input
+          className="input input--narrow"
+          inputMode="numeric"
+          placeholder="—"
+          value={limit}
+          disabled={!state.editable}
+          onChange={(e) => setLimit(e.target.value.replace(/[^0-9]/g, ''))}
+          onBlur={saveLimit}
+          onKeyDown={(e) => e.key === 'Enter' && saveLimit()}
+        />
+        <span>columns</span>
+      </label>
+      <p className="muted small">Saved with the model, so everyone sees the same. Click a table's ▸ to open it.</p>
+      <div className="popover__actions">
+        <button className="button button--small" disabled={!state.editable} onClick={() => all(true)}>
+          Collapse all
+        </button>
+        <button className="button button--small" disabled={!state.editable} onClick={() => all(false)}>
+          Expand all
+        </button>
+      </div>
     </div>
   )
 }

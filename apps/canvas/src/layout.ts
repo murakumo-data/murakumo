@@ -1,4 +1,4 @@
-import type { Entity, Layer, Position, Relationship } from './api'
+import type { CanvasSettings, Entity, Layer, Position, Relationship } from './api'
 import type { End } from './Relationship'
 
 const LAYERS: Layer[] = ['raw', 'staging', 'intermediate', 'marts', 'semantic']
@@ -8,8 +8,32 @@ const GAP = 40
 /** Each column has a handle on both sides: `in` on the left, `out` on the right. */
 export const handleId = (columnId: string, side: 'in' | 'out') => `${columnId}:${side}`
 
-export function nodeHeight(entity: Entity): number {
-  return 46 + Math.max(entity.attributes.length, 1) * 22 + 10
+/** How much of each table shows: every column, only keys, only the name, or its description. */
+export type ViewMode = 'all' | 'keys' | 'names' | 'descriptions'
+
+export const VIEW_MODES: { id: ViewMode; label: string }[] = [
+  { id: 'all', label: 'All columns' },
+  { id: 'keys', label: 'Keys only' },
+  { id: 'names', label: 'Table names only' },
+  { id: 'descriptions', label: 'Descriptions' },
+]
+
+/** Whether a table is collapsed: as set on it, or by default when it has more columns than the limit. */
+export function isCollapsed(entity: Entity, canvas: CanvasSettings): boolean {
+  const set = canvas.collapsed?.[entity.id]
+  if (set !== undefined) return set
+  return Boolean(canvas.collapse_over) && entity.attributes.length > canvas.collapse_over!
+}
+
+/** The columns a table shows: none when collapsed or names-only, keys (PK and FK) in keys mode. */
+export function visibleColumns(entity: Entity, view: ViewMode, collapsed: boolean, foreignKeys: Set<string>) {
+  if (collapsed || view === 'names' || view === 'descriptions') return []
+  if (view === 'keys') return entity.attributes.filter((a) => a.key === 'primary' || foreignKeys.has(a.name.toLowerCase()))
+  return entity.attributes
+}
+
+export function nodeHeight(entity: Entity, shown = entity.attributes.length): number {
+  return 46 + Math.max(shown, 1) * 22 + 10
 }
 
 /**

@@ -109,6 +109,20 @@ export type Orchestration = {
   pipelines: string // where `murakumo generate` writes the orchestrator's pipelines
 }
 
+export type ColourLabel = { name: string; colour: string; description?: string | null }
+export type Note = { id: string; text: string; x: number; y: number; width: number; colour?: string | null }
+export type Diagram = { id: string; name: string; entities: string[] }
+
+// What the canvas draws besides the model, kept in model/layout.yaml with the positions.
+export type CanvasSettings = {
+  collapse_over?: number
+  collapsed?: Record<string, boolean> // per table: true collapsed, false expanded (over collapse_over)
+  labels?: ColourLabel[]
+  colours?: Record<string, string> // table id -> label name
+  notes?: Note[]
+  diagrams?: Diagram[]
+}
+
 export type Domain = { name: string; owner: string | null; description: string | null; entities: number }
 
 export type State = {
@@ -118,6 +132,7 @@ export type State = {
   editable: boolean
   model: { entities: Entity[]; relationships: Relationship[] } | null
   layout: Record<string, Position>
+  canvas: CanvasSettings
   domains: Domain[]
   sources: SourceInfo[]
   orchestration: Orchestration | null
@@ -299,6 +314,7 @@ export const api = {
   revision: () => request<{ revision: string; generated: string }>('GET', '/revision', undefined, false),
   currentRevision: () => revision,
   undo: () => request<State>('POST', '/undo'),
+  saveCanvas: (settings: CanvasSettings & { label?: string }) => request<State>('PUT', '/canvas', settings),
   redo: () => request<State>('POST', '/redo'),
 
   addEntity: (body: { name: string; layer: Layer; kind?: string; source?: string | null; position?: Position }) =>

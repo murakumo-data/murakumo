@@ -43,7 +43,7 @@ from murakumo.ir.types import TypeName
 from murakumo.lineage import resolve_ref, trace
 from murakumo.manifest import MANIFEST_FILE, Warehouse
 from murakumo.migrate import MIGRATIONS_DIR, Pending, plan_migration, write_migration
-from murakumo.project import MODEL_DIR, Project, load_layout, load_project, save_layout, save_model
+from murakumo.project import MODEL_DIR, Project, load_canvas, load_layout, load_project, save_layout, save_model
 from murakumo.validate import validate_project
 
 REVISION_HEADER = "X-Murakumo-Revision"
@@ -100,6 +100,39 @@ class NewRelationship(BaseModel):
 
 class Layout(BaseModel):
     positions: dict[UUID, Position]
+
+
+class Label(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    colour: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    description: str | None = None
+
+
+class Note(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    text: str = ""
+    x: int = 0
+    y: int = 0
+    width: int = Field(default=220, ge=80, le=1200)
+    colour: str | None = None
+
+
+class Diagram(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=80)
+    entities: list[str] = Field(default_factory=list)
+
+
+class CanvasSettings(BaseModel):
+    """What the canvas draws besides the model: given keys replace what is saved, others stay."""
+
+    label: str | None = None  # what undo calls this change
+    collapse_over: int | None = Field(default=None, ge=0, le=500)
+    collapsed: dict[str, bool] | None = None
+    labels: list[Label] | None = None
+    colours: dict[str, str] | None = None
+    notes: list[Note] | None = None
+    diagrams: list[Diagram] | None = None
 
 
 class MappingBody(BaseModel):
@@ -227,6 +260,7 @@ def state(root: Path) -> dict[str, Any]:
         "editable": editable,
         "model": project.model.model_dump(mode="json", by_alias=True) if project else None,
         "layout": {str(k): {"x": x, "y": y} for k, (x, y) in layout.items()},
+        "canvas": load_canvas(root) if project is not None else {},
         "sources": sources_module.list_sources(project) if project else [],
         "orchestration": schedules_module.summary(project) if project else None,
         "domains": [
@@ -823,6 +857,24 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             except history_module.HistoryError as exc:
                 raise HTTPException(409, {"message": str(exc), "state": state(root)}) from None
             return {**state(root), "message": f"{done}: {what}"}
+
+    @app.put("/api/canvas")
+    def put_canvas(body: CanvasSettings) -> dict[str, Any]:
+        """Collapsed tables, colour labels, notes and diagrams: kept in the layout file, and undoable."""
+        with lock:
+            result = load_project(root)
+            if result.project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            given = {k: v for k, v in body.model_dump(mode="json").items() if k in body.model_fields_set}
+            label = given.pop("label", None) or "change the canvas"
+            settings = {**load_canvas(root), **given}
+            if "labels" in given:  # a removed label leaves no table coloured with it
+                names = {lb["name"] for lb in given["labels"]}
+                settings["colours"] = {k: v for k, v in (settings.get("colours") or {}).items() if v in names}
+            before = history_module.take(root)
+            save_layout(result.project, load_layout(root), settings)
+            history.record(label, before, history_module.take(root))
+            return state(root)
 
     @app.put("/api/layout")
     def put_layout(body: Layout) -> dict[str, str]:

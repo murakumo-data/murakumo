@@ -655,6 +655,7 @@ textarea.input {
 }
 
 .entity__empty {
+  margin: 0;
   padding: 3px 12px;
   color: var(--text-muted);
   font-style: italic;
@@ -2514,4 +2515,138 @@ button.tree-row__label:not(:disabled) {
 .search__name {
   flex: 1;
   font-family: var(--mono);
+}
+
+/* View modes and collapsing ----------------------------------------------------------------- */
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.segmented__button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.segmented__button:hover {
+  color: var(--text);
+}
+
+.segmented__button--on {
+  color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.popover-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  width: 280px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow), 0 12px 32px rgb(0 0 0 / 14%);
+}
+
+.popover__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.popover__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.input--narrow {
+  width: 56px;
+}
+
+.entity__toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: -6px;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.entity__toggle:hover {
+  background: rgb(255 255 255 / 18%);
+}
+
+.entity__title {
+  justify-content: flex-start;
+}
+
+.entity__title .badge {
+  margin-left: auto;
+}
+
+.entity__more {
+  display: block;
+  width: 100%;
+  padding: 3px 12px;
+  font: 11px inherit;
+  font-family: inherit;
+  text-align: left;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.entity__more:not(:disabled) {
+  cursor: pointer;
+}
+
+.entity__more:not(:disabled):hover {
+  color: var(--accent);
+}
+
+.entity__description {
+  max-width: 300px;
+  margin: 0;
+  padding: 8px 12px 10px;
+  line-height: 1.45;
+}
+
+.entity__description--none {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.entity .entity__table-handle {
+  top: 22px;
+  opacity: 0;
+  pointer-events: none;
 }
