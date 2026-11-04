@@ -44,7 +44,9 @@ source: nyc_tlc                 # for raw tables: the source system
 grain: [trip_id]                # the columns that make a row unique
 history: none                   # none | scd1 | scd2 | scd3 | scd4 | scd6 | snapshot
 load: incremental               # full | append | incremental | cdc | streaming
-watermark: pickup_at            # the column that says what is new, for incremental loads
+watermark: pickup_at            # the column that orders a key's versions (and, by choice, says what is new)
+incremental_by: load_time       # load_time (the default: what was loaded since the last run) | watermark
+lookback_hours: 0               # an incremental table also re-reads this many hours, for stragglers
 partition_by: [day(pickup_at)]  # a column, or a transform: day(), month(), year(), hour(), bucket(n, col)
 cluster_by: []
 freshness: { warn_after_hours: 24, error_after_hours: 48 }
@@ -232,7 +234,7 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK305 | warning | An entity has no columns |
 | MK306 | warning | A PII column is not classified confidential or restricted |
 | MK307 | warning | A name is not snake_case (raw tables are exempt: they mirror the source) |
-| MK308 | warning | An incremental load has no watermark |
+| MK308 | warning | An incremental raw table has no watermark |
 | MK309 | warning | SCD2 or SCD6 history without a primary or natural key |
 | MK310 | error | A cumulative table has no `cumulative:` setting |
 | MK311 | warning | A primary key column is nullable |

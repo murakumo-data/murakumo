@@ -232,8 +232,8 @@ def warehouse_checks(project: Project, connect: bool) -> list[Check]:
             checks.append(Check(area, "The private key file exists and is private", Status.OK, str(path)))
 
     if connect and warehouse is Warehouse.SNOWFLAKE and not missing:
-        database = os.environ.get("SNOWFLAKE_DATABASE") or optional.get("SNOWFLAKE_DATABASE", "")
-        checks.extend(_connect_snowflake(area, database))
+        default = os.environ.get("SNOWFLAKE_DATABASE") or optional.get("SNOWFLAKE_DATABASE", "")
+        checks.extend(_connect_snowflake(area, _databases(project, default), project))
     elif connect and not missing:
         checks.append(
             Check(
@@ -246,7 +246,21 @@ def warehouse_checks(project: Project, connect: bool) -> list[Check]:
     return checks
 
 
-def _connect_snowflake(area: str, database: str) -> list[Check]:
+def _databases(project: Project, default: str) -> list[str]:
+    """Every database the project builds in: people's own, then each environment's."""
+    from murakumo.environments import database_for
+
+    names = [None, *project.manifest.targets.names]
+    found: list[str] = []
+    for name in names:
+        environment = project.manifest.collaboration.personal_environment if name is None else name
+        database = (database_for(project, environment, Warehouse.SNOWFLAKE) or default or "").upper()
+        if database and database not in found:
+            found.append(database)
+    return found
+
+
+def _connect_snowflake(area: str, databases: list[str], project: Project | None = None) -> list[Check]:
     try:
         from murakumo.importers.snowflake import SnowflakeUnavailable, connect
     except ImportError:
@@ -267,28 +281,36 @@ def _connect_snowflake(area: str, database: str) -> list[Check]:
     except Exception as exc:  # noqa: BLE001 - any driver error is the answer here
         return [Check(area, "Cannot connect to Snowflake", Status.TODO, str(exc).splitlines()[0])]
     checks = [Check(area, f"Connected to Snowflake as {user}", Status.OK, f"role {role}, warehouse {warehouse}")]
-    if database and database.upper() not in visible:
+    missing = [d for d in databases if d.upper() not in visible]
+    if missing:
+        from murakumo.environments import provision
+
+        several = len(missing) > 1
         checks.append(
             Check(
                 area,
-                f"Database {database} does not exist, or {role} cannot see it",
+                f"Database{'s' if several else ''} {', '.join(missing)} {'do' if several else 'does'} not exist, "
+                f"or {role} cannot see {'them' if several else 'it'}",
                 Status.TODO,
-                "dbt builds into it; the raw landing tables go there too.",
+                "Each environment builds into a database of its own, and people's own builds into one more.",
                 [
-                    "Create it with the SQL below, then run `murakumo setup --connect` again.",
-                    "Or build in a database you already have: export SNOWFLAKE_DATABASE=<its name>",
+                    "Create them with the SQL below (murakumo env provision), "
+                    "then run `murakumo setup --connect` again.",
+                    "Or build in a database you already have: set each environment's database in murakumo.yaml.",
                 ],
-                sql=(
-                    "use role accountadmin;\n"
-                    f"create database if not exists {database};\n"
-                    f"grant usage, create schema on database {database} to role {role};"
-                ),
+                sql="use role accountadmin;\n" + provision(project) if project is not None else None,
                 sql_where="In Snowsight: Projects → Worksheets → + → SQL Worksheet. Paste, select all, then Run.",
                 docs=[f"{DOCS}/snowflake.md"],
             )
         )
-    elif database:
-        checks.append(Check(area, f"Database {database} is there", Status.OK))
+    elif databases:
+        checks.append(
+            Check(
+                area,
+                f"Database{'s are' if len(databases) > 1 else ' is'} there: {', '.join(databases)}",
+                Status.OK,
+            )
+        )
     return checks
 
 

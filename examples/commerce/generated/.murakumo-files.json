@@ -1,12 +1,12 @@
 {
-  "generated_by": "murakumo 0.6.0",
+  "generated_by": "murakumo 0.7.0",
   "files": {
     "dbt/README.md": "57ace9e73a5fa2490bcbad58bc5107c24d3310774c3e87aba78ebb69eb1f2a4b",
     "dbt/dbt_project.yml": "d95a961fac643685ed3bf6ec248b151643da383688878cd49276613fd8641eb9",
     "dbt/macros/murakumo/audit.sql": "87c3ffef0d6f3195cf3e4ebb14b263333de31dace4b0762c8beb26c33d13a2f0",
     "dbt/macros/murakumo/record_hash.sql": "ef149d9dc6bc6024aa7cffd61ef1323370811bb4f6217da9e8b5c029b62e1dc8",
     "dbt/macros/murakumo/schema_names.sql": "33903ccc62791de761a9be2cf1e45186a910489fa8ec311f67b71901f573909b",
-    "dbt/macros/murakumo/tests.sql": "6b7cbd98dfa984e2009466f6081e8e1fac4e9b7043da9312c072382e401819aa",
+    "dbt/macros/murakumo/tests.sql": "7cf9464fbfaa0b294399eab3f062bda2107e7597320642d70a2b022104c0e47f",
     "dbt/models/_groups.yml": "c5cf26f362f75182c8b69dd5aef79b52e0b838403111bd5cc842d304d4da947c",
     "dbt/models/intermediate/sales/_sales__models.yml": "952041431fe37b4bc6f792870007575edb06f515429b78f9996486620821410e",
     "dbt/models/intermediate/sales/int_dim_customer__versions.sql": "f4f0ad474f17101bf21a9ca3d37965e275130d055e57caab2b87e35ac79913b2",

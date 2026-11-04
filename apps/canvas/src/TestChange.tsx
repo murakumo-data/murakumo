@@ -80,7 +80,7 @@ export function TestChange({
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
   const valid = /^[a-z][a-z0-9_]*_$/.test(prefix) && !prefix.startsWith('dev_')
 
-  const look = async () => {
+  const showWhatIsThere = async () => {
     try {
       setEnv(await api.env(env, prefix))
     } catch (e) {
@@ -97,7 +97,7 @@ export function TestChange({
         const now = await api.job(job.id, 1_000_000) // state only: the lines are in Activity
         setJobs((all) => ({ ...all, [step.id]: now }))
         if (now.state === 'running') timers.current.push(window.setTimeout(follow, 1000))
-        else if (step.id !== 'drop') look()
+        else if (step.id !== 'drop') showWhatIsThere()
         else setEnv(null)
       }
       timers.current.push(window.setTimeout(follow, 800))

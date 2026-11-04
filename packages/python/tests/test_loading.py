@@ -146,7 +146,8 @@ def test_raw_columns_as_text(tmp_path):
         r[0] for r in con.execute("select location_id from staging.stg_nyc_tlc__taxi_zone_lookup order by 1").fetchall()
     ]
     warned = con.execute(
-        "select status, failures from audit.dq_results where test like 'source_murakumo_converts_to%taxi_zone_lookup%LocationID%'"
+        "select status, failures from audit.dq_results "
+        "where test like 'source_murakumo_converts_to%taxi_zone_lookup%LocationID%'"
     ).fetchall()
     con.close()
     assert raw_type == "VARCHAR" and ids == [1, 2, None]

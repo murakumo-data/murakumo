@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.6.0
+# End-to-end test: Murakumo 0.7.0
 
-A step-by-step test of Murakumo 0.6.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 0.7.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -11,9 +11,9 @@ should see.
 | 2-4 | Creating a project folder with the guided setup, and going into it | 10 min |
 | 5-9 | The canvas: the tour, finding and showing tables, editing, mapping, calculated columns, lineage, domains, undo, labels, notes and diagrams, generating, migrations | 65 min |
 | 10-11 | Importing a data dictionary; editing YAML by hand alongside the canvas | 10 min |
-| 12-14 | Building and testing on DuckDB, with made-up data and real data; schedules, pipelines, docs, plain SQL, cumulative tables, the run log, Polars and PySpark | 50 min |
-| 15 | The checks a CI pipeline would run, CI from the canvas, working with a teammate | 20 min |
-| 16 | Optional: the same project on Snowflake: your own schemas, production, a pull request's clone | 30 min |
+| 12-14 | Building and testing on DuckDB, with made-up data and real data; schedules, pipelines, docs, plain SQL, cumulative tables, the run log, Polars and PySpark, loading only new files, running schedules here | 60 min |
+| 15 | The checks a CI pipeline would run, CI from the canvas, working with a teammate in the git flow | 25 min |
+| 16 | Optional: the same project on Snowflake: environments, your own schema, production, a pull request's clone | 35 min |
 | 17 | Cleaning up | 2 min |
 
 ## How to use this script
@@ -119,10 +119,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.6.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 0.7.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.6.0.
+☐ Version 0.7.0.
 
 ---
 
@@ -1195,6 +1195,59 @@ The three numbers are the same. Remove the output: `rm -rf lake`.
 
 ☐ Polars and PySpark build the same tables as dbt.
 
+**14.9 Load only what is new.** Real data arrives a file at a time. Point a build at a folder, and
+each file goes in once. Put January's file (loaded in 13.4) in a landing folder, and build from it:
+
+```bash
+mkdir -p landing
+cp ~/murakumo-e2e/data/yellow_tripdata_2024-01.parquet landing/
+murakumo build --data yellow_tripdata=landing/
+```
+
+You should see `yellow_tripdata: nothing new (1 file(s) already loaded)`: the file is recognised by
+its content, under its new name too. Now February arrives:
+
+```bash
+curl -L -o landing/yellow_tripdata_2024-02.parquet https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-02.parquet
+murakumo build --data yellow_tripdata=landing/
+```
+
+You should see `loaded yellow_tripdata: ... rows (from landing/: 1 new file(s), 1 already loaded)`,
+about 3 million rows. `fct_trip` is incremental: it takes the rows loaded since its last run, by load time, so
+late trips with old dates are not missed. Check both months are there (routes A and C: start with
+`uv run --with duckdb `):
+
+```bash
+python -c "
+import duckdb
+con = duckdb.connect('taxi_platform.duckdb', read_only=True)
+print(con.execute(\"select strftime(pickup_at, '%Y-%m') m, count(*) from marts.fct_trip where pickup_at >= '2024-01-01' group by 1 order by 1\").fetchall()[:3])
+print(con.execute('select table_name, path from audit.loaded_files').fetchall())
+"
+```
+
+You should see January and February with about 3 million trips each, and `audit.loaded_files` with
+the files loaded. In the canvas, click `yellow_tripdata`: **New rows** says `append`, and
+`fct_trip`'s **Each run** says `load_time`.
+
+☐ Only the new file was loaded, and the fact table took it.
+
+**14.10 Run a schedule on this computer.** Add a schedule that runs every minute, then let
+Murakumo run it here:
+
+```bash
+murakumo add schedule every_minute --cron "* * * * *" --select layer:raw
+murakumo scheduler
+```
+
+You should see `Next: every_minute at ...`, then within a minute `Running every_minute: murakumo
+build --schedule every_minute`, the build, and `every_minute succeeded; recorded in the run log.`
+Press **Ctrl+C** to stop it. In the canvas, the Schedules panel says *Last ran ...: succeeded* for
+`every_minute`, and **Run them here** does the same as `murakumo scheduler`, with **Stop**. Remove
+the schedule: `murakumo remove schedule every_minute`.
+
+☐ A schedule ran on its own, and the run log shows it.
+
 ---
 
 ## Part 15: The checks a CI pipeline would run
@@ -1267,8 +1320,9 @@ Murakumo's version back with `murakumo ci --force`, then commit it:
 
 ☐ The workflow is written, its checks pass here, and changes made by hand are kept.
 
-**15.5 Work with a teammate.** To try `murakumo sync` without a second person, make a shared
-repository on this computer and a teammate's copy of it:
+**15.5 Work with a teammate, in the git flow.** New work starts on a branch of its own from `dev`,
+goes back into `dev` through a pull request, and `dev` is promoted to `stage`, then `main`. To try
+it without a second person, make a shared repository on this computer and a teammate's copy:
 
 ```bash
 git add -A && git commit -qm "Work so far"
@@ -1276,11 +1330,14 @@ git branch -M main
 git init --bare ../team.git
 git remote add origin ../team.git
 git push -u origin main
-git checkout -b my-change
-git clone --quiet -b main ../team.git ../teammate
+murakumo branch start --push
+murakumo branch new feature trip-note
+git clone --quiet -b dev ../team.git ../teammate
 ```
 
-As the teammate, add a column to the zones on `main`, with its code and migration:
+`branch start` says `created dev from origin/main`, `created stage ...`, and that it pushed them;
+`branch new` says `On feature/trip-note`. As the teammate, whose own work has been merged into `dev`
+already, add a column to the zones there, with its code and migration:
 
 ```bash
 cd ../teammate
@@ -1291,7 +1348,7 @@ git add -A && git commit -qm "Zone code" && git push -q
 cd ../taxi_platform
 ```
 
-Back as yourself, on `my-change`, add a different column, with its migration, and commit:
+Back as yourself, on `feature/trip-note`, add a different column, with its migration, and commit:
 
 ```bash
 murakumo add column fct_trip note string
@@ -1300,8 +1357,8 @@ git add -A && git commit -qm "Trip note"
 murakumo sync --check
 ```
 
-You should see `my-change: 1 commit(s) behind origin/main, 1 ahead.` and, coming in from main,
-`additive  taxi_zone_lookup: new column zone_code (string)`. Now bring it in:
+You should see `feature/trip-note: 1 commit(s) behind origin/dev, 1 ahead.` and, coming in from
+dev, `additive  taxi_zone_lookup: new column zone_code (string)`. Now bring it in:
 
 ```bash
 murakumo sync
@@ -1309,10 +1366,23 @@ ls migrations/duckdb
 ```
 
 You should see the change brought in; *Migrations: 0006_trip_note.sql replaced by
-0007_trip_note.sql, planned after main's migrations* (the numbers depend on how many you wrote
-before); and `Synced: ... committed ...`. `ls` shows the teammate's
-`zone_code` migration followed by yours, with no number used twice. In the canvas, click **Team** on the rail (the branch icon):
-`my-change`, up to date with main, 2 commits ahead.
+0007_trip_note.sql, planned after dev's migrations* (the numbers depend on how many you wrote
+before); and `Synced: ... committed ...`. `ls` shows the teammate's `zone_code` migration followed
+by yours, with no number used twice. In the canvas, click **Team** on the rail (the branch icon):
+`feature/trip-note`, up to date with dev, 2 commits ahead.
+
+Now check what a pull request would be allowed to do, as the CI does on each one:
+
+```bash
+murakumo branch check --head feature/trip-note --base main
+murakumo branch check --head feature/trip-note --base dev
+murakumo branch promote dev
+```
+
+The first fails (*main takes stage*): new work goes into `dev`. The second passes. The third says
+what promoting `dev` to `stage` would bring: the teammate's commit, with `zone_code`. In the canvas's
+Team panel, **Start new work** makes branches the same way, and **Promote** → `dev → stage` shows
+the same list (on GitHub or GitLab, with a button that opens the pull request).
 
 ☐ The teammate's change came in, and the migrations stay in order.
 
@@ -1325,11 +1395,11 @@ Click **Cancel**: nothing changed. Then in the terminal:
 murakumo diff
 ```
 
-You should see `Model changes since origin/main:` and `additive  fct_trip: new column note
-(string)` (your change; the teammate's is already in main), with the metrics and schedules it
+You should see `Model changes since origin/dev:` and `additive  fct_trip: new column note
+(string)` (your change; the teammate's is already in dev), with the metrics and schedules it
 reaches.
 
-**In the canvas**: **Team** → **Compare with** `main` → **Compare** lists the same changes and what
+**In the canvas**: **Team** → **Compare with** `dev` → **Compare** lists the same changes and what
 they reach; **Copy the report for a pull request** copies it as Markdown.
 
 ☐ Breaking edits are caught before they are saved.
@@ -1377,38 +1447,46 @@ The checklist after `init` shows only what still needs attention; there should b
 
 ☐ Created, with no red ✗.
 
-**16.3** Test the connection:
+**16.3** Look at the environments, and test the connection:
 
 ```bash
+grep -A12 "environments:" murakumo.yaml
 murakumo setup --connect
 ```
 
-You should see ✓ *Connected to Snowflake as MURAKUMO_DBT* (role TRANSFORMER, warehouse
-TRANSFORMING), then a red ✗ *Database SNOW_TEST does not exist, or TRANSFORMER cannot see it*.
-That is expected: the database is named after the project, and nobody has created it yet. Under it
-is a **Run this SQL** block:
+`murakumo.yaml` lists `dev`, `stage` and `prod`, each with a database (`SNOW_TEST_DEV`,
+`SNOW_TEST_STAGE`, `SNOW_TEST_PROD`) and the branch that deploys it, and `personal_database:
+MURAKUMO`, where everyone's own builds go. `setup --connect` says ✓ *Connected to Snowflake as
+MURAKUMO_DBT* (role TRANSFORMER, warehouse TRANSFORMING), then a red ✗ *Databases MURAKUMO,
+SNOW_TEST_DEV, SNOW_TEST_STAGE, SNOW_TEST_PROD do not exist*. That is expected: nobody has created
+them yet. Under it is a **Run this SQL** block, the same as `murakumo env provision` prints: the
+databases, a deployer role per environment, a developer role, and the grants.
+
+**16.4** Create them. In Snowsight (<https://app.snowflake.com>, signed in as yourself):
+**Projects → Worksheets → +** (top right) **→ SQL Worksheet**. Paste the SQL from `murakumo env
+provision`, and add these two lines at the end, which let this test's one user act as a developer
+and as production's deployer (in real use, people get the developer role and the CI user the
+deployer roles):
 
 ```sql
-use role accountadmin;
-create database if not exists SNOW_TEST;
-grant usage, create schema on database SNOW_TEST to role TRANSFORMER;
+grant role SNOW_TEST_DEVELOPER to role TRANSFORMER;
+grant role SNOW_TEST_DEPLOYER_PROD to role TRANSFORMER;
 ```
 
-**16.4** Create the database. In Snowsight (<https://app.snowflake.com>, signed in as yourself):
-**Projects → Worksheets → +** (top right) **→ SQL Worksheet**. Paste the three lines, select them
-all (Cmd+A) and click **Run** (▶, top right). You should see
-`Statement executed successfully.` Back in Terminal:
+Select it all (Cmd+A) and click **Run** (▶, top right). Back in Terminal:
 
 ```bash
+murakumo env provision | head -3
 murakumo setup --connect
 ```
 
-✓ *Database SNOW_TEST is there* and `Ready to build.`
+✓ *Databases are there: MURAKUMO, SNOW_TEST_DEV, SNOW_TEST_STAGE, SNOW_TEST_PROD* and `Ready to
+build.`
 
-> Rather use a database you already have? `export SNOWFLAKE_DATABASE=COMMERCE` builds there
-> instead, and step 16.7 then drops schemas rather than the whole database.
+**In the canvas**, Settings → Project → **Environments** shows the same databases and branches,
+and **Setup SQL…** the same SQL.
 
-☐ Connected, and the database check passes.
+☐ Connected, and the databases exist.
 
 **16.5** Test on Snowflake:
 
@@ -1422,49 +1500,52 @@ drops them at the end, so **this leaves nothing behind in Snowflake**: that is o
 
 ☐ 16/16 on Snowflake.
 
-**16.6** Build for real, and keep the tables:
+**16.6** Build your own copy, and keep the tables:
 
 ```bash
 murakumo build --sample 200
 ```
 
 `--sample 200` puts 200 made-up rows in each raw table that is still empty (in real use, ingestion
-fills them, or `--data` loads a file). On a shared warehouse your `dev` builds go to schemas of your
-own, so first you should see `Building into the schemas under dev_<your name>_`, then two
+fills them, or `--data` loads files). Your own builds go to a schema of your own, so first you
+should see `Building your own copy: the schema <your name> in MURAKUMO.`, then two
 `loaded ...: 200 rows (synthetic)` lines and `built: 4 models and snapshots, 16/16 tests passed.`
 
-In Snowsight, open **Data → Databases → SNOW_TEST** (refresh with ⟳ if it was open). You should
-see **DEV_<YOUR NAME>_RAW_NYC_TLC**, **..._STAGING**, **..._MARTS** and **..._AUDIT**. Open
-**..._MARTS → Tables → FCT_TRIP → Data Preview** to see rows.
+In Snowsight, open **Data → Databases → MURAKUMO** (refresh with ⟳ if it was open). You should see
+one schema named after you, holding every table: the raw ones, `STG_...`, `FCT_TRIP`,
+`DIM_TAXI_ZONE`, and the audit tables (`RUN_LOG`, `ROW_COUNTS`...). Open **FCT_TRIP → Data Preview**
+to see rows.
 
-**16.6a Production, and a pull request on a clone of it.** Build production (the shared schemas),
+**16.6a Production, and a pull request on a clone of it.** Build production (its own database),
 then do what a pull request's preview does: clone production, apply the branch's new migrations
 on the clone, and build there.
 
 ```bash
 murakumo build --env prod --sample 200
-murakumo migrate --apply --mark-applied
-murakumo env clone --prefix pr_1_
-murakumo migrate --apply --prefix pr_1_
+murakumo migrate --apply --env prod --mark-applied
+murakumo env clone --env prod --prefix pr_1_
+murakumo migrate --apply --env prod --prefix pr_1_
 murakumo build --env prod --prefix pr_1_
-murakumo env --prefix pr_1_
+murakumo env --env prod --prefix pr_1_
 ```
 
 You should see the clones (`raw_nyc_tlc -> pr_1_raw_nyc_tlc`, ...), `... have run every migration`
 (the clone carries production's record), a build into `pr_1_*`, and the `pr_1_*` schemas with
-their tables. Snowflake's clones are instant and take no extra space. Then drop them, and your own:
+their tables, all in `SNOW_TEST_PROD`. Snowflake's clones are instant and take no extra space. Then
+drop them, and your own:
 
 ```bash
-murakumo env drop --prefix pr_1_ --yes
+murakumo env drop --env prod --prefix pr_1_ --yes
 murakumo env drop --yes
 ```
 
 **In the canvas**, the same pull-request steps without remembering the commands: **Team** →
-**Test my change…**. It suggests a prefix from the branch name; **Run** each step in turn (copy
-production, apply this branch's migrations, build and test there, drop the copy). Each step shows
-its command and whether it worked, and lists what is under the prefix after it.
+**Test my change…**. It suggests a prefix from the branch name and copies `prod` (or the environment
+you pick); **Run** each step in turn (copy, apply this branch's migrations, build and test there,
+drop the copy). Each step shows its command and whether it worked, and lists what is under the
+prefix after it.
 
-☐ Personal, production and pull-request schemas sit side by side, and drop cleanly.
+☐ Your own schema, production and a pull request's clone sit apart, and drop cleanly.
 
 ☐ The tables are in Snowflake.
 
@@ -1472,11 +1553,15 @@ its command and whether it worked, and lists what is under the prefix after it.
 
 ```sql
 use role accountadmin;
-drop database if exists SNOW_TEST;
+drop database if exists SNOW_TEST_DEV;
+drop database if exists SNOW_TEST_STAGE;
+drop database if exists SNOW_TEST_PROD;
+drop database if exists MURAKUMO;   -- only if no other project uses it
+drop role if exists SNOW_TEST_DEVELOPER;
+drop role if exists SNOW_TEST_DEPLOYER_DEV;
+drop role if exists SNOW_TEST_DEPLOYER_STAGE;
+drop role if exists SNOW_TEST_DEPLOYER_PROD;
 ```
-
-(If you built in `COMMERCE` instead: `drop schema if exists COMMERCE.RAW_NYC_TLC;` and the same
-for `STAGING` and `MARTS`, only if they hold nothing else of yours.)
 
 ☐ Cleaned up.
 
@@ -1537,9 +1622,9 @@ output or a screenshot.
 | 11 Fix by hand in a text editor | | |
 | 12 Verify with made-up data | | |
 | 13 Verify with real data, build, browse as a source | | |
-| 14 Generated code, schedules, pipelines, docs, plain SQL, cumulative, run log, Polars and PySpark | | |
-| 15 CI checks, CI from the canvas, sync with a teammate, impact | | |
-| 16 Snowflake (optional) | | |
+| 14 Generated code, schedules, pipelines, docs, plain SQL, cumulative, run log, Polars and PySpark, new files only, schedules here | | |
+| 15 CI checks, CI from the canvas, git flow with a teammate, impact | | |
+| 16 Snowflake (optional): environments, own schema, pull-request clone | | |
 | 17 Clean up | | |
 
 Also note anything that was confusing, slow or surprising, even if it worked. That is as useful

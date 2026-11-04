@@ -219,7 +219,14 @@ class SnowflakeBackend:
     cleanup_failed = False
     batch = "verify"
 
-    def __init__(self, project: Project, folder: Path, prefix: str | None = None, database: str | None = None):
+    def __init__(
+        self,
+        project: Project,
+        folder: Path,
+        prefix: str | None = None,
+        database: str | None = None,
+        role: str | None = None,
+    ):
         from murakumo.generate.dbt import warehouse_database
         from murakumo.importers import snowflake
 
@@ -227,7 +234,8 @@ class SnowflakeBackend:
         self.prefix = datetime.now().strftime("verify_%Y%m%d_%H%M%S_") if prefix is None else prefix
         self.database = database or os.environ.get("SNOWFLAKE_DATABASE") or warehouse_database(project.manifest)
         try:
-            self.connection = snowflake.connect("snowflake://", database=self.database)
+            extra = {"role": role} if role else {}
+            self.connection = snowflake.connect("snowflake://", database=self.database, **extra)
         except snowflake.SnowflakeUnavailable as exc:
             raise SourceUnavailable(str(exc)) from None
         cursor = self.connection.cursor()
@@ -701,9 +709,18 @@ def _duckdb_path(project: Project, database: str | None = None) -> Path:
     return (project.root / name).resolve()
 
 
-def _build_backend(project: Project, warehouse: Warehouse, folder: Path, prefix: str, database: str | None = None):
+def _build_backend(
+    project: Project,
+    warehouse: Warehouse,
+    folder: Path,
+    prefix: str,
+    database: str | None = None,
+    environment: str | None = None,
+):
     if warehouse is Warehouse.SNOWFLAKE:
-        backend = SnowflakeBackend(project, folder, prefix=prefix, database=database)
+        from murakumo.environments import role_for
+
+        backend = SnowflakeBackend(project, folder, prefix=prefix, database=database, role=role_for(environment))
     else:
         backend = DuckDBBackend(project, folder, path=_duckdb_path(project, database))
         backend.prefix = prefix
@@ -777,7 +794,9 @@ def build(
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
 
-        backend = _build_backend(project, warehouse, folder, placement.prefix, placement.database)
+        backend = _build_backend(
+            project, warehouse, folder, placement.prefix, placement.database, placement.environment
+        )
         try:
             try:
                 backend.run_ddl(DDL(output.plan, schema_prefix=placement.prefix, single=placement.single).raw())

@@ -41,7 +41,9 @@ def read(
     where = placement.schema("audit")
     empty["audit"] = where
     try:
-        connection = connect(project, read_only=read_only, database=placement.database)
+        connection = connect(
+            project, read_only=read_only, database=placement.database, environment=placement.environment
+        )
     except EnvError as exc:
         return {**empty, "reason": str(exc)}
     audit = where if warehouse is Warehouse.DUCKDB else f"{connection.database}.{where}"

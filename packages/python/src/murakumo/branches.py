@@ -81,7 +81,8 @@ def start(project: Project, push: bool = False) -> list[str]:
     w = where(project)
     first, last = stages[0].branch, stages[-1].branch
     remote = _remote(project)
-    done = []
+    done: list[str] = []
+    created: list[str] = []
     for stage in stages:
         if _exists(w, stage.branch) or (remote and _exists(w, f"{remote}/{stage.branch}")):
             continue
@@ -89,6 +90,7 @@ def start(project: Project, push: bool = False) -> list[str]:
         if not _exists(w, origin):
             origin = "HEAD"
         _git(w.root, "branch", stage.branch, origin)
+        created.append(stage.branch)
         done.append(f"created {stage.branch} from {origin}")
         if push and remote:
             _git(w.root, "push", "--quiet", "-u", remote, stage.branch)
@@ -96,7 +98,7 @@ def start(project: Project, push: bool = False) -> list[str]:
     if not done:
         done.append(f"{', '.join(s.branch for s in stages)} already exist; new work starts from {first}.")
     elif remote and not push:
-        done.append(f"push them so the team has them: git push -u {remote} " + " ".join(s.branch for s in stages))
+        done.append(f"push them so the team has them: git push -u {remote} " + " ".join(created))
     return done
 
 

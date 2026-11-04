@@ -73,14 +73,16 @@ class Placement:
         return {"MURAKUMO_SCHEMA_PREFIX": self.prefix, "MURAKUMO_SINGLE_SCHEMA": self.single or ""}
 
     def describe(self) -> str:
+        """In words: "your own copy: the schema ana in MURAKUMO", "prod: the schemas under pr_1_ in TAXI_PROD"."""
+        who = "your own copy" if self.environment == "personal" else self.environment
         where = (
             f"the schema {self.single}"
             if self.single
             else f"the schemas under {self.prefix}"
             if self.prefix
-            else "its schemas"
+            else "the usual schemas"
         )
-        return f"{self.environment}: {where}" + (f" in {self.database}" if self.database else "")
+        return f"{who}: {where}" + (f" in {self.database}" if self.database else "")
 
 
 def personal_environment(project: Project) -> str:
@@ -186,8 +188,18 @@ class Connection:
         self.raw.close()
 
 
+def role_for(environment: str | None) -> str | None:
+    """The Snowflake role an environment's builds use: SNOWFLAKE_ROLE_<ENV>, as the dbt profiles read
+    it (else SNOWFLAKE_ROLE, the connection's default)."""
+    return os.environ.get(f"SNOWFLAKE_ROLE_{environment.upper()}") if environment else None
+
+
 def connect(
-    project: Project, warehouse: Warehouse | None = None, read_only: bool = False, database: str | None = None
+    project: Project,
+    warehouse: Warehouse | None = None,
+    read_only: bool = False,
+    database: str | None = None,
+    environment: str | None = None,
 ) -> Connection:
     """A connection to the project's warehouse, in ``database`` (a placement's) or the default one.
     ``read_only`` lets the canvas read a DuckDB file without taking the lock a build needs."""
@@ -210,7 +222,9 @@ def connect(
 
         database = database or os.environ.get("SNOWFLAKE_DATABASE") or warehouse_database(project.manifest)
         try:
-            return Connection(warehouse, snowflake.connect("snowflake://", database=database), database)
+            role = role_for(environment)
+            extra = {"role": role} if role else {}
+            return Connection(warehouse, snowflake.connect("snowflake://", database=database, **extra), database)
         except snowflake.SnowflakeUnavailable as exc:
             raise EnvError(str(exc)) from None
     raise EnvError(f"environments work on DuckDB and Snowflake for now, not {warehouse.value}")

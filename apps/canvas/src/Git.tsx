@@ -97,7 +97,7 @@ export function GitPanel({ onState, onMessage, revision, onTestChange }: Props) 
       </div>
       <p className="muted small">
         {info.personal_schema
-          ? `Your own builds go to ${info.personal_where.replace(/^personal: /, '')}, so nobody else's work is touched.`
+          ? `Your own builds go to ${info.personal_where.replace(/^your own copy: /, '')}, so nobody else's work is touched.`
           : "Your own builds go to the project's DuckDB file on this computer."}
       </p>
       <NewWork info={info} onState={onState} onMessage={onMessage} onChanged={() => load(false)} />
@@ -358,7 +358,7 @@ function NewWork(props: {
           title="Create the environments' branches from main if they are missing (murakumo branch start)"
           onClick={() => act(async () => onMessage((await api.startFlow()).done.join(' '), 'info'))}
         >
-          Create missing {info.flow.map((f) => f.branch).join(', ')} branches
+          Create the flow's missing branches ({info.flow.map((f) => f.branch).join(' → ')})
         </button>
       )}
     </section>

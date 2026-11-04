@@ -934,7 +934,9 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             "schemas": [],
         }
         try:
-            connection = connect(project, read_only=True, database=placement.database)
+            connection = connect(
+                project, read_only=True, database=placement.database, environment=placement.environment
+            )
         except EnvError as exc:
             return {**out, "reason": str(exc)}
         try:

@@ -55,7 +55,8 @@ Every raw entity becomes `stg_<source>__<entity>` (from `conventions.naming.stag
 that:
 
 - renames every column to snake_case: `PULocationID` becomes `pu_location_id`;
-- casts every column to the physical type of its logical type on the warehouse;
+- casts every column to the physical type of its logical type on the warehouse (with
+  `modelling.raw_columns: text`, a cast that gives null instead of failing: see below);
 - passes through the landing columns `_ingested_at` and `_batch_id`, which ingestion writes;
 - adds `_source_system` and `_record_hash` (a hash of every source column, to detect changes).
 
@@ -73,9 +74,13 @@ An entity in `intermediate`, `marts` or `semantic` is built from its mappings:
   match. **Expressions are written in DuckDB SQL** and translated to each warehouse's dialect, so
   `md5(concat_ws('|', a, b))` becomes the null-safe Snowflake form, `TO_HEX(MD5(...))` on
   BigQuery, and so on;
-- every column is cast to its physical type, and `_updated_at` is added;
-- `load: incremental` with a `watermark` becomes an incremental model that only reads newer rows,
-  keyed on the grain (or primary key);
+- every column is cast to its physical type, and `_updated_at` is added, with `_loaded_at`: when
+  the row's source row was loaded (the raw row's `_ingested_at`, carried through);
+- `load: incremental` becomes an incremental model keyed on the grain (or primary key) that reads
+  what was loaded since its last run (`_ingested_at` past its latest `_loaded_at`). Rows that
+  arrive late, with old dates, are picked up; rows read again replace themselves by key.
+  `lookback_hours: 6` looks that far back each time, for stragglers. `incremental_by: watermark`
+  reads rows newer by the `watermark` column instead, as before 0.7;
 - `history: scd2` becomes a view of the current rows, a dbt snapshot that keeps every version, and
   the dimension on top with `valid_from`, `valid_to` and `is_current`;
 - tables in `marts` get an enforced dbt contract (`contracts.enforce_on` in the manifest), so a
@@ -138,17 +143,49 @@ keeps every table:
 
 1. creates any raw landing table that is missing, from the generated DDL (existing tables and their
    rows are left as they are);
-2. loads raw tables only when asked: `--data TABLE=PATH` from a file or table, or `--sample N`
-   made-up rows into tables that are still empty;
-3. runs `dbt build` for the environment (`--env`, by default the first in `murakumo.yaml`), into
-   its schemas: `staging`, `marts` and so on.
+2. loads raw tables only when asked: `--data TABLE=PATH` from a file, folder, glob or table, or
+   `--sample N` made-up rows into tables that are still empty;
+3. runs `dbt build` for the environment (`--env`; by default your own, in your schema: see
+   [working as a team](teamwork.md)).
 
 ```bash
 murakumo build --sample 200        # try it out with made-up rows
 murakumo build --data yellow_tripdata=data/yellow_tripdata_2024-01.parquet
-murakumo build --env prod          # the prod profile and schemas
+murakumo build --data yellow_tripdata=landing/trips/          # every new file in a folder
+murakumo build --data 'yellow_tripdata=landing/trips_*.csv'   # or matching a pattern
+murakumo build --env prod          # the prod environment: its database and schemas
 murakumo build                     # rebuild the models on whatever has landed
 ```
+
+### Loading only new data
+
+A folder or pattern is read file by file, and each file goes in once: every file loaded is recorded
+in `audit.loaded_files` with its size and a SHA-256 of its content, and a file whose content was
+loaded before is skipped, even under another name. Run the same `build --data` on a schedule
+(`murakumo scheduler --data ...`) and each run takes what has landed since.
+
+How the new rows meet the old is the raw table's `load` in the model (**New rows** in the canvas's
+inspector):
+
+| `load` | What a load does |
+| --- | --- |
+| `append` | adds the new files' rows |
+| `incremental` | the new rows replace rows with the same primary key; within a load, the latest of each key (by the `watermark` column, else load time) is kept |
+| `full` | replaces the table with every file given, once any of them changed |
+
+### Raw columns as text
+
+```yaml
+modelling:
+  raw_columns: text      # typed (the default) | text
+```
+
+With `text`, raw tables keep every column as text, exactly as it arrived, so a value that does not
+fit its type (`"N/A"` in a number column) never stops a load. Staging converts each column with the
+warehouse's safe cast (`TRY_CAST`, `SAFE_CAST`): a value that does not convert becomes null, and a
+warning test on the raw column (`murakumo_converts_to`) counts it, so the run log says how many
+values of which column did not convert. Settings → Project in the canvas has the same switch.
+Changing it changes the landing tables' types, so it needs a migration.
 
 It builds the model as it is now, and says so if `generated/` is out of date or a change to a
 table that keeps data has no migration yet: apply migrations to the warehouse first, since `build`

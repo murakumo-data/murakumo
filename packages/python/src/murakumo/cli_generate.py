@@ -473,7 +473,7 @@ def _apply_migrations(project, warehouse, prefix: str, mark_applied: bool, envir
         placement = placement_for(
             project, environment, Warehouse(warehouse or project.manifest.targets.warehouse.type), prefix or None
         )
-        connection = connect(project, warehouse, database=placement.database)
+        connection = connect(project, warehouse, database=placement.database, environment=placement.environment)
     except EnvError as exc:
         fail(str(exc))
         raise typer.Exit(1) from None
@@ -514,7 +514,7 @@ def env_show(
     try:
         placement = placement_for(project, environment, warehouse, prefix)
         console.print(f"You are [bold]{developer()}[/bold]; this goes to {placement.describe()}.")
-        connection = connect(project, database=placement.database)
+        connection = connect(project, database=placement.database, environment=placement.environment)
     except EnvError as exc:
         fail(str(exc))
         raise typer.Exit(1) from None
@@ -556,7 +556,7 @@ def env_clone(
     try:
         origin = placement_for(project, environment or project.manifest.targets.names[-1], warehouse)
         if prefix:
-            connection = connect(project, database=origin.database)
+            connection = connect(project, database=origin.database, environment=origin.environment)
             try:
                 copied = clone(project, connection, prefix, source)
             finally:
@@ -568,7 +568,7 @@ def env_clone(
                     "your own builds use the project's DuckDB file; name a prefix to copy into, such as --prefix pr_1_"
                 )
                 raise typer.Exit(1)
-            connection = connect(project, database=mine.database)
+            connection = connect(project, database=mine.database, environment=mine.environment)
             try:
                 copied = clone_into(project, connection, mine, origin)
             finally:
@@ -606,7 +606,7 @@ def env_drop(
     if not yes and not typer.confirm(f"Drop {placement.describe()} and everything in it?"):
         raise typer.Exit(1)
     try:
-        connection = connect(project, database=placement.database)
+        connection = connect(project, database=placement.database, environment=placement.environment)
         try:
             dropped = drop(project, connection, placement)
         finally:
