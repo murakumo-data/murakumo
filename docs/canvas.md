@@ -17,8 +17,9 @@ murakumo canvas path/to/project --port 9000 --no-open
   keys only, names only, descriptions: ⌘1 to ⌘4, and when tables collapse), **undo** and
   **redo**, whether the generated code is up to date, and the problems.
 - **The tool rail**, on the left: add a table (T), a relationship (R) or a note (N), arrange the
-  tables, export the canvas as an image; then the panels (Explorer, Sources, Schedules, Team,
-  CI, Runs, Activity, Changes, Problems), settings, the pipeline docs, light or dark, and help.
+  tables, export the canvas as an image; then the panels (Explorer, Sources, Stack, Schedules,
+  Team, CI, Runs, Activity, Changes, Problems), settings, the pipeline docs, light or dark, and
+  help.
   Hover an icon for its name.
 - **The Explorer** lists every table by domain, layer, colour label and source, each opening to
   its tables and their columns; its search box finds tables and columns. Click a table to go to
@@ -127,6 +128,16 @@ murakumo canvas path/to/project --port 9000 --no-open
   import** shows what would be added, changed or removed, and **Import into the model** saves it.
   Other sources have **Re-import**, with the same preview. Connection errors are shown with any
   password removed.
+- **Say how a source's data is fetched.** **Connect…** on a source opens its connection:
+  - **Kinds:** a REST API, SFTP, a database, a folder or S3 prefix, or protobuf files.
+  - **A REST API is a request builder.** Set the auth and paging once, add a request for each raw
+    table, and **Send** it. You see the status, the time it took and the records, as a table or
+    the raw response. **Make … from these records** creates the raw table from them.
+  - **Secrets stay out of the canvas.** Each auth field names the environment variable that holds
+    the secret, never the secret itself.
+  - **Save connection** records your reason in the decisions log. **Test** reaches the source
+    without landing anything, and **Fetch now** runs `murakumo ingest` for it.
+  - See [stack.md](stack.md).
 - **See the generated code.** The inspector's **Code** tab shows the dbt SQL generated for the
   entity and its table's DDL, updated as you edit.
 - **Write the code.** The top bar says how many files in `generated/` are out of date with the
@@ -169,6 +180,15 @@ canvas starts the same `murakumo` command in the project's folder, in the backgr
 its output as it comes in **Activity** (the pulse icon), with the command itself to copy. One job
 runs at a time; **Stop** stops it. The last twenty are kept with their output.
 
+- **Stack** (the layers icon) is `murakumo stack`, in three tabs:
+  - **Stack:** each part of the platform (warehouse, extract, landing, load, transform, Python,
+    orchestrator, CI), with what each choice means. It shows any choices that do not go together.
+    Saving asks **Why?** and records the answer in the decisions log. **Fetch now** and **Load what
+    landed** run `murakumo ingest` and `murakumo load`.
+  - **Deploy:** the steps to stand the platform up in an environment, each with its SQL or
+    commands and who runs it. **Run Murakumo's steps** runs the warehouse ones (`murakumo stack
+    deploy --apply`).
+  - **Decisions:** the log, newest first, and **Record it** for a decision of your own.
 - **Settings** (the gear): **Project** sets the warehouse, orchestrator and modelling pattern (as
   `murakumo config`), the Python pipeline, plain-SQL output, the run log, the parent branch and
   personal schemas, each saved to `murakumo.yaml` at once with its comments kept, and undoable.
@@ -178,7 +198,8 @@ runs at a time; **Stop** stops it. The last twenty are kept with their output.
 - **Build…** (in Activity) loads the raw tables and builds every model and test into the
   warehouse: from files you add (**Add a file…**; they go to `data/`, which git ignores), from what
   is already loaded, or from made-up rows; into dev or prod, one schedule or everything, a day for
-  cumulative tables, and a schema prefix. **Verify** builds on a throwaway DuckDB and runs every
+  cumulative tables, and a schema prefix. **Fetch what is new from the sources first** fetches
+  every connected source and loads what landed (`build --ingest`). **Verify** builds on a throwaway DuckDB and runs every
   test twice. **Run as Python…** runs the Polars or PySpark pipeline. **Generate** and **Export as
   plain SQL** write `generated/` and `export/`.
 - **Runs** (the clock) reads the audit tables every run writes: by day, each run with its engine,
@@ -269,9 +290,16 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | POST | `/api/git/abort` | Give up a sync with conflicts |
 | POST | `/api/git/commit` | Commit the project: `{message}` |
 | PUT | `/api/layout` | Save positions: `{positions: {entity_id: {x, y}}}` |
-| POST | `/api/jobs` | Start a job: `{kind, options}`; kind is `build`, `verify`, `run`, `backfill`, `migrate_apply`, `env_clone`, `env_drop`, `export` or `generate`, and each option is checked before the command is built |
+| POST | `/api/jobs` | Start a job: `{kind, options}`; kind is `build`, `verify`, `run`, `backfill`, `migrate_apply`, `env_clone`, `env_drop`, `scheduler`, `ingest`, `load`, `deploy`, `export` or `generate`, and each option is checked before the command is built |
 | GET | `/api/jobs`, `/api/jobs/{id}?since=` | The jobs, newest first; one job and its output from line `since` on |
 | POST | `/api/jobs/{id}/cancel` | Stop a job, and what it started |
+| GET, PUT | `/api/stack` | The stack's parts, their choices, problems, each source's connection, the environments and the decisions log; `PUT {values: {part: value}, why}` changes parts (undoable) |
+| PUT | `/api/sources/{name}/connection` | A source's connection: `{connection, why}`, or `connection: null` to stop fetching it |
+| POST | `/api/sources/request` | Send one request: `{connection, endpoint}`; returns the status, time, record count, a sample and the response. Secrets come from the server's environment variables |
+| POST | `/api/sources/{name}/test` | `murakumo source test`: what the connection can reach, without landing anything |
+| POST | `/api/sources/table-from-records` | Make or update a raw table from records: `{source, table, records, path}` |
+| GET | `/api/stack/deploy?env=` | The steps to deploy an environment, with their SQL or commands |
+| GET, POST | `/api/decisions` | The decisions log; `POST {what, why}` adds one |
 | GET, PUT | `/api/settings` | The project's settings and their choices; change any of `warehouse`, `orchestrator`, `pattern`, `python_engine`, `plain_sql`, `run_log`, `raw_text`, `base_branch`, `personal_schemas`, `personal_database`, `environments: [{name, database, branch}]` |
 | POST | `/api/git/start` | Create the environments' missing branches from main (`murakumo branch start`) |
 | POST | `/api/git/branch` | Start new work: `{kind, name}`; kind is feature, fix, chore or hotfix |

@@ -1,5 +1,78 @@
 # Changelog
 
+## 0.8.0 (unreleased)
+
+Choosing the stack: how data is fetched, landed and loaded, the code for each tool, the platform's
+Snowflake settings, deploying it, and why it is built that way.
+
+- **The stack**:
+  - Every part of the platform in one place: the warehouse, extract (`python`, `lambda`, `glue`,
+    `none`), landing (a folder or `s3://`), load (`build`, `snowpipe`, `autoloader`), transform,
+    Python, orchestrator and CI. The new ones are in murakumo.yaml's `stack:` section.
+  - `murakumo stack` shows it, `stack set PART=VALUE --why ...` changes it, and `stack check` says
+    when two choices do not go together. `validate` reports that too, as **MK701**.
+  - **In the canvas:** a **Stack** panel (the layers icon), with each choice explained, the
+    problems, and a **Why?** for every change.
+- **The decisions log**:
+  - Every stack and connection change is recorded in `model/decisions.yaml`: what, from what, when,
+    who and why.
+  - `murakumo decisions` lists it, and `decisions add` records your own.
+  - The canvas has a **Decisions** tab, and the pipeline docs print the log.
+- **Source connections**:
+  - A source can say how its data is fetched. **REST APIs:** API key, bearer, basic or OAuth2
+    client-credentials auth; page, offset, cursor or Link-header paging; a records path, a rate
+    limit, and `since_param` for increments. Also SFTP, databases (by an incremental column),
+    folders or S3 prefixes, and protobuf files.
+  - Secrets are always named environment variables, never values.
+  - `murakumo source connect / disconnect / test / request`.
+  - `murakumo import protobuf` makes a raw table per message type.
+  - **In the canvas:** **Connect…** on a source, or **+ Add source** → *Fetched by Murakumo*. It
+    opens a request builder:
+    - **Send** shows the status, time and records;
+    - **Make … from these records** creates the raw table;
+    - **Test**, and **Fetch now**.
+  - **MK702** warns about a connection to a table the model does not have.
+- **Fetching and loading**:
+  - `murakumo ingest` fetches what is new into `<landing>/<source>/<table>/`, remembering
+    watermarks and files copied. `landing/` is in new projects' `.gitignore`, and is added to
+    existing ones on first fetch.
+  - `murakumo load` loads what landed without running dbt; full tables take only the latest
+    fetch.
+  - `murakumo build --ingest` does both, then builds. The Build dialog has **Fetch what is new from
+    the sources first**.
+- **The code for each tool** (`generated/ingestion/`):
+  - **Every extract:** a standalone `extract.py` with a settings file per source. It runs on
+    Python 3.9 and later, needs only the standard library for REST and folders, and imports
+    nothing from Murakumo.
+  - **Lambda:** an AWS SAM template. **Glue:** jobs with scheduled triggers and a deploy script.
+  - **Snowpipe:** a storage integration, then per environment the stage, file format, raw tables
+    and a pipe per raw table, with `_ingested_at` and `_batch_id` from the file's metadata.
+  - **Auto Loader:** Databricks notebooks and a file-arrival job.
+  - The Airflow, Dagster and Prefect pipelines fetch and load before each schedule's build.
+  - `generated/docs/stack.md` is the platform's page: its tools, sources, every setup step with
+    the SQL and commands in full, and the decisions.
+- **Snowflake platform settings** (the 0.8 gaps from the practices review):
+  - **Transient layers:** staging and intermediate by default. dbt alone makes every table
+    transient; Murakumo now keeps marts and snapshots permanent.
+  - **Time travel per layer:** `time_travel_days`. **MK703** warns when a transient layer asks
+    for more than Snowflake allows.
+  - **A spending cap:** with `monthly_credits` set, provisioning creates a resource monitor.
+- **Building it for you**: `murakumo stack deploy --env <env>` lists each step, with its SQL or
+  commands and who runs it.
+  - With `--apply`, Murakumo runs the warehouse steps, each as the role it needs: provisioning,
+    the integration, the pipes. It also writes the CI workflow.
+  - Cloud steps stay commands for you to run, with your own credentials.
+  - **In the canvas:** **Stack** → **Deploy**.
+- **Fixes**:
+  - The canvas's tool rail fits short windows.
+  - `murakumo config` keeps a space before a comment when a value grows longer.
+- **Verified**:
+  - The pipe, COPY with file metadata, raw-table retention and the transient-table limit, live on
+    Snowflake in a scratch schema.
+  - The REST extract against a local API (every paging and auth kind) and against Open-Meteo.
+  - The generated script on Python 3.9.
+- **Not verified**: Lambda, Glue and Auto Loader, and a Snowpipe fed by a real S3 bucket.
+
 ## 0.7.0 (2026-11-04)
 
 Environments, deployment, and loading only what is new.

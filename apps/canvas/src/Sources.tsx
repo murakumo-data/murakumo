@@ -31,6 +31,12 @@ const KINDS: { value: string; label: string; placeholder: string; help: string }
     help: 'Its columns and types become a table.',
   },
   { value: 'openapi', label: 'API (OpenAPI spec)', placeholder: 'specs/api.yaml or https://…', help: 'One table per object schema.' },
+  {
+    value: 'connect',
+    label: 'Fetched by Murakumo (REST API, SFTP, database, files, protobuf)',
+    placeholder: '',
+    help: 'Say how its data is fetched next: requests to send, files to copy. Its tables can be made from what comes back.',
+  },
 ]
 
 const browsable = (s: SourceInfo) => s.kind === 'database' || s.kind === 'snowflake'
@@ -167,7 +173,14 @@ export function SourcesPanel({
       </ul>
       {state.editable &&
         (adding ? (
-          <AddSource run={run} onDone={() => setAdding(false)} />
+          <AddSource
+            run={run}
+            onDone={() => setAdding(false)}
+            onConnect={(name) => {
+              setAdding(false)
+              setView({ kind: 'connect', name })
+            }}
+          />
         ) : (
           <button className="button button--small" onClick={() => setAdding(true)}>
             + Add source
@@ -177,7 +190,7 @@ export function SourcesPanel({
   )
 }
 
-function AddSource({ run, onDone }: { run: Run; onDone: () => void }) {
+function AddSource({ run, onDone, onConnect }: { run: Run; onDone: () => void; onConnect: (name: string) => void }) {
   const [draft, setDraft] = useState({ name: '', kind: 'database', location: '' })
   const kind = KINDS.find((k) => k.value === draft.kind)!
   return (
@@ -185,6 +198,7 @@ function AddSource({ run, onDone }: { run: Run; onDone: () => void }) {
       className="sources__add"
       onSubmit={async (e) => {
         e.preventDefault()
+        if (draft.kind === 'connect') return onConnect(draft.name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_'))
         if (await run(() => api.addSource({ ...draft, name: draft.name.trim(), location: draft.location.trim() }))) onDone()
       }}
     >
@@ -209,15 +223,17 @@ function AddSource({ run, onDone }: { run: Run; onDone: () => void }) {
           ))}
         </select>
       </label>
-      <label className="row">
-        <span className="row__label">{draft.kind === 'database' ? 'Variable' : draft.kind === 'snowflake' ? 'Database' : 'Path or URL'}</span>
-        <input
-          className="input"
-          placeholder={kind.placeholder}
-          value={draft.location}
-          onChange={(e) => setDraft({ ...draft, location: e.target.value })}
-        />
-      </label>
+      {draft.kind !== 'connect' && (
+        <label className="row">
+          <span className="row__label">{draft.kind === 'database' ? 'Variable' : draft.kind === 'snowflake' ? 'Database' : 'Path or URL'}</span>
+          <input
+            className="input"
+            placeholder={kind.placeholder}
+            value={draft.location}
+            onChange={(e) => setDraft({ ...draft, location: e.target.value })}
+          />
+        </label>
+      )}
       <p className="muted small">{kind.help}</p>
       {['csv', 'excel', 'file'].includes(draft.kind) && (
         <div className="sources__upload">
@@ -240,7 +256,7 @@ function AddSource({ run, onDone }: { run: Run; onDone: () => void }) {
           Cancel
         </button>
         <button type="submit" className="button button--small button--primary" disabled={!draft.name.trim()}>
-          Add source
+          {draft.kind === 'connect' ? 'Next: its connection' : 'Add source'}
         </button>
       </div>
     </form>

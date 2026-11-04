@@ -3934,3 +3934,20 @@ button.tree-row__label:not(:disabled) {
     height: 28px;
   }
 }
+
+/* Fields in a narrow panel shrink to it instead of pushing it wider. */
+.connection .settings__row > *,
+.stack .settings__row > *,
+.request__line > * {
+  min-width: 0;
+}
+
+.connection .input,
+.stack .input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.connection {
+  overflow-x: hidden;
+}

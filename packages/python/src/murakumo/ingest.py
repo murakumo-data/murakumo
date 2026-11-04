@@ -45,6 +45,7 @@ def run(project: Project, source: str | None = None, table: str | None = None) -
     declarations = [_declaration(project, source)] if source else connected(project)
     if not declarations:
         raise IngestError("no source has a connection yet: add one to a source in murakumo.yaml or the canvas")
+    _ignore_landing(project)
     results = []
     for declaration in declarations:
         fetched = Fetched(declaration.name)
@@ -54,6 +55,19 @@ def run(project: Project, source: str | None = None, table: str | None = None) -
             fetched.error = str(exc)
         results.append(fetched)
     return results
+
+
+def _ignore_landing(project: Project) -> None:
+    """Data fetched into a folder in the project stays out of git, as uploads do."""
+    landing = project.manifest.stack.landing.strip("/")
+    if "://" in landing or Path(landing).is_absolute():
+        return
+    ignore = project.root / ".gitignore"
+    text = ignore.read_text(encoding="utf-8") if ignore.is_file() else ""
+    if not any(line.strip().strip("/") == landing for line in text.splitlines()):
+        prefix = "" if text.endswith("\n") or not text else "\n"
+        note = "# Data fetched from the sources, waiting to be loaded"
+        ignore.write_text(f"{text}{prefix}{note}\n{landing}/\n", encoding="utf-8")
 
 
 def landing_folder(project: Project, source: str, table: str) -> str:

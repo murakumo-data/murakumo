@@ -1,5 +1,5 @@
 {
-  "generated_by": "murakumo 0.7.0",
+  "generated_by": "murakumo 0.8.0",
   "files": {
     "dbt/README.md": "57ace9e73a5fa2490bcbad58bc5107c24d3310774c3e87aba78ebb69eb1f2a4b",
     "dbt/dbt_project.yml": "d95a961fac643685ed3bf6ec248b151643da383688878cd49276613fd8641eb9",

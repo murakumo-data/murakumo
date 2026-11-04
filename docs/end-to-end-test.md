@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.7.0
+# End-to-end test: Murakumo 0.8.0
 
-A step-by-step test of Murakumo 0.7.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 0.8.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -14,7 +14,8 @@ should see.
 | 12-14 | Building and testing on DuckDB, with made-up data and real data; schedules, pipelines, docs, plain SQL, cumulative tables, the run log, Polars and PySpark, loading only new files, running schedules here | 60 min |
 | 15 | The checks a CI pipeline would run, CI from the canvas, working with a teammate in the git flow | 25 min |
 | 16 | Optional: the same project on Snowflake: environments, your own schema, production, a pull request's clone | 35 min |
-| 17 | Cleaning up | 2 min |
+| 17 | Choosing the stack: connecting an API in the canvas, fetching and loading, the code for another stack, the decisions log | 25 min |
+| 18 | Cleaning up | 2 min |
 
 ## How to use this script
 
@@ -119,10 +120,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.7.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 0.8.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.7.0.
+☐ Version 0.8.0.
 
 ---
 
@@ -1567,11 +1568,186 @@ drop role if exists SNOW_TEST_DEPLOYER_PROD;
 
 ---
 
-## Part 17: Clean up
+## Part 17: Choose the stack, connect an API, fetch and load
 
-**17.1** In the canvas tab, press **Ctrl+C** to stop it.
+The data so far came from files you downloaded. Here Murakumo fetches it: from Open-Meteo's
+public weather API (no key needed), through the extract code it writes, into a landing folder,
+then into a raw table. Then you try another stack (Snowflake, Snowpipe and Lambda) to see the
+code it would write, and look at the decisions log. Work in `~/murakumo-e2e/taxi_platform`, with
+the canvas running ([stack.md](stack.md) describes everything here).
 
-**17.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
+**17.1** Look at the stack:
+
+```bash
+murakumo stack
+```
+
+You should see a table of the parts: Warehouse `duckdb`, Extract `python`, Landing `landing`,
+Load `build`, Transform `dbt`, Python, Orchestrator `airflow` and CI `github`, each with what it
+means. Then a warning that no source has a connection yet.
+
+☐ The stack is listed.
+
+**17.2** Connect the API in the canvas. Open **Sources** (the database icon) → **+ Add source**:
+
+- **Name:** `open_meteo`.
+- **Kind:** **Fetched by Murakumo (REST API, SFTP, database, files, protobuf)**.
+
+Click **Next: its connection**. Leave **Kind** on **REST API**, and fill in:
+
+| Field | Value |
+| --- | --- |
+| Base URL | `https://archive-api.open-meteo.com/v1` |
+| Request 1: path (beside GET) | `/archive` |
+| Raw table | `weather_hourly` |
+| Parameters (one a line) | `latitude=40.78`, `longitude=-73.97`, `start_date=2024-01-01`, `end_date=2024-01-07`, `hourly=temperature_2m,precipitation` |
+| Records at | `hourly` |
+
+Click **Send**.
+
+You should see **200**, the time it took, and **168 records on the first page**, with a table of
+`time`, `temperature_2m` and `precipitation`. **Raw response** shows the JSON as it came back.
+
+☐ The request works.
+
+**17.3** Click **Make weather_hourly from these records**. Then type a reason in **Why?** (`Hourly
+weather to explain demand`) and click **Save connection**.
+
+You should see:
+
+- a `weather_hourly` table on the canvas, from source `open_meteo`, with `time` as a timestamp and
+  the other two as doubles;
+- the message *Saved open_meteo's connection in murakumo.yaml*;
+- the source in **Sources** marked **Fetched by Murakumo: rest**.
+
+☐ The table and connection are saved.
+
+**17.4** Click **Test**.
+
+You should see: ✓ *weather_hourly: 200 in … ms, 168 record(s) on the first page*.
+
+Then click **Fetch now**.
+
+You should see **Activity** open on `murakumo ingest --source open_meteo`, ending with
+*open_meteo.weather_hourly: 168 new, 1 file(s) landed*.
+
+☐ Tested and fetched from the canvas.
+
+**17.5** The same from the terminal, and load it:
+
+```bash
+murakumo source request open_meteo
+ls landing/open_meteo/weather_hourly
+murakumo load
+```
+
+You should see:
+
+- the first five records as JSON;
+- one `weather_hourly_<date and time>_0001.jsonl` file;
+- *loaded weather_hourly: 168 rows*.
+
+Fetch and load again:
+
+```bash
+murakumo ingest
+murakumo load
+```
+
+A second file lands, but the API sent the same records, so its content matches the file already
+loaded: *weather_hourly: nothing new (1 file(s) already loaded)*. A table loaded in full takes only
+the latest fetch, and only when it changed. `landing/` is in `.gitignore`.
+
+☐ Fetched and loaded from the terminal.
+
+**17.6** The code it writes. Generate, then run the extract script on its own, with no Murakumo
+involved:
+
+```bash
+murakumo generate
+cat generated/ingestion/README.md
+python3 generated/ingestion/python/extract.py generated/ingestion/python/sources/open_meteo.json
+grep -n "extract_open_meteo" generated/orchestration/airflow/dags/*.py
+```
+
+You should see:
+
+- the README's steps: set the secrets (none here), fetch, load;
+- the script printing *open_meteo.weather_hourly: 168 new row(s), 1 file(s) landed*;
+- in the DAG of the schedule that refreshes `weather_hourly`, an `extract_open_meteo` task, then a
+  `load` task, before the build: `extract_open_meteo >> load >> …`.
+
+☐ The extract code runs on its own, and the DAG fetches and loads first.
+
+**17.7** Choices that do not go together. In the canvas, open **Stack** (the layers icon). Under
+**Load**, pick **snowpipe**. Type a reason under **Why?** and click **Save 1 change**.
+
+You should see two red problems under Load and Landing: *Snowpipe loads into Snowflake; the
+warehouse is duckdb*, and that Snowpipe needs files in S3. The top bar shows errors (MK701 in
+**Problems**).
+
+Press **⌘Z** (Ctrl+Z).
+
+The load is **build** again and the errors are gone.
+
+☐ The stack is checked, and the change undoes.
+
+**17.8** See what another stack would write. Switch to Snowflake with Lambda and Snowpipe, look at
+the code, then switch back:
+
+```bash
+murakumo stack set warehouse=snowflake extract=lambda load=snowpipe landing=s3://example-bucket/taxi --why "Trying the cloud stack"
+murakumo generate
+grep -n "url =\|create pipe\|temperature_2m" generated/ingestion/snowpipe/prod.sql
+grep -n "Handler\|NoEcho\|Schedule:" generated/ingestion/lambda/template.yaml
+murakumo stack deploy --env prod
+```
+
+You should see:
+
+- the stage on `s3://example-bucket/taxi/`;
+- the raw tables;
+- a pipe per raw table whose COPY reads `$1:"temperature_2m"::FLOAT` and fills `_ingested_at`
+  and `_batch_id` from the file's metadata;
+- a Lambda function per source, `extract.handler`, on a schedule;
+- the deploy plan, with nothing run: provisioning, the storage integration and the pipes
+  (Murakumo runs these), the CI workflow (Murakumo writes it), and the Lambda deploy (you run it).
+
+Put the project back:
+
+```bash
+murakumo stack set warehouse=duckdb extract=python load=build landing=landing --why "Back to DuckDB for the test"
+murakumo generate
+```
+
+☐ The cloud stack's code is written; the project is back on DuckDB.
+
+**17.9** The decisions log. In the canvas, open **Stack** → **Decisions**:
+
+You should see, newest first, each change with what it was before and after, when, by whom and
+why: the stack changes, and *sources.open_meteo.connection* with *Hourly weather to explain
+demand*.
+
+Add one of your own: type `Weather is fetched for one week only` in **Add a decision**, a reason,
+and click **Record it**. Then:
+
+```bash
+murakumo decisions
+murakumo generate
+sed -n '/## Decisions/,$p' generated/docs/stack.md
+```
+
+The decision is listed in the terminal, and in the platform page of the pipeline docs.
+
+☐ Decisions are recorded, with their reasons.
+
+---
+
+## Part 18: Clean up
+
+**18.1** In the canvas tab, press **Ctrl+C** to stop it.
+
+**18.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
 
 ```bash
 rm -rf ~/murakumo-e2e
@@ -1625,7 +1801,8 @@ output or a screenshot.
 | 14 Generated code, schedules, pipelines, docs, plain SQL, cumulative, run log, Polars and PySpark, new files only, schedules here | | |
 | 15 CI checks, CI from the canvas, git flow with a teammate, impact | | |
 | 16 Snowflake (optional): environments, own schema, pull-request clone | | |
-| 17 Clean up | | |
+| 17 Stack: connect an API, fetch, load, another stack's code, decisions | | |
+| 18 Clean up | | |
 
 Also note anything that was confusing, slow or surprising, even if it worked. That is as useful
 as a failure.

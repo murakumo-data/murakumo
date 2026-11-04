@@ -78,6 +78,8 @@ GITIGNORE = """\
 *.duckdb
 *.duckdb.wal
 .env
+# Data fetched from the sources, waiting to be loaded (stack.landing)
+landing/
 """
 
 CUSTOM_README = """\
@@ -157,7 +159,8 @@ _SETTINGS = {
 def _set(text: str, key: str, value: str) -> str:
     def replace(match: re.Match) -> str:
         comment = (match.group(3) or "").strip()
-        width = len(match.group(2)) + len(match.group(3) or "") - len(comment)
+        # The comment stays where it was, or two spaces after a longer value.
+        width = max(len(match.group(2)) + len(match.group(3) or "") - len(comment), len(value) + 2)
         return f"{match.group(1)}{value:<{width}}{comment}" if comment else f"{match.group(1)}{value}"
 
     text, count = _SETTINGS[key].subn(replace, text, count=1)

@@ -88,6 +88,20 @@ them elsewhere, and `MURAKUMO_TARGET` to build another environment than `prod`. 
 credentials come from the same environment variables as `profiles.yml`. Freshness is checked for
 sources that say how fresh they should be (`freshness` on the source or table).
 
+### Fetching and loading first
+
+When sources have a connection, the Airflow, Dagster and Prefect pipelines fetch and load before
+they build, for the raw tables each schedule reads ([stack.md](stack.md)):
+
+1. With `stack.extract: python`, one extract step per source (`python
+   generated/ingestion/python/extract.py sources/<source>.json`).
+2. With `stack.load: build`, a load step: `murakumo load --env <target>`.
+3. Then the dbt build, as before.
+
+The pipelines find the project through `MURAKUMO_PROJECT_DIR` when copied elsewhere. Lambda and Glue
+fetch on their own schedules, and Snowpipe and Auto Loader load continuously, so with those the
+pipelines skip the steps that are done elsewhere.
+
 The Airflow, Dagster and Prefect pipelines have been run for real on DuckDB with the commerce
 example. To try an Airflow DAG without its scheduler, run `airflow dags test <dag_id>` with
 `AIRFLOW__COSMOS__ENABLE_DATASET_ALIAS=False`: on Airflow 2.10, `dags test` cannot save Cosmos's
