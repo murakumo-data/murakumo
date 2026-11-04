@@ -22,6 +22,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from murakumo import __version__
@@ -1176,7 +1177,7 @@ class Writer:
                     "Add the CI workflow",
                     "Each pull request is checked (the model validated, the project built and tested); merging into an "
                     f"environment's branch deploys that environment. Commit it in {where}.",
-                    [Block("yaml", content, str(path) if path else None)],
+                    [Block("yaml", content, _from_repository(path) if path else None)],
                     "The workflow's checks on your next pull request.",
                 )
             )
@@ -1451,3 +1452,12 @@ def render(project: Project, plan: Plan, files: dict[str, str]) -> dict[str, str
 
 
 __all__ = ["Block", "Chapter", "Step", "Table", "chapters", "render"]
+
+
+def _from_repository(path: Path) -> str:
+    """The workflow's path from the repository root, so the guide is the same on every machine."""
+    parts = path.parts
+    for start in (".github", ".gitlab-ci.yml"):
+        if start in parts:
+            return "/".join(parts[parts.index(start) :])
+    return path.name

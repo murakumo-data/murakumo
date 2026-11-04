@@ -2805,7 +2805,7 @@ from audit.row_counts group by 1, 2 order by 2 desc, 1;</code></pre>
 <p>Checking each change, and deploying each environment when its branch changes.</p>
 <h3 id="ci-workflow">8.1 Add the CI workflow</h3>
 <p><strong>Why:</strong> Each pull request is checked (the model validated, the project built and tested); merging into an environment's branch deploys that environment. Commit it in .github/workflows.</p>
-<div class="block-title">/Users/emmanuelsifah/Documents/Development/automate_data_engineering/.github/workflows/murakumo.yml</div>
+<div class="block-title">.github/workflows/murakumo.yml</div>
 <pre><code class="yaml"># Written by `murakumo ci`. It is yours to change: Murakumo will not overwrite it without asking.
 # Checks that the model, its generated code and its migrations agree, and that the dbt project builds.
 name: murakumo
