@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.4.0
+# End-to-end test: Murakumo 0.5.0
 
-A step-by-step test of Murakumo 0.4.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 0.5.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -9,7 +9,7 @@ should see.
 | --- | --- | --- |
 | 0-1 | Installing Murakumo with uv, pip or npm | 5-10 min |
 | 2-4 | Creating a project folder with the guided setup, and going into it | 10 min |
-| 5-9 | The canvas: viewing, editing, mapping, calculated columns, lineage, domains, generating, migrations | 50 min |
+| 5-9 | The canvas: the tour, finding and showing tables, editing, mapping, calculated columns, lineage, domains, undo, labels, notes and diagrams, generating, migrations | 65 min |
 | 10-11 | Importing a data dictionary; editing YAML by hand alongside the canvas | 10 min |
 | 12-14 | Building and testing on DuckDB, with made-up data and real data; schedules, pipelines, docs, plain SQL, cumulative tables, the run log, Polars and PySpark | 50 min |
 | 15 | The checks a CI pipeline would run, CI from the canvas, working with a teammate | 20 min |
@@ -119,10 +119,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.4.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 0.5.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.4.0.
+☐ Version 0.5.0.
 
 ---
 
@@ -319,22 +319,35 @@ commands.
 
 ☐ The canvas opens in the browser.
 
+**5.1a The tour.** The first time, a short tour opens: a card points at each part of the canvas
+in turn (the tool rail, the Explorer, how tables show, diagrams, undo) while the rest dims. Read
+each and click **Next**, then **Done**. (It does not open again; **?** at the bottom left of the
+canvas, then **Tour of the canvas**, starts it again.)
+
+☐ The tour walks through the canvas.
+
 **5.2** Look around. You should see:
 
-- the toolbar: **taxi_platform**, `4 entities · 4 relationships`, layer chips **raw 2** and
-  **marts 2**, a blue chip like **15 files to write**, a green **Valid** chip, and **+ Entity**;
-- two grey-topped raw tables on the left (`yellow_tripdata`, `taxi_zone_lookup`) and two
-  blue-topped marts on the right (`fct_trip`, `dim_taxi_zone`), joined by dashed lines. Each line
-  has a crow's foot (three prongs) at the many end, and a circle and bar (*zero or one*) at the
-  other end.
+- the top bar: **taxi_platform**, `4 tables · 4 relationships`, a **Find a table or column** box,
+  four small view buttons, undo and redo arrows (greyed: nothing to undo yet), a blue chip like
+  **15 files to write** and a green **Valid** chip;
+- a narrow rail of icons down the left edge (hover one for its name), and next to it the
+  **Explorer**: **Domains** (`mobility 4`), **Layers** (`raw 2`, `marts 2`), **Colour labels** and
+  **Sources**;
+- above the canvas, a tab **All tables** and **+ Diagram**;
+- two raw tables with dark grey headers on the left (`yellow_tripdata`, `taxi_zone_lookup`) and two
+  marts with blue headers on the right (`fct_trip`, `dim_taxi_zone`), joined by dashed lines. Keys
+  have a small key icon, foreign keys a link icon. Each line has a crow's foot (three prongs) at the
+  many end, and a circle and bar (*zero or one*) at the other end.
 
 Zoom with the scroll wheel or the **+/−** buttons at the bottom left; drag the background to move
-around.
+around. The sun/moon icon near the bottom of the rail switches between light, dark and your
+computer's setting.
 
 ☐ Four tables and four lines.
 
-**5.2a Read the lines.** Click **Notation & tips** at the bottom left. A panel explains each
-symbol: ‖ exactly one, ○| zero or one, a crow's foot for many, and a dashed line for optional.
+**5.2a Read the lines.** Click **?** at the bottom of the rail, then **Notation and tips**. A panel
+explains each symbol: ‖ exactly one, ○| zero or one, a crow's foot for many, and a dashed line for optional.
 Close it with ×. Now hover over the line between `fct_trip` and `dim_taxi_zone`: a label
 `pickup · N:1` appears, and the joined columns (`pickup_zone_id` and `zone_id`) are highlighted
 in both tables. Click the line: they stay highlighted while it is selected. Click the empty
@@ -342,10 +355,11 @@ background to clear it.
 
 ☐ The legend opens; hovering or clicking a line highlights its columns.
 
-**5.3** Click the **marts** chip in the toolbar. The two marts disappear; click it again to bring
-them back.
+**5.3** In the Explorer, under **Layers**, click the eye beside **marts**. The two marts disappear;
+click it again to bring them back. Click the ▸ beside **marts**: it opens to its two tables; click
+`dim_taxi_zone`, and the canvas moves to it and selects it. Press Esc or click the background.
 
-☐ Layers hide and show.
+☐ Layers hide and show, and the Explorer finds tables.
 
 **5.4** Drag `dim_taxi_zone` somewhere else. Reload the page (Cmd+R): it stays where you put it.
 In the first Terminal tab:
@@ -367,6 +381,26 @@ them go round the right-hand side of the tables instead of disappearing behind t
 where it was.
 
 ☐ Several tables move together, and lines stay visible wherever the tables are.
+
+**5.7 Show tables your way.** Press **⌘2** (or the key icon among the view buttons): each table
+shows only its key columns, with **+N columns** under them. **⌘3** shows only the tables' names,
+**⌘4** their descriptions, and **⌘1** every column again.
+
+Now click the ▾ at the left of `yellow_tripdata`'s header: it collapses to its name and
+**+7 columns**, and its lines now meet its header. Click **+7 columns** to open it again.
+
+Click the sliders button (the last of the view buttons). Type `6` in *Collapse tables with more
+than … columns* and press **Enter**: `yellow_tripdata` and `fct_trip`, which have more, collapse.
+Click **Expand all**, then clear the box and press **Enter**. In the first Terminal tab,
+`cat model/layout.yaml` now shows a `collapsed:` list beside the positions.
+
+☐ View modes switch, and tables collapse one by one or by size.
+
+**5.8 Find anything.** Press **⌘K**. Type `dropoff`: the list shows `dropoff_at` (in `fct_trip`) and
+`tpep_dropoff_datetime` (in `yellow_tripdata`). Press **↓** then **Enter**: the canvas moves to
+`yellow_tripdata`, opens it in the inspector, and the `tpep_dropoff_datetime` row flashes blue.
+
+☐ ⌘K finds tables and columns.
 
 ---
 
@@ -396,11 +430,15 @@ columns). Type `zone`: only `pickup_zone_id` and `dropoff_zone_id` are left, in 
 **6.3 Add a column.** In the **Columns** list, in the empty row at the bottom, type `trip_minutes`
 in the name box, replace `string` with `integer` in the type box, and click **Add**.
 
-You should see `trip_minutes` in the columns and in the box on the canvas, and the toolbar chip
-turns yellow: **1 warning**. Click it: *MK503 fct_trip.trip_minutes has no mapping; it will be
-null*. In the **Mappings** section, `trip_minutes` is highlighted.
+You should see `trip_minutes` in the columns and in the box on the canvas, and the chip in the top
+bar turns yellow: **1 warning**. On the canvas, the `trip_minutes` row in `fct_trip` is tinted
+amber with a small amber dot; hover over it to read the message. Click the chip: the Problems panel
+says *fct_trip.trip_minutes: MK503 fct_trip.trip_minutes has no mapping; it will be null*. Click
+it: the canvas goes to `fct_trip` and the `trip_minutes` row flashes. In the inspector's
+**Mappings** section, `trip_minutes` is highlighted. Click the Explorer icon (the top one in the
+middle group of the rail) to bring the Explorer back.
 
-☐ The column is added and MK503 is shown.
+☐ The column is added, MK503 is shown, and the column itself is marked.
 
 **6.4 Try a mistake.** In the `trip_minutes` row of **Mappings**, click the right-hand button,
 **ƒx expression**. An expression editor opens under the row, with buttons for common functions
@@ -440,8 +478,8 @@ one column as it is.)
 
 ☐ The expression is checked, previewed and saved, and appears in the SQL.
 
-**6.6 Add a table.** Click **+ Entity** (top right). Name: `fhv_tripdata`. Layer: `raw`. Source:
-`nyc_tlc`. Click **Add**.
+**6.6 Add a table.** Click the **+** at the top of the rail (or press **T** with nothing selected).
+Name: `fhv_tripdata`. Layer: `raw`. Source: `nyc_tlc`. Click **Add**.
 
 A new box appears and is selected. Add three columns, one at a time, as in 6.3:
 
@@ -451,15 +489,29 @@ A new box appears and is selected. Add three columns, one at a time, as in 6.3:
 | `pickup_datetime` | `timestamp` |
 | `pickup_location_id` | `integer` |
 
-Now copy a column from a table that already has it. Click **+ From another table** (next to
+Now copy a column from a table that already has it. Click **+ From a source table** (next to
 **Columns**). Type `trip_distance` in the search box, tick `trip_distance` under
 `yellow_tripdata`, and click **Add columns**. `fhv_tripdata` gets `trip_distance` with the same
-type, `decimal(10,2)`. (On a staging or marts table, copied columns are also mapped to where they
-came from.)
+type, `decimal(10,2)`.
 
 ☐ `fhv_tripdata` has four columns.
 
-**6.7 Add a relationship.** With `fhv_tripdata` still selected, scroll down the inspector to
+**6.6a Columns from the source.** On a staging or marts table, picking columns starts with the
+tables it reads from. Press **T** and add `stg_nyc_tlc__taxi_zone_lookup`, Layer `staging`. The
+inspector says **No columns yet** with **Pick them from its source tables**: click it. At the top,
+under *Where it most likely reads from*, is `taxi_zone_lookup` (the staging table carries its name);
+the other tables follow. Tick the box beside `taxi_zone_lookup` to take all four columns, and click
+**Add columns**. All four arrive with their types, and its **Mappings** already say where each comes
+from (`taxi_zone_lookup.LocationID`, ...). Three of them are marked amber on the canvas: their names
+are not snake_case (MK307), which you could fix by renaming them here.
+
+Now take it all back: press **⌘Z** (with nothing selected; or the ↶ in the top bar, which says
+*Undo: stg_nyc_tlc__taxi_zone_lookup: new column ... (+3 more)*). The four columns go, in one step.
+Press **⌘Z** again: the table goes too.
+
+☐ Columns come from the likely source, mapped, and undo takes them back.
+
+**6.7 Add a relationship.** Click `fhv_tripdata`, scroll down the inspector to
 **Relationships** and click **+ Relationship**. Choose:
 
 | Field | Choose |
@@ -470,11 +522,12 @@ came from.)
 | Cardinality | `many_to_one` |
 
 Click **Add relationship**. You should see a new line from `fhv_tripdata` to `taxi_zone_lookup`
-(a crow's foot at the `fhv_tripdata` end, ‖ at the other), the toolbar says
-**5 relationships**, and in the `fhv_tripdata` box `pickup_location_id` is now marked **FK**.
+(a crow's foot at the `fhv_tripdata` end, ‖ at the other), the top bar says
+**5 relationships**, and in the `fhv_tripdata` box `pickup_location_id` now has the link icon of a
+foreign key.
 
-You can also draw one: hover over a table and small round handles appear at both ends of each
-column; drag from one to a column of another table. The form is easier with many tables.
+There are two other ways: press **R** for a form that picks both tables and columns, or hover over
+a table and drag from the small round handle at the end of a column to a column of another table.
 
 ☐ The relationship is added.
 
@@ -530,7 +583,9 @@ columns*. Click **Cancel**.
 `fct_trip.trip_id` and the seven `yellow_tripdata` columns it is made from are highlighted, joined
 by moving dashed lines, and the other tables fade. A bar at the top says *Lineage of
 fct_trip.trip_id*, with seven columns under **Comes from** and nothing under **Used by**. Hover
-over a dashed line: it shows the expression, `md5(concat_ws('|', ...))`.
+over a dashed line: the expression, `md5(concat_ws('|', ...))`, shows in a box drawn over the
+tables. (`trip_id` also has a small ƒ beside its name on the canvas: it is calculated; hover the ƒ
+to read the expression.)
 
 In the bar, click `yellow_tripdata.total_amount`. Now it is that column's lineage: **Used by**
 lists `fct_trip.amount_per_mile`, `fct_trip.total_amount` and `fct_trip.trip_id`. Close the bar
@@ -549,15 +604,21 @@ the three `fct_trip` columns that use `total_amount`.
 
 ☐ Lineage shows on the canvas and in the terminal, and they agree.
 
-**6.13 Domains.** Click **Domains** in the toolbar. The panel lists `mobility`, with **4 tables**.
-Type `Taxi analytics` in its **owner** box and press **Enter**. In the empty row at the bottom,
-add a domain `finance` with owner `Finance team`.
+**6.13 Domains.** In the Explorer, **Domains** lists `mobility 4` and `(no domain) 1`
+(`fhv_tripdata`). Click ▸ beside `mobility` to see its four tables; click the word `mobility` to
+show only them on the canvas (a chip *only mobility ×* appears in the top bar; click it to show
+everything again).
 
-Click **Show domains** in the toolbar: each table gets a coloured stripe, and a dashed area labelled
-*mobility · Taxi analytics* is drawn behind the `mobility` tables. Click `fhv_tripdata`: its
-**Domain** is empty; pick `mobility` from the list. The area grows to include it.
+Click the ⚙ beside **Domains** to manage them. Type `Taxi analytics` in `mobility`'s **owner** box
+and press **Enter**. In the empty row at the bottom, add a domain `finance` with owner
+`Finance team`.
 
-Back in the Domains panel, `finance` has no tables, so its **×** works: click it. (`mobility`'s ×
+Close the panel (×, back to the Explorer) and click the eye beside **Domains**: each table gets a
+coloured ring, and a dashed area labelled *mobility · Taxi analytics* is drawn behind the
+`mobility` tables. Click `fhv_tripdata`: its **Domain** is empty; pick `mobility` from the list.
+The area grows to include it.
+
+Open the ⚙ again: `finance` has no tables, so its **×** works: click it. (`mobility`'s ×
 is greyed out, because tables use it.) In the first Terminal tab:
 
 ```bash
@@ -569,11 +630,53 @@ included, as it was.
 
 ☐ Domains are managed from the canvas and shown as areas.
 
+**6.14 Undo a removal.** Click `fhv_tripdata`, scroll to the bottom of the inspector and click
+**Remove entity**. A confirmation lists what removing it reaches; click **OK**. The table and its
+line to `taxi_zone_lookup` are gone. Now press **⌘Z**: a banner says *Undid: table fhv_tripdata
+removed*, and it is back where it was, with its columns, its role `pickup` on the relationship and
+its domain. In the first Terminal tab, `cat model/entities/nyc_tlc/fhv_tripdata.yaml` shows its
+columns again.
+
+Undo stops rather than overwrite work made outside the canvas. Open `model/entities/marts/fct_trip.yaml`
+in a text editor, add a blank line at the end, and save. Back in the canvas, press **⌘Z**: it says
+*the model files changed outside the canvas since, so undo stops here*, changes nothing, and the ↶
+in the top bar is greyed out. (Your edit is kept; git still has every version.)
+
+☐ Undo brings back a removed table, and never overwrites outside edits.
+
+**6.15 Organise the model.** Three ways to keep a large model readable; all of them are saved in
+`model/layout.yaml`, so the team sees them too, and none changes the model.
+
+- **Colour labels.** In the Explorer, open **Colour labels** and click **+ Colour label**. Name it
+  `Trip data`, pick a colour, and click **Add label**. Click `yellow_tripdata`, then hold **⌘** and
+  click `fhv_tripdata`: a bar appears above the canvas, *2 tables*. Set its **Colour** to
+  `Trip data`: both headers take the label's colour, and their meta line ends in `· Trip data`.
+  Click the label's name in the Explorer to show only those two tables; click the *only Trip data*
+  chip to show everything.
+- **A note.** Click the empty background, then press **N**: a yellow note appears. Type
+  `Trips land hourly from the TLC feed` and click elsewhere. Drag it next to `yellow_tripdata`.
+- **A diagram.** Select `fct_trip` and `dim_taxi_zone` (⌘+click), then click **+ Diagram** above
+  the canvas. Type `Trips` and press **Enter**: a tab **Trips 2** opens with just those two tables.
+  In the bar, click **Arrange**: they line up, the dimension before the fact; **Put them back** in
+  the banner undoes it. Click **All tables** to see everything again; the inspector's **Diagrams**
+  row for any table puts it in or out of `Trips`.
+
+Click the image icon on the rail, then **PNG image**: your browser saves `taxi_platform.png`, a
+picture of the tables shown. In the first Terminal tab:
+
+```bash
+cat model/layout.yaml
+```
+
+You should see `labels:`, `colours:`, `notes:` and `diagrams:` after the positions.
+
+☐ Labels, notes and diagrams are saved with the layout, and the canvas exports as an image.
+
 ---
 
 ## Part 7: Generate from the canvas
 
-**7.1** Click the blue **N files to write** chip. The **Changes** panel opens on the left. At the top
+**7.1** Click the blue **N files to write** chip in the top bar. The **Changes** panel opens on the left. At the top
 it says your model has changes not written as code yet, with one blue button,
 **Write N files to generated/**. Under **generated/ for duckdb**, every file is marked **NEW**
 (nothing has been written yet). Click a file to see what it will contain.
@@ -614,7 +717,7 @@ migrations yet*. Click **Write baseline**. A banner says
 **8.2** Rename a raw column: click `fhv_tripdata`, and in its columns change
 `dispatching_base_num` to `base_number` (click the name, edit, press **Enter**).
 
-The toolbar chip now says **... files to write · migration**. Open the Changes panel. At the top it
+The chip in the top bar now says **... files to write · migration**. Open the Changes panel. At the top it
 explains that the change alters a table that already holds data, so it needs a migration as well
 as new code, lists both, and offers one button: **Write migration #2 and N files**. Under
 **Migration #2** you should see *fhv_tripdata: rename dispatching_base_num to base_number*. Click
@@ -856,7 +959,7 @@ export WAREHOUSE_DB="duckdb:///$PWD/taxi_platform.duckdb"
 murakumo canvas
 ```
 
-In the canvas, click **Sources** in the toolbar. You should see `nyc_tlc` and `open_meteo`, each
+In the canvas, click **Sources** on the rail (the database icon; hover the icons for their names). You should see `nyc_tlc` and `open_meteo`, each
 with its tables. Click **+ Add source**: Name `warehouse`, Kind **Database (PostgreSQL, DuckDB)**,
 Variable `WAREHOUSE_DB` (the variable's name, not the connection string). Click **Add source**.
 `warehouse` appears with `introspect:env:WAREHOUSE_DB`.
@@ -892,7 +995,7 @@ two marts, DDL files, and in `fct_trip.sql` the `trip_minutes` line you mapped o
 
 ☐ The generated SQL matches the model.
 
-**14.2 Schedules.** In the canvas, click **Schedules** in the toolbar. It says there are no
+**14.2 Schedules.** In the canvas, click **Schedules** on the rail (the calendar icon). It says there are no
 schedules yet, so everything is refreshed once a day at 06:00, and that pipelines for **airflow**
 are written to `generated/orchestration/airflow/`. Click **+ Schedule**:
 
@@ -946,7 +1049,7 @@ The last lines should include `state=success`.
 
 ☐ A pipeline per schedule is generated (and, optionally, the DAG runs).
 
-**14.4 Pipeline docs.** Click **Docs** in the canvas toolbar. A new tab opens with the project's
+**14.4 Pipeline docs.** Click **Pipeline docs** on the canvas rail (the book icon near the bottom). A new tab opens with the project's
 docs: the domains, the two schedules and what each refreshes, the sources, and a section per
 table. Type `fct` in **Find a table**, then click `fct_trip`: its grain, load, schedule, the tables
 it comes from, and each column with where it comes from (`trip_id` shows its `md5(...)`
@@ -979,7 +1082,7 @@ It creates `marts.fct_trip` in full the first time, then adds only trips past th
 ☐ The project exports as plain SQL.
 
 **14.6 A cumulative table.** A cumulative table keeps each key's whole history, one row per key per
-day. In the canvas, click **+ Entity**: Name `zone_activity`, Layer `marts`, **Add**. In the
+day. In the canvas, press **T** (or the **+** on the rail): Name `zone_activity`, Layer `marts`, **Add**. In the
 inspector:
 
 1. **Kind**: `cumulative`. Three new rows appear: **Per**, **Active on** and **Each day**.
@@ -1106,7 +1209,7 @@ git commit -m "Model trips, FHV and weather"
 
 ☐ Committed.
 
-**15.4 CI from the canvas.** In the canvas, click **CI**. It shows **GitHub Actions** selected,
+**15.4 CI from the canvas.** In the canvas, click **CI** on the rail. It shows **GitHub Actions** selected,
 `.github/workflows/murakumo.yml` **not written yet**, and the production option greyed out (a
 DuckDB file has no production to deploy to). Click **Show the file**: the four checks above, as
 steps. Click **Create CI workflow**: the badge says **up to date**.
@@ -1172,7 +1275,7 @@ ls migrations/duckdb
 You should see the change brought in; *Migrations: 0006_trip_note.sql replaced by
 0007_trip_note.sql, planned after main's migrations* (the numbers depend on how many you wrote
 before); and `Synced: ... committed ...`. `ls` shows the teammate's
-`zone_code` migration followed by yours, with no number used twice. In the canvas, click **Team**:
+`zone_code` migration followed by yours, with no number used twice. In the canvas, click **Team** on the rail (the branch icon):
 `my-change`, up to date with main, 2 commits ahead.
 
 ☐ The teammate's change came in, and the migrations stay in order.
@@ -1381,8 +1484,8 @@ output or a screenshot.
 | 2 Create the project folder | | |
 | 3 Look at the project | | |
 | 4 Setup checklist | | |
-| 5 Canvas: view | | |
-| 6 Canvas: edit, map, relate, calculate, lineage, domains | | |
+| 5 Canvas: tour, view, find, view modes, collapse | | |
+| 6 Canvas: edit, map, relate, calculate, lineage, domains, undo, organise | | |
 | 7 Generate and diff | | |
 | 8 Migrations on the canvas | | |
 | 9 Editing alongside the canvas | | |

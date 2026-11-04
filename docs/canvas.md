@@ -11,34 +11,84 @@ murakumo canvas                 # in a project folder; opens http://127.0.0.1:87
 murakumo canvas path/to/project --port 9000 --no-open
 ```
 
+## Finding your way around
+
+- **The top bar**: the project, **Find a table or column** (⌘K), how tables show (all columns,
+  keys only, names only, descriptions: ⌘1 to ⌘4, and when tables collapse), **undo** and
+  **redo**, whether the generated code is up to date, and the problems.
+- **The tool rail**, on the left: add a table (T), a relationship (R) or a note (N), arrange the
+  tables, export the canvas as an image; then the panels (Explorer, Sources, Schedules, Team,
+  CI, Changes, Problems), the pipeline docs, light or dark, and help. Hover an icon for its name.
+- **The Explorer** lists every table by domain, layer, colour label and source, each opening to
+  its tables and their columns; its search box finds tables and columns. Click a table to go to
+  it; click a domain to show only its tables; the eye beside a layer hides it.
+- **Diagram tabs**, above the canvas: **All tables**, and any diagrams saved for a part of the
+  model.
+- **The inspector**, on the right, opens when you click a table or a line.
+- **Help** (the ? at the bottom of the rail): a short tour, which also opens the first time, the
+  keyboard shortcuts (press ?), and the notation.
+
 ## What you can do
 
 - **See the model.** Raw tables are grouped by source, then staging, intermediate, marts and
   semantic, left to right. Inside a group, a table sits to the left of the tables it points at,
-  so `lineitem → orders → customer → nation → region` reads left to right. Drag boxes to
-  arrange them; positions are saved to `model/layout.yaml`, keyed by entity id, so a rename
-  keeps its place. Commit the file to share the layout. The layer chips in the toolbar show and
-  hide layers. **Shift**+drag on the background selects several tables (⌘/Ctrl+click adds one),
-  and dragging any of them moves them all.
+  so `lineitem → orders → customer → nation → region` reads left to right. Each table's header is
+  its layer's colour (or its colour label's), with key icons for primary and foreign keys and ƒ
+  for calculated columns. Drag boxes to arrange them; positions are saved to `model/layout.yaml`,
+  keyed by entity id, so a rename keeps its place. Commit the file to share the layout.
+  **Shift**+drag on the background selects several tables (⌘/Ctrl+click adds one), and dragging
+  any of them moves them all.
+- **Undo anything.** Every change is saved to the model files as you make it, and **⌘Z** (or ↶ in
+  the top bar) takes it back; **⇧⌘Z** redoes it. The button says what it would undo: "table
+  dim_zone removed". A removed table comes back with its columns, mappings, relationships and
+  place. Undo goes back up to 100 changes made in this canvas; if the files were changed some
+  other way since (your editor, `murakumo sync`), it stops rather than overwrite that work, and
+  git still has every version. Moving tables is not undone this way; **Arrange** has its own
+  **Put them back**.
+- **Show tables your way.** All columns, keys only, names only, or each table's description (⌘1
+  to ⌘4). Each table's ▾ collapses it to its name and "+12 columns"; lines then meet its header.
+  The slider button beside the view modes collapses every table with more than a number of
+  columns, or all of them. Collapsed tables are saved in `model/layout.yaml`, so the team sees
+  the same.
+- **Organise a large model.**
+  - **Colour labels**: name a colour (Finance, PII, Deprecated) in the Explorer and give it to
+    tables in the inspector, or to several at once; their headers take its colour, and clicking
+    a label shows only its tables.
+  - **Notes**: N adds a sticky note; double-click to write, drag to move, pick its colour.
+  - **Diagrams**: select tables, then **+ Diagram** above the canvas, to save a view of them as a
+    tab. Double-click a tab to rename it. The inspector's **Diagrams** row puts a table in or out
+    of each one. A note belongs to the diagram it was written on.
+  - **Arrange**: lays the tables out left to right or top to bottom, the dimensions before the
+    facts that point at them, so lines run one way.
+  - **Export**: the tables shown, as a PNG or SVG image.
+  - **Several tables at once**: with two or more selected, a bar sets their domain, layer or
+    colour label, arranges them, or removes them, each as one change that one undo takes back.
+
+  Labels, notes and diagrams live in `model/layout.yaml` beside the positions; the model files
+  do not change.
 - **Read the relationships.** Lines use crow's-foot notation: at each end, ‖ exactly one,
   ○| zero or one, a crow's foot for many (with ○ when it may be none); a dashed line is optional.
   Hover over a line to see its role and cardinality (`pickup · N:1`) and the joined columns
-  highlighted in both tables; click it to keep them highlighted and edit it. **Notation & tips**,
-  at the bottom left, explains the symbols. When two tables are dragged one above the other, the
+  highlighted in both tables; click it to keep them highlighted and edit it. **Help → Notation and
+  tips** explains the symbols. When two tables are dragged one above the other, the
   line goes round them rather than behind them.
 - **Edit an entity.** Click it to open the inspector: rename it, change its layer, kind, source,
   domain and description, and add, rename, retype or remove columns and set primary keys and
-  NOT NULL. **+ From another table** adds columns copied from other tables: tick them in a
-  searchable list; they keep their names and types and, outside the raw layer, are mapped to where
-  they came from. Tables with more than six columns get a **Find a column** box, which filters the
-  columns and mappings. Drag the inspector's left edge to make it wider. **+ Entity** adds a new
-  entity.
+  NOT NULL. **+ From a source table** brings in columns of other tables: the tables it most
+  likely reads from come first (those its mappings and relationships name, the raw table a
+  staging table is named after, then the layer before), and you tick the columns you want, or a
+  whole table. They keep their names, types and descriptions and, outside the raw layer, are
+  mapped to where they came from, all in one change. A new table with no columns offers this
+  straight away. Tables with more than six columns get a **Find a column** box, which filters the
+  columns and mappings. Drag the inspector's left edge to make it wider. **+** on the rail (or T)
+  adds a new table.
 - **Reorder columns.** Drag a column by its **⋮⋮** handle in the inspector, or focus the handle
   and press Alt+↑ or Alt+↓. Generated tables and dbt models list columns in the new order. Tables
   that already exist keep theirs, because no warehouse reorders columns in place; the Changes
   panel says so, and nothing needs a migration.
-- **Add a relationship.** In the inspector's **Relationships** section, click **+ Relationship**
-  and pick the column, the table it points to, its column and the cardinality. Or hover over an
+- **Add a relationship.** Press R (or the line icon on the rail) and pick both tables and
+  columns; or, in the inspector's **Relationships** section, click **+ Relationship** and pick the
+  column, the table it points to, its column and the cardinality. Or hover over an
   entity to show the handles beside each column, then drag from the foreign key column to the
   column it points at, on another entity. A dragged relationship is many-to-one; click the line to change the cardinality, make it optional, or
   give it a role (needed when two relationships join the same tables, like pickup and drop-off
@@ -59,12 +109,12 @@ murakumo canvas path/to/project --port 9000 --no-open
 - **Follow lineage.** **⇄** beside a column in the inspector (or **Lineage**, for the whole
   table) shows where the column comes from and what uses it: those columns are highlighted,
   linked by moving dashed lines, and everything else fades. Hover a link to see the expression
-  that makes it. The bar at the top lists the columns it comes from and the columns that use it;
+  that makes it, drawn over the tables and wrapped when it is long. The bar at the top lists the columns it comes from and the columns that use it;
   click one to follow it. `murakumo lineage` shows the same in a terminal.
-- **Group by domain.** **Domains** lists the domains in `murakumo.yaml`: add one, rename one (its
-  tables follow), set its owner, or remove one no table uses; click a domain's table count to show
-  only its tables. **Show domains** colours each table by its domain and shades an area, with the
-  domain's name and owner, behind each domain's tables. An entity's domain is picked from a list
+- **Group by domain.** The Explorer's **Domains** lists each domain and its tables; click one to
+  show only its tables. Its ⚙ manages the domains in `murakumo.yaml`: add one, rename one (its
+  tables follow), set its owner, or remove one no table uses. The eye beside it shades an area,
+  with the domain's name and owner, behind each domain's tables. An entity's domain is picked from a list
   in the inspector. Each domain becomes a dbt group; see [generating](generating.md#domains).
 - **Add and import sources.** **Sources** lists the sources, with where each is read from and how
   many tables it has. **+ Add source** declares a new one in `murakumo.yaml`: a database by the
@@ -78,7 +128,7 @@ murakumo canvas path/to/project --port 9000 --no-open
   password removed.
 - **See the generated code.** The inspector's **Code** tab shows the dbt SQL generated for the
   entity and its table's DDL, updated as you edit.
-- **Write the code.** The toolbar says how many files in `generated/` are out of date with the
+- **Write the code.** The top bar says how many files in `generated/` are out of date with the
   model. Click it for the **Changes** panel: every file that would change, each with its diff,
   and one button, **Write N files to generated/**, that writes them, as `murakumo generate` does.
 - **Write migrations.** When a change affects a table that keeps data (a landing table, an
@@ -106,9 +156,10 @@ murakumo canvas path/to/project --port 9000 --no-open
   column or table, narrowing a type, tightening nullability, changing a key) is previewed first: a
   confirmation lists what it reaches (columns built from it, tests, schedules) and the migration it
   needs, before anything is saved.
-- **Fix problems.** The toolbar shows the problems `murakumo validate` and `murakumo generate`
+- **Fix problems.** The top bar shows the problems `murakumo validate` and `murakumo generate`
   report, such as a column with no mapping (MK503). Click it for the list; click an item to go to
-  its entity. Entities with problems carry a badge, and the inspector shows their messages.
+  its table and column, which is pointed out. Tables with problems carry a badge, the columns
+  they are about are marked red or amber (hover for the message), and the inspector shows them.
 
 Renames follow references, as with `murakumo rename`: renaming `lineitem` updates the
 relationships, mappings and metrics that use it, and renames `lineitem.yaml` too; renaming a
@@ -132,7 +183,7 @@ at `/api/docs`. Every change returns the whole new state, validated.
 
 | Method | Path | Does |
 | --- | --- | --- |
-| GET | `/api/state` | The model, layout, sources, domains, schedules, diagnostics, revision, and the choices for each field |
+| GET | `/api/state` | The model, layout, canvas settings, sources, domains, schedules, diagnostics (with the column each is about), what undo and redo would do, revision, and the choices for each field |
 | GET | `/api/revision` | Just the revision, a fingerprint of the model files: cheap to poll |
 | POST | `/api/entities` | Add an entity: `{name, layer, kind, source, domain, description, position}` |
 | PATCH | `/api/entities/{id}` | Change or rename it: any of `name`, `description`, `layer`, `kind`, `source`, `domain`, `owner`, `history`, `load`, `watermark`, `tags` |
@@ -169,6 +220,11 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | POST | `/api/git/abort` | Give up a sync with conflicts |
 | POST | `/api/git/commit` | Commit the project: `{message}` |
 | PUT | `/api/layout` | Save positions: `{positions: {entity_id: {x, y}}}` |
+| PUT | `/api/canvas` | Save what the canvas draws besides the model, in `model/layout.yaml`: any of `collapse_over`, `collapsed: {entity_id: bool}`, `labels: [{name, colour, description}]`, `colours: {entity_id: label}`, `notes: [{id, text, x, y, width, colour, diagram}]`, `diagrams: [{id, name, entities}]`, and `label` (what undo calls it) |
+| POST | `/api/undo`, `/api/redo` | Take back the last change, or make it again; refused (409) when the files changed some other way since |
+| PATCH | `/api/entities` | The same change to several tables: `{ids, changes}`, one undo |
+| POST | `/api/entities/remove` | Remove several tables: `{ids}`, one undo |
+| POST | `/api/entities/{id}/columns/copy` | Bring in other tables' columns, mapped: `{columns: ["entity.column"]}` |
 | GET | `/api/generated` | What generating would change: each file's status and entities, generate diagnostics, the next migration |
 | GET | `/api/generated/file?path=` | One generated file and its diff against `generated/` |
 | GET | `/api/entities/{id}/code` | The dbt SQL and DDL generated for one entity |

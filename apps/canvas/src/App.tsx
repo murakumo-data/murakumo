@@ -132,7 +132,8 @@ const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 's
 
 function savedSide(): Side | null {
   const saved = recall('murakumo.side')
-  if (saved === null) return 'explorer' // the Explorer is open the first time
+  // The Explorer is open the first time, except on a phone, where it would cover the canvas.
+  if (saved === null) return window.innerWidth < 760 ? null : 'explorer'
   return SIDES.includes(saved as Side) ? (saved as Side) : null
 }
 

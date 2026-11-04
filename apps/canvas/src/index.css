@@ -1106,10 +1106,21 @@ textarea.input {
 }
 
 @media (max-width: 760px) {
+  .topbar {
+    gap: 8px;
+    padding: 0 8px;
+    overflow-x: auto;
+  }
+
   .topbar__search span,
   .topbar__project .muted,
+  .topbar__project strong,
   .status {
     display: none;
+  }
+
+  .topbar__search {
+    margin: 0;
   }
 
   .topbar__search {

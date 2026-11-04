@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.5.0 (unreleased)
+
+A canvas made for large models, modelled on dedicated data-modelling tools: undo, an Explorer,
+view modes, colour labels, notes, diagrams, auto-layout and export, and the fixes from the 0.4
+end-to-end run.
+
+- **Undo and redo**: every canvas change, ⌘Z and ⇧⌘Z, with buttons that say what they would take
+  back. A removed table returns with its columns, mappings, relationships and place. Undo refuses
+  when the files changed some other way since, so it never overwrites work made in an editor or
+  by `murakumo sync`. `POST /api/undo`, `/api/redo`.
+- **A new layout**: a tool rail (add a table T, a relationship R, a note N; arrange; export; the
+  panels; docs; theme; help), an Explorer of every table by domain, layer, colour label and
+  source, with search, ⌘K to find any table or column, docked panels, light and dark themes, and
+  sharper tables: header bands in the layer's colour, key and foreign-key icons, striped rows.
+- **Table display**: all columns, keys only, names only or descriptions (⌘1 to ⌘4); collapse a
+  table to its name (lines then meet its header), or every table over a number of columns.
+- **Organising large models**: colour labels with a meaning, given to one table or several; sticky
+  notes; diagrams, saved views of some tables as tabs; auto-layout (left to right or top to
+  bottom, with a way back); PNG and SVG export; and a bar for several selected tables (domain,
+  layer, colour, arrange, remove), each one change and one undo. All kept in `model/layout.yaml`,
+  so the team sees them; the model files do not change. `PUT /api/canvas`, `PATCH /api/entities`,
+  `POST /api/entities/remove`.
+- **Problems on their column**: each problem says which column it is about; the column is marked
+  red or amber on the canvas, with the message on hover, and clicking a problem (or a search
+  result) goes to the column and points it out.
+- **Columns from the source**: **+ From a source table** lists first the tables a table most
+  likely reads from (named in its mappings or relationships, the raw table a staging table is
+  named after, the layer before); a new table with no columns offers it straight away; the
+  columns arrive with their types, descriptions and mappings in one change.
+  `POST /api/entities/{id}/columns/copy`.
+- **Expressions**: calculated columns carry ƒ on the canvas, with the expression on hover; a
+  lineage link's expression is drawn over the tables and wraps, instead of hiding behind them.
+- **Help**: a first-run tour of the canvas, a keyboard shortcuts sheet (?), and a help menu.
+- Docs: [the canvas](docs/canvas.md) and the end-to-end test's canvas parts rewritten for the new
+  layout, with steps for each new feature.
+
 ## 0.4.0 (2026-10-30)
 
 Working as a team, and seeing what each run did: sync with the parent branch, typed diffs and

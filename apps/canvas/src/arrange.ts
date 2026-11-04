@@ -1,5 +1,5 @@
 import ELK from 'elkjs/lib/elk.bundled.js'
-import { getNodesBounds, getViewportForBounds, type Node } from '@xyflow/react'
+import { getNodesBounds, type Node } from '@xyflow/react'
 import { toPng, toSvg } from 'html-to-image'
 
 import type { Position, Relationship } from './api'
@@ -54,18 +54,31 @@ export async function exportImage(nodes: Node[], format: 'png' | 'svg', fileName
   const padding = 40
   const width = Math.min(Math.ceil(bounds.width + 2 * padding), 8000)
   const height = Math.min(Math.ceil(bounds.height + 2 * padding), 8000)
-  const fit = getViewportForBounds(bounds, width, height, 0.1, 1, padding)
   const background = getComputedStyle(document.body).getPropertyValue('--bg').trim() || '#ffffff'
   const options = {
     backgroundColor: background,
     width,
     height,
     pixelRatio: 2,
-    style: { width: `${width}px`, height: `${height}px`, transform: `translate(${fit.x}px, ${fit.y}px) scale(${fit.zoom})` },
+    // At full size, moved so the tables start at the padding.
+    style: {
+      width: `${width}px`,
+      height: `${height}px`,
+      transform: `translate(${padding - bounds.x}px, ${padding - bounds.y}px) scale(1)`,
+    },
     // Leave out the handles (dots) that only matter while editing.
     filter: (node: HTMLElement) => !node.classList?.contains('react-flow__handle'),
   }
-  const url = format === 'png' ? await toPng(viewport, options) : await toSvg(viewport, options)
+  // The crow's-foot ends are drawn from definitions outside the viewport: copy them in for the
+  // export, or the lines end bare. (html-to-image stays at 1.11.11: later versions drop the lines.)
+  const markers = document.querySelector('svg.markers')?.cloneNode(true) as SVGElement | undefined
+  if (markers) viewport.prepend(markers)
+  let url: string
+  try {
+    url = format === 'png' ? await toPng(viewport, options) : await toSvg(viewport, options)
+  } finally {
+    markers?.remove()
+  }
   const link = document.createElement('a')
   link.download = `${fileName}.${format}`
   link.href = url
