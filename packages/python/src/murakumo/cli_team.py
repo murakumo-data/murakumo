@@ -123,3 +123,88 @@ def diff_command(
             console.print("Needs a migration: " + escape("; ".join(result.migration)))
     if fail_on and result.worst and _ORDER[result.worst] >= _ORDER.get(fail_on, 99):
         raise typer.Exit(1)
+
+
+branch_app = typer.Typer(help="The git flow: start work on a branch, check pull requests, promote environments.")
+
+
+@branch_app.command("start")
+def branch_start(
+    project_path: Path = ProjectOption,
+    push: bool = typer.Option(False, "--push", help="Push the new branches to the remote too."),
+) -> None:
+    """Create the environments' branches (dev, stage) from main if they do not exist yet."""
+    from murakumo import branches, gitsync
+
+    project = open_project(project_path)
+    try:
+        for line in branches.start(project, push=push):
+            console.print(f"  {line}")
+    except gitsync.GitError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+
+
+@branch_app.command("new")
+def branch_new(
+    kind: str = typer.Argument(..., help="feature, fix, chore, or hotfix (from the last branch, for an urgent fix)."),
+    name: str = typer.Argument(..., help="A few words: add-zone-codes."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Start new work on a branch of its own, from the latest dev."""
+    from murakumo import branches, gitsync
+
+    project = open_project(project_path)
+    try:
+        branch = branches.new(project, kind, name)
+    except gitsync.GitError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    console.print(f"On {branch}. Commit your changes, push, and open a pull request into its parent branch.")
+
+
+@branch_app.command("check")
+def branch_check(
+    head: str = typer.Option(..., "--head", help="The pull request's branch."),
+    base: str = typer.Option(..., "--base", help="The branch it goes into."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Check a pull request follows the flow (for CI): new work into dev, dev into stage, stage into main."""
+    from murakumo import branches
+
+    problems = branches.check(open_project(project_path), head, base)
+    for problem in problems:
+        fail(problem)
+    if problems:
+        raise typer.Exit(1)
+    console.print(f"{head} → {base} follows the flow.")
+
+
+@branch_app.command("env")
+def branch_env(branch: str = typer.Argument(...), project_path: Path = ProjectOption) -> None:
+    """Print the environment a branch deploys to (for CI scripts)."""
+    from murakumo import branches
+
+    typer.echo(branches.environment_for(open_project(project_path), branch))
+
+
+@branch_app.command("promote")
+def branch_promote(
+    branch: str = typer.Argument(..., help="The branch to promote: dev (into stage), or stage (into main)."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """What promoting a branch to the next would move, and where to open its pull request."""
+    from murakumo import branches, gitsync
+
+    try:
+        info = branches.promotion(open_project(project_path), branch)
+    except gitsync.GitError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    console.print(
+        f"{info['from']} → {info['to']} ({info['from_environment']} → {info['to_environment']}): "
+        f"{info['commits']} commit(s)."
+    )
+    print_changes(info["changes"], "  no model changes")
+    if info["url"]:
+        console.print(f"Open the pull request: {info['url']}")

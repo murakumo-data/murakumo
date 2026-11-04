@@ -128,6 +128,11 @@ class EnvironmentBody(BaseModel):
     branch: str | None = Field(default=None, max_length=100, pattern=r"^[\w./-]*$")
 
 
+class BranchBody(BaseModel):
+    kind: str = Field(pattern="^(feature|fix|chore|hotfix)$")
+    name: str = Field(min_length=1, max_length=80)
+
+
 class JobBody(BaseModel):
     kind: str
     options: dict[str, Any] = Field(default_factory=dict)
@@ -1013,6 +1018,7 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         project, _ = _blocked(root)
         if project is None:
             raise HTTPException(409, {"message": "the project did not load"})
+        from murakumo import branches as branches_module
         from murakumo.environments import developer, placement_for
 
         info = git_call(lambda: gitsync.status(project, refresh=refresh))
@@ -1022,10 +1028,43 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             **info,
             "developer": developer(),
             "personal_environment": personal,
+            "flow": [{"environment": f.environment, "branch": f.branch} for f in branches_module.flow(project)],
             "personal_prefix": placement_for(project, None, warehouse).prefix,
             "personal_schema": placement_for(project, None, warehouse).single,
             "personal_where": placement_for(project, None, warehouse).describe(),
         }
+
+    @app.post("/api/git/start")
+    def post_git_start() -> dict[str, Any]:
+        """Create the environments' branches (dev, stage) from main if missing (`murakumo branch start`)."""
+        from murakumo import branches as branches_module
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return {"done": git_call(lambda: branches_module.start(project))}
+
+    @app.post("/api/git/branch")
+    def post_git_branch(body: BranchBody) -> dict[str, Any]:
+        """Start new work on a branch of its own, from the latest dev (`murakumo branch new`)."""
+        from murakumo import branches as branches_module
+
+        with lock:
+            project, _ = _blocked(root)
+            if project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            branch = git_call(lambda: branches_module.new(project, body.kind, body.name))
+            return {"branch": branch, "state": state(root)}
+
+    @app.get("/api/git/promotion")
+    def get_promotion(branch: str) -> dict[str, Any]:
+        """What promoting an environment's branch to the next would move (`murakumo branch promote`)."""
+        from murakumo import branches as branches_module
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return git_call(lambda: branches_module.promotion(project, branch))
 
     @app.post("/api/git/sync")
     def post_sync(resume: bool = False) -> dict[str, Any]:

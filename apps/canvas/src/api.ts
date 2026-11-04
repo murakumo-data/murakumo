@@ -325,6 +325,9 @@ export type GitStatus = {
   developer: string
   personal_environment: string
   personal_prefix: string // where this person's dev builds go; empty for the shared schemas
+  personal_schema: string | null // their own schema, on a shared warehouse
+  personal_where: string // in words
+  flow: { environment: string; branch: string }[] // dev, stage, prod with the branch that deploys each
 }
 
 export type SyncResult = {
@@ -398,6 +401,15 @@ export const api = {
   undo: () => request<State>('POST', '/undo'),
   settings: () => request<Settings>('GET', '/settings', undefined, false),
   saveSettings: (changes: Partial<Settings>) => request<Settings>('PUT', '/settings', changes, false),
+  startFlow: () => request<{ done: string[] }>('POST', '/git/start', undefined, false),
+  newBranch: (kind: string, name: string) => request<{ branch: string; state: State }>('POST', '/git/branch', { kind, name }),
+  promotion: (branch: string) =>
+    request<{ from: string; to: string; from_environment: string; to_environment: string; commits: number; changes: ModelChange[]; url: string | null }>(
+      'GET',
+      `/git/promotion?branch=${encodeURIComponent(branch)}`,
+      undefined,
+      false,
+    ),
   provision: () => request<{ sql: string }>('GET', '/env/provision', undefined, false),
   setup: (connect = false) =>
     request<{ ready: boolean; checks: SetupCheck[] }>('GET', `/setup?connect=${connect}`, undefined, false),

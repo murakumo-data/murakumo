@@ -650,6 +650,21 @@ def project_checks(project: Project) -> list[Check]:
                 "Commit the project there, with your usual branches and pull requests; no separate repository needed.",
             )
         )
+    if repository is not None:
+        flow = [e.branch for e in project.manifest.targets.environments if e.branch]
+        known = set((_run("git", "-C", str(repository), "branch", "-a", "--format=%(refname:short)") or "").split())
+        missing = [b for b in flow if b not in known and not any(k.endswith(f"/{b}") for k in known)]
+        if flow and missing and known:
+            checks.append(
+                Check(
+                    area,
+                    f"Create the {', '.join(missing)} branch{'es' if len(missing) > 1 else ''}",
+                    Status.WARN,
+                    f"New work starts from {flow[0]} and moves up through {' → '.join(flow)}; merging into each "
+                    "deploys to its environment.",
+                    [f"cd {root} && murakumo branch start --push"],
+                )
+            )
 
     if not project.model.entities:
         checks.append(

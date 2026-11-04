@@ -28,8 +28,9 @@ def test_github_workflow(project):
     workflow = yaml.safe_load(content)
     check = workflow["jobs"]["check"]
     assert check["defaults"]["run"]["working-directory"] == "platform"
-    assert "--format markdown" in check["steps"][3]["run"]  # the pull request's impact summary
-    assert [s["run"] for s in check["steps"][4:]] == [
+    assert check["steps"][3]["run"].startswith("murakumo branch check")  # the pull request follows the flow
+    assert "--format markdown" in check["steps"][4]["run"]  # the pull request's impact summary
+    assert [s["run"] for s in check["steps"][5:]] == [
         "murakumo validate --strict",
         "murakumo generate --check",
         "murakumo migrate --check",
@@ -41,12 +42,21 @@ def test_github_workflow(project):
 def test_deploy_needs_a_real_warehouse(project):
     assert ci.status(project, "github", deploy=True)["deploy_possible"] is False  # DuckDB: nothing to deploy to
     project.manifest.targets.warehouse.type = Warehouse.SNOWFLAKE
-    deploy = yaml.safe_load(ci.render(project, "github", deploy=True)[1])["jobs"]["deploy"]
-    assert deploy["environment"] == "production" and deploy["needs"] == "check"
+    workflow = yaml.safe_load(ci.render(project, "github", deploy=True)[1])
+    assert workflow[True]["push"]["branches"] == ["dev", "stage", "main"]  # each environment's branch
+    deploy = workflow["jobs"]["deploy-prod"]
+    assert deploy["environment"] == "prod" and deploy["needs"] == "check"
+    assert deploy["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'"
     assert deploy["env"]["SNOWFLAKE_PRIVATE_KEY"] == "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}"
-    assert deploy["steps"][-1]["run"] == "murakumo build --env prod"
+    assert deploy["steps"][-1]["run"].splitlines() == [
+        "murakumo migrate --apply --env prod",
+        "murakumo build --env prod",
+    ]
+    assert workflow["jobs"]["deploy-dev"]["steps"][-1]["run"].splitlines()[-1] == "murakumo build --env dev"
+    assert "refs/heads/stage" in workflow["jobs"]["deploy-stage"]["if"]
     gitlab = yaml.safe_load(ci.render(project, "gitlab", deploy=True)[1])
-    assert gitlab["murakumo-deploy"]["rules"][0]["when"] == "manual"
+    assert gitlab["murakumo-deploy-prod"]["rules"][0] == {"if": '$CI_COMMIT_BRANCH == "main"', "when": "manual"}
+    assert gitlab["murakumo-deploy-dev"]["rules"][0] == {"if": '$CI_COMMIT_BRANCH == "dev"'}
 
 
 def test_never_overwrites_changes_without_asking(project):
@@ -90,9 +100,10 @@ def test_pull_request_previews(project):
     assert workflow[True]["pull_request"]["types"] == ["opened", "synchronize", "reopened", "closed"]
     preview = workflow["jobs"]["preview"]
     assert preview["steps"][-1]["run"].splitlines() == [
-        "murakumo env clone --prefix pr_${{ github.event.number }}_",
-        "murakumo migrate --apply --prefix pr_${{ github.event.number }}_",
-        "murakumo build --env prod --prefix pr_${{ github.event.number }}_",
+        'ENV="$(murakumo branch env "$BASE_BRANCH")"',  # a copy of the environment it goes into
+        'murakumo env clone --env "$ENV" --prefix pr_${{ github.event.number }}_',
+        'murakumo migrate --apply --env "$ENV" --prefix pr_${{ github.event.number }}_',
+        'murakumo build --env "$ENV" --prefix pr_${{ github.event.number }}_',
     ]
     cleanup = workflow["jobs"]["preview-cleanup"]
     assert "closed" in cleanup["if"] and "env drop" in cleanup["steps"][-1]["run"]

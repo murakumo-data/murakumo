@@ -449,7 +449,8 @@ def ci_command(
     if deploy and info["deploy_possible"]:
         where = "Settings → Secrets and variables → Actions" if provider == "github" else "Settings → CI/CD → Variables"
         console.print(
-            f"Add the warehouse credentials as secrets ({where}), and reviewers to the production environment."
+            f"Add the warehouse credentials as secrets ({where}), "
+            "and reviewers to each environment you want approved (prod, say)."
         )
     if not info["in_git"]:
         console.print("[yellow]![/yellow] The project is not in a git repository yet: run `git init` first.")
