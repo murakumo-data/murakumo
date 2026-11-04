@@ -9,7 +9,11 @@
     audit.daily_summary  per day: runs, rows ingested and rejected, failed models and tests -#}
 
 {% macro murakumo_audit_schema() -%}
-    {{ env_var('MURAKUMO_SCHEMA_PREFIX', '') }}audit
+    {%- if env_var('MURAKUMO_SINGLE_SCHEMA', '') -%}
+        {{ env_var('MURAKUMO_SINGLE_SCHEMA') }}
+    {%- else -%}
+        {{ env_var('MURAKUMO_SCHEMA_PREFIX', '') }}audit
+    {%- endif -%}
 {%- endmacro %}
 
 {% macro murakumo_audit_qualified_schema() -%}

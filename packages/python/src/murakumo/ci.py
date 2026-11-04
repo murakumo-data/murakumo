@@ -95,7 +95,7 @@ def _deploy_parts(project: Project) -> tuple[list[str], dict[str, str], bool] | 
     if warehouse is Warehouse.DUCKDB:
         return None  # a DuckDB file built in CI disappears with the runner
     required, _ = profile_variables(project, warehouse)
-    environments = project.manifest.targets.environments or ["dev"]
+    environments = project.manifest.targets.names
     target = "prod" if "prod" in environments else environments[-1]
     secrets = {name: name for name in required if name != "SNOWFLAKE_PRIVATE_KEY_PATH"}
     key_file = warehouse is Warehouse.SNOWFLAKE
@@ -139,7 +139,7 @@ def _preview_commands(prefix: str, target: str) -> list[str]:
 
 
 def _target(project: Project) -> str:
-    environments = project.manifest.targets.environments or ["dev"]
+    environments = project.manifest.targets.names
     return "prod" if "prod" in environments else environments[-1]
 
 

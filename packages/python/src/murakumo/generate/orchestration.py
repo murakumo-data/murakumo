@@ -62,7 +62,7 @@ def _jobs(project, plan: Plan) -> list[Job]:
 
 
 def _target(project) -> str:
-    environments = project.manifest.targets.environments or ["dev"]
+    environments = project.manifest.targets.names
     return "prod" if "prod" in environments else environments[-1]
 
 

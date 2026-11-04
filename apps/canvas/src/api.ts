@@ -119,6 +119,8 @@ export type Settings = {
   run_log: boolean
   base_branch: string
   personal_schemas: boolean
+  personal_database: string | null
+  environments: { name: string; database: string | null; branch: string | null }[]
   choices: { warehouses: string[]; orchestrators: string[]; patterns: string[]; python_engines: string[] }
   changed?: string[]
   state?: State
@@ -217,6 +219,7 @@ export type State = {
   orchestration: Orchestration | null
   diagnostics: Diagnostic[]
   history: { undo: string | null; redo: string | null } // what undo and redo would take back
+  environments: { personal: string; shared: string[] } // everyone's own, then dev, stage, prod...
   message?: string // said by undo and redo
   choices: {
     sources: string[]
@@ -395,6 +398,7 @@ export const api = {
   undo: () => request<State>('POST', '/undo'),
   settings: () => request<Settings>('GET', '/settings', undefined, false),
   saveSettings: (changes: Partial<Settings>) => request<Settings>('PUT', '/settings', changes, false),
+  provision: () => request<{ sql: string }>('GET', '/env/provision', undefined, false),
   setup: (connect = false) =>
     request<{ ready: boolean; checks: SetupCheck[] }>('GET', `/setup?connect=${connect}`, undefined, false),
   uploads: () => request<{ files: Upload[] }>('GET', '/uploads', undefined, false),

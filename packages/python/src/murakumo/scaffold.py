@@ -42,8 +42,17 @@ project:
 targets:
   warehouse:
     type: {warehouse:<21}# snowflake | databricks | bigquery | redshift | fabric | synapse | postgres | duckdb
-    database: {database}
-  environments: [dev, prod]
+    database: {database:<20}# everyone's own builds; the shared environments have their own below
+  environments:                # merging into an environment's branch deploys to it
+    - name: dev
+      database: {dev}
+      branch: dev
+    - name: stage
+      database: {stage}
+      branch: stage
+    - name: prod
+      database: {prod}
+      branch: main
   # lakehouse:
   #   table_format: iceberg    # iceberg | delta | hudi | native
   #   catalog: polaris         # unity | polaris | glue | nessie
@@ -58,6 +67,10 @@ modelling:
 generation:
   transform: dbt
   orchestrator: {orchestrator:<15}# airflow | dagster | prefect | databricks_workflows | snowflake_tasks | ...
+
+collaboration:
+  base_branch: dev             # new branches (feature/..., fix/..., chore/...) start from dev
+  personal_database: MURAKUMO  # on a shared warehouse, everyone builds into MURAKUMO.<their name>
 """
 
 GITIGNORE = """\
@@ -75,6 +88,14 @@ GENERATED_README = """\
 Everything in this folder is written by `murakumo generate`. Do not edit it by hand:
 change the model under model/ instead, or put custom code in custom/.
 """
+
+
+def _environment_database(project: str, environment: str, warehouse: Warehouse) -> str:
+    """A shared environment's database: TAXI_PROD on a warehouse, taxi_prod.duckdb on DuckDB."""
+    return f"{project}_{environment}.duckdb" if warehouse is Warehouse.DUCKDB else f"{project}_{environment}".upper()
+
+
+_ENV_DATABASE = re.compile(r"^(      database: )(\S+)(.*)$", re.M)
 
 
 class ProjectExistsError(Exception):
@@ -106,6 +127,7 @@ def init_project(
         name=name,
         warehouse=Warehouse(warehouse).value,
         database=database,
+        **{env: _environment_database(name, env, Warehouse(warehouse)) for env in ("dev", "stage", "prod")},
         pattern=ModellingPattern(pattern).value,
         orchestrator=Orchestrator(orchestrator).value,
     )
@@ -165,6 +187,15 @@ def configure_project(
         defaults = {f"{name}.duckdb", name.upper()}
         if current.targets.warehouse.database in defaults:
             text = _set(text, "database", f"{name}.duckdb" if warehouse is Warehouse.DUCKDB else name.upper())
+        # Environments still named as init named them follow: taxi_prod.duckdb <-> TAXI_PROD.
+        for env in current.targets.environments:
+            if env.database and env.database in {
+                _environment_database(name, env.name, w) for w in (Warehouse.DUCKDB, current.targets.warehouse.type)
+            }:
+                new = _environment_database(name, env.name, warehouse)
+                text = re.sub(
+                    rf"^(      database: ){re.escape(env.database)}(\s*(#.*)?)$", rf"\g<1>{new}\2", text, flags=re.M
+                )
         changed.append(f"warehouse: {current.targets.warehouse.type.value} → {warehouse.value}")
     if orchestrator is not None and orchestrator is not current.generation.orchestrator:
         text = _set(text, "orchestrator", orchestrator.value)

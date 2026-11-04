@@ -185,7 +185,9 @@ def test_dbt_yaml_is_valid_and_complete(taxi):
     assert all("data_type" in c for c in fact["columns"])
     sources = yaml.safe_load(files["dbt/models/staging/nyc_tlc/_nyc_tlc__sources.yml"])
     # verify on a shared warehouse prefixes every schema of a run
-    assert sources["sources"][0]["schema"] == "{{ env_var('MURAKUMO_SCHEMA_PREFIX', '') }}raw_nyc_tlc"
+    assert sources["sources"][0]["schema"] == (
+        "{{ env_var('MURAKUMO_SINGLE_SCHEMA', '') or env_var('MURAKUMO_SCHEMA_PREFIX', '') ~ 'raw_nyc_tlc' }}"
+    )
     assert "MURAKUMO_SCHEMA_PREFIX" in files["dbt/macros/murakumo/schema_names.sql"]
 
 
@@ -197,7 +199,8 @@ def test_warehouse_database_ignores_duckdb_file_names(taxi):
     profiles = yaml.safe_load(generate(taxi, "snowflake").files["dbt/profiles.yml"])
     assert profiles["taxi"]["outputs"]["dev"]["database"] == "{{ env_var('SNOWFLAKE_DATABASE', 'TAXI') }}"
     duckdb_profile = yaml.safe_load(generate(taxi).files["dbt/profiles.yml"])
-    assert "taxi.duckdb" in duckdb_profile["taxi"]["outputs"]["dev"]["path"]
+    assert "taxi.duckdb" in duckdb_profile["taxi"]["outputs"]["personal"]["path"]  # everyone's own
+    assert "taxi_dev.duckdb" in duckdb_profile["taxi"]["outputs"]["dev"]["path"]  # the shared dev
 
 
 def test_raw_ddl_takes_a_schema_prefix(taxi):

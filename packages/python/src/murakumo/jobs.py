@@ -31,7 +31,6 @@ NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 PREFIX = re.compile(r"^[a-z][a-z0-9_]*_$")
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # a terminal spinner redraws one line; captured, each frame is a line
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")  # colours and cursor moves, which a log page cannot show
-ENVIRONMENTS = ("dev", "prod")
 ENGINES = ("polars", "pyspark")
 
 
@@ -61,9 +60,7 @@ def _count(value: Any, what: str, most: int = 1_000_000) -> int:
 def _common(options: dict[str, Any], args: list[str], env: bool = True) -> None:
     """The options most jobs share: environment, schema prefix."""
     if env and options.get("environment"):
-        if options["environment"] not in ENVIRONMENTS:
-            raise JobError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
-        args += ["--env", options["environment"]]
+        args += ["--env", _name(options["environment"], "the environment")]
     if options.get("prefix"):
         if not PREFIX.match(str(options["prefix"])):
             raise JobError("a schema prefix is lower case and ends in _, like pr_42_")
@@ -123,17 +120,17 @@ def command(root: Path, kind: str, options: dict[str, Any]) -> tuple[str, list[s
         return f"Backfill {table} {start} to {end}", args
     if kind == "migrate_apply":
         args = ["migrate", "--apply"]
-        _common(options, args, env=False)
+        _common(options, args)
         if options.get("mark_only"):
             args.append("--mark-applied")
         return f"Apply migrations{' under ' + options['prefix'] if options.get('prefix') else ''}", args
     if kind == "env_clone":
         args = ["env", "clone"]
-        _common(options, args, env=False)
+        _common(options, args)
         return f"Clone production into {options.get('prefix') or 'your schemas'}", args
     if kind == "env_drop":
         args = ["env", "drop", "--yes"]
-        _common(options, args, env=False)
+        _common(options, args)
         return f"Drop {options.get('prefix') or 'your schemas'}", args
     if kind == "export":
         return "Export as plain SQL", ["export", "sql"]

@@ -197,7 +197,7 @@ def test_config_changes_answers_and_keeps_comments(tmp_path):
     result = runner.invoke(app, ["config", str(project.root), "--target", "snowflake", "--pattern", "datavault"])
     assert result.exit_code == 0, result.output
     text = (project.root / "murakumo.yaml").read_text()
-    assert "type: snowflake" in text and "database: P\n" in text
+    assert "type: snowflake" in text and "database: P " in text and "database: P_PROD\n" in text
     assert "# snowflake | databricks" in text and "# kimball | datavault" in text
     manifest = load_project(project.root).project.manifest
     assert manifest.modelling.pattern.value == "datavault"

@@ -1235,6 +1235,7 @@ function Canvas() {
               {side === 'runs' && (
                 <RunsPanel
                   refresh={jobsDone}
+                  environments={state.environments}
                   onModel={(name) => {
                     const entity = entities.find((e) => e.name.toLowerCase() === name.toLowerCase())
                     if (entity) focus(entity)
@@ -1455,6 +1456,7 @@ function Canvas() {
       {testing && (
         <TestChange
           branch={testing}
+          environments={state.environments.shared}
           onClose={() => setTesting(null)}
           onOpenJob={(id) => {
             setTesting(null)

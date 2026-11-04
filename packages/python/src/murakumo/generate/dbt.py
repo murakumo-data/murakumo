@@ -194,7 +194,10 @@ def _model_yaml(model: DbtModel, plan: Plan, tags: list[str] | None = None) -> d
 def _sources(group) -> dict:
     source: dict[str, Any] = {
         "name": group.name,
-        "schema": f"{{{{ env_var('MURAKUMO_SCHEMA_PREFIX', '') }}}}{group.schema}",
+        # Someone's own schema holds everything; otherwise the raw schema, under any prefix.
+        "schema": "{{ env_var('MURAKUMO_SINGLE_SCHEMA', '') or env_var('MURAKUMO_SCHEMA_PREFIX', '') ~ '"
+        + group.schema
+        + "' }}",
     }
     if group.description:
         source["description"] = group.description
@@ -262,13 +265,22 @@ def profiles(plan: Plan) -> dict:
     warehouse = plan.target.warehouse
     configured = manifest.targets.warehouse.database
     is_file = _is_file(configured)
-    database = warehouse_database(manifest)
+    default_database = warehouse_database(manifest)
+    personal = manifest.collaboration.personal_environment
     outputs = {}
-    for environment in manifest.targets.environments:
+    # Everyone's own environment first (what `murakumo build` builds), then the shared ones, each in
+    # its own database when murakumo.yaml gives it one.
+    for environment, own in [
+        (personal, manifest.collaboration.personal_database),
+        *((e.name, e.database) for e in manifest.targets.environments),
+    ]:
         upper = environment.upper()
         schema = f"{{{{ env_var('MURAKUMO_SCHEMA', '{environment}') }}}}"
+        database = own if own and not _is_file(own) else default_database
         if warehouse is Warehouse.DUCKDB:
-            path = configured if is_file else f"{name}.duckdb"
+            path = own if own and environment != personal else configured if is_file else f"{name}.duckdb"
+            if not path.endswith((".duckdb", ".db")):
+                path = f"{path}.duckdb"
             outputs[environment] = {
                 "type": "duckdb",
                 "path": f"{{{{ env_var('MURAKUMO_DUCKDB_PATH', '{path}') }}}}",
@@ -317,8 +329,7 @@ def profiles(plan: Plan) -> dict:
                 "schema": schema,
                 "threads": 4,
             }
-    default = manifest.targets.environments[0] if manifest.targets.environments else "dev"
-    return {name: {"target": default, "outputs": outputs}}
+    return {name: {"target": personal, "outputs": outputs}}
 
 
 def _is_file(database: str | None) -> bool:

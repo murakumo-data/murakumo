@@ -3651,3 +3651,31 @@ button.tree-row__label:not(:disabled) {
 .compare__reach {
   margin: 2px 0 0 4px;
 }
+
+.settings__envs {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.settings__envs th {
+  padding: 0 4px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text-muted);
+}
+
+.settings__envs th:first-child {
+  width: 22%;
+}
+
+.settings__envs td {
+  padding: 2px 4px 2px 0;
+}
+
+.setup__sql--block {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+}

@@ -8,7 +8,7 @@ import { api, type State, type Upload } from './api'
 // ignores) and are loaded from there.
 
 type Options = {
-  environment: 'dev' | 'prod'
+  environment: string
   sample: number
   data: Record<string, string> // raw table -> data/file
   schedule: string
@@ -64,7 +64,7 @@ export function BuildDialog(props: {
   const cumulative = (state.model?.entities ?? []).some((e) => e.kind === 'cumulative')
   const schedules = state.orchestration?.implicit ? [] : (state.orchestration?.schedules ?? [])
   const [files, setFiles] = useState<Upload[]>([])
-  const [options, setOptions] = useState<Options>({ environment: 'dev', sample: 0, data: {}, schedule: '', run_date: '', prefix: '' })
+  const [options, setOptions] = useState<Options>({ environment: state.environments.personal, sample: 0, data: {}, schedule: '', run_date: '', prefix: '' })
   const [advanced, setAdvanced] = useState(false)
   useEffect(() => {
     api.uploads().then((r) => setFiles(r.files), () => {})
@@ -74,7 +74,7 @@ export function BuildDialog(props: {
   const loaded = Object.keys(options.data).length
   const command = [
     'murakumo build',
-    options.environment !== 'dev' && `--env ${options.environment}`,
+    options.environment !== state.environments.personal && `--env ${options.environment}`,
     options.prefix && `--prefix ${options.prefix}`,
     options.sample > 0 && `--sample ${options.sample}`,
     ...Object.entries(options.data).map(([t, f]) => `--data ${t}=${f}`),
@@ -94,7 +94,7 @@ export function BuildDialog(props: {
           e.preventDefault()
           if (!prefixOk) return
           onStart({
-            environment: options.environment,
+            environment: options.environment === state.environments.personal ? undefined : options.environment,
             sample: options.sample || undefined,
             data: loaded ? options.data : undefined,
             schedule: options.schedule || undefined,
@@ -159,9 +159,13 @@ export function BuildDialog(props: {
           <legend>What to build</legend>
           <label className="build__row">
             <span>Environment</span>
-            <select className="input" value={options.environment} onChange={(e) => set({ environment: e.target.value as 'dev' | 'prod' })}>
-              <option value="dev">dev: my own schemas on a shared warehouse</option>
-              <option value="prod">prod: the shared schemas</option>
+            <select className="input" value={options.environment} onChange={(e) => set({ environment: e.target.value })}>
+              <option value={state.environments.personal}>My own (a schema of my own on a shared warehouse)</option>
+              {state.environments.shared.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
             </select>
           </label>
           {schedules.length > 0 && (

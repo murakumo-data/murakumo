@@ -111,6 +111,7 @@ function ProjectSettings({ onState, onMessage }: { onState: (state: State) => vo
         </label>
         <p className="muted small">What runs the schedules: Murakumo writes its pipelines.</p>
       </fieldset>
+      <Environments settings={settings} saving={saving} onSave={save} />
       <fieldset className="settings__group">
         <legend>What it generates</legend>
         <label className="settings__row">
@@ -168,6 +169,91 @@ function Step({ text }: { text: string }) {
       </>
     )
   return <>{text}</>
+}
+
+/** Each shared environment's database and the branch that deploys it, and where people's own go. */
+function Environments({ settings, saving, onSave }: { settings: Settings; saving: boolean; onSave: (changes: Partial<Settings>) => void }) {
+  const [sql, setSql] = useState<string | null>(null)
+  const change = (index: number, key: 'database' | 'branch', value: string) => {
+    const environments = settings.environments.map((e, i) => (i === index ? { ...e, [key]: value.trim() || null } : e))
+    if (JSON.stringify(environments) !== JSON.stringify(settings.environments)) onSave({ environments })
+  }
+  return (
+    <fieldset className="settings__group">
+      <legend>Environments</legend>
+      <table className="settings__envs">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Database</th>
+            <th>Deployed from</th>
+          </tr>
+        </thead>
+        <tbody>
+          {settings.environments.map((env, i) => (
+            <tr key={env.name}>
+              <td>
+                <code>{env.name}</code>
+              </td>
+              <td>
+                <input
+                  className="input"
+                  defaultValue={env.database ?? ''}
+                  placeholder="the warehouse's"
+                  disabled={saving}
+                  aria-label={`${env.name} database`}
+                  onBlur={(e) => change(i, 'database', e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                />
+              </td>
+              <td>
+                <input
+                  className="input"
+                  defaultValue={env.branch ?? ''}
+                  placeholder="no branch"
+                  disabled={saving}
+                  aria-label={`${env.name} branch`}
+                  onBlur={(e) => change(i, 'branch', e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted small">Merging into an environment's branch deploys to its database (with the CI workflow).</p>
+      <label className="settings__row">
+        <span>People's own</span>
+        <input
+          className="input"
+          defaultValue={settings.personal_database ?? ''}
+          placeholder="the warehouse's database"
+          disabled={saving || settings.warehouse === 'duckdb'}
+          onBlur={(e) => e.target.value.trim() !== (settings.personal_database ?? '') && onSave({ personal_database: e.target.value.trim() })}
+          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        />
+      </label>
+      <p className="muted small">
+        {settings.warehouse === 'duckdb'
+          ? 'On DuckDB, your own builds go to the project file on this computer.'
+          : 'Everyone builds into a schema of their own, named after them, in this database.'}
+      </p>
+      <div>
+        <button type="button" className="button button--small" onClick={async () => setSql(sql ? null : (await api.provision()).sql)}>
+          {sql ? 'Hide the setup SQL' : 'Setup SQL…'}
+        </button>
+      </div>
+      {sql && (
+        <>
+          <p className="muted small">An administrator runs this once to create the databases, roles and grants (murakumo env provision).</p>
+          <pre className="setup__sql setup__sql--block">{sql}</pre>
+          <button type="button" className="link-button small" onClick={() => navigator.clipboard.writeText(sql).catch(() => {})}>
+            Copy
+          </button>
+        </>
+      )}
+    </fieldset>
+  )
 }
 
 const ICONS = {

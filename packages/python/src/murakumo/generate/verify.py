@@ -156,8 +156,8 @@ class DuckDBBackend:
     def rows_in(self, schema: str, entity: Entity) -> int:
         return self.connection.execute(f"select count(*) from {self.table(schema, entity)}").fetchone()[0]
 
-    def record_load(self, prefix: str, source: str, entity: Entity, counts: tuple[int, int, str | None]) -> None:
-        self.run_ddl(record_load_sql("duckdb", f"{prefix}audit", self.batch, source, entity.name, counts))
+    def record_load(self, audit: str, source: str, entity: Entity, counts: tuple[int, int, str | None]) -> None:
+        self.run_ddl(record_load_sql("duckdb", audit, self.batch, source, entity.name, counts))
 
     def finish_loading(self) -> None:
         self.connection.close()
@@ -186,13 +186,13 @@ class SnowflakeBackend:
     cleanup_failed = False
     batch = "verify"
 
-    def __init__(self, project: Project, folder: Path, prefix: str | None = None):
+    def __init__(self, project: Project, folder: Path, prefix: str | None = None, database: str | None = None):
         from murakumo.generate.dbt import warehouse_database
         from murakumo.importers import snowflake
 
         self.folder = folder
         self.prefix = datetime.now().strftime("verify_%Y%m%d_%H%M%S_") if prefix is None else prefix
-        self.database = os.environ.get("SNOWFLAKE_DATABASE") or warehouse_database(project.manifest)
+        self.database = database or os.environ.get("SNOWFLAKE_DATABASE") or warehouse_database(project.manifest)
         try:
             self.connection = snowflake.connect("snowflake://", database=self.database)
         except snowflake.SnowflakeUnavailable as exc:
@@ -297,9 +297,9 @@ class SnowflakeBackend:
             connection.close()
         return target
 
-    def record_load(self, prefix: str, source: str, entity: Entity, counts: tuple[int, int, str | None]) -> None:
-        audit = f"{self.database}.{prefix}audit"
-        self.run_ddl(record_load_sql("snowflake", audit, self.batch, source, entity.name, counts))
+    def record_load(self, audit: str, source: str, entity: Entity, counts: tuple[int, int, str | None]) -> None:
+        """Record a load in ``audit``: the audit schema, or someone's own schema."""
+        self.run_ddl(record_load_sql("snowflake", f"{self.database}.{audit}", self.batch, source, entity.name, counts))
 
     def rows_in(self, schema: str, entity: Entity) -> int:
         cursor = self.connection.cursor()
@@ -529,7 +529,7 @@ def verify(
                         result.rejected[entity.name] = backend.last_load[1:]
                     if project.manifest.quality.run_log:
                         counts = backend.last_load or (result.loaded[entity.name] - before, 0, None)
-                        backend.record_load(backend.prefix, entity.source or "raw", entity, counts)
+                        backend.record_load(f"{backend.prefix}audit", entity.source or "raw", entity, counts)
             except LoadError as exc:
                 result.error = str(exc)
                 return result
@@ -539,7 +539,7 @@ def verify(
             finally:
                 backend.finish_loading()
 
-            environment = project.manifest.targets.environments[0] if project.manifest.targets.environments else "dev"
+            environment = project.manifest.targets.names[0]
             run = _run_dbt(folder / "dbt", environment, backend.dbt_environment(), rerun, result)
         finally:
             if keep_tables:
@@ -568,18 +568,21 @@ class BuildResult(VerifyResult):
     skipped: list[str] = field(default_factory=list)  # raw tables that already had rows, so got no sample
 
 
-def _duckdb_path(project: Project) -> Path:
-    """The project's own DuckDB file: the manifest's database, or <project>.duckdb beside it."""
-    configured = project.manifest.targets.warehouse.database or ""
+def _duckdb_path(project: Project, database: str | None = None) -> Path:
+    """A DuckDB file: an environment's own (``database``), else the project's (the manifest's
+    database, or <project>.duckdb beside it)."""
+    configured = database or project.manifest.targets.warehouse.database or ""
+    if database and not database.endswith((".duckdb", ".db")):
+        configured = f"{database}.duckdb"
     name = configured if configured.endswith((".duckdb", ".db")) else f"{project.manifest.project.name}.duckdb"
     return (project.root / name).resolve()
 
 
-def _build_backend(project: Project, warehouse: Warehouse, folder: Path, prefix: str):
+def _build_backend(project: Project, warehouse: Warehouse, folder: Path, prefix: str, database: str | None = None):
     if warehouse is Warehouse.SNOWFLAKE:
-        backend = SnowflakeBackend(project, folder, prefix=prefix)
+        backend = SnowflakeBackend(project, folder, prefix=prefix, database=database)
     else:
-        backend = DuckDBBackend(project, folder, path=_duckdb_path(project))
+        backend = DuckDBBackend(project, folder, path=_duckdb_path(project, database))
         backend.prefix = prefix
     backend.batch = datetime.now().strftime("build_%Y%m%d_%H%M%S")
     return backend
@@ -592,7 +595,7 @@ def build(
     data: dict[str, str] | None = None,
     limit: int | None = None,
     sample: int = 0,
-    schema_prefix: str = "",
+    schema_prefix: str | None = None,
     schedule: str | None = None,
     select: str | None = None,
     dbt_vars: dict[str, str] | None = None,
@@ -602,7 +605,9 @@ def build(
 
     Raw tables are loaded only when asked: ``data`` from files or tables, or ``sample`` synthetic
     rows into tables that are still empty. Otherwise dbt builds on whatever ingestion has landed.
-    ``schema_prefix`` puts every schema beside the usual ones (for tests), as verify does.
+    ``environment`` is a shared one (dev, stage, prod: its database and schemas) or, by default,
+    everyone's own (one schema per person, on a shared warehouse). ``schema_prefix`` puts every
+    schema beside the environment's own, as a pull request's preview does.
     ``schedule`` builds only what that schedule refreshes, through its dbt selector.
     """
     warehouse = Warehouse(warehouse or project.manifest.targets.warehouse.type)
@@ -622,10 +627,13 @@ def build(
         package = "'murakumo[verify]'" if warehouse is Warehouse.DUCKDB else "dbt-snowflake"
         raise SourceUnavailable(f"build needs dbt for {warehouse.value}: pip install {package}") from None
 
-    environments = project.manifest.targets.environments or ["dev"]
-    environment = environment or environments[0]
-    if environment not in environments:
-        raise SourceUnavailable(f"no environment {environment!r} in murakumo.yaml; it has {', '.join(environments)}")
+    from murakumo.environments import EnvError, placement_for
+
+    try:
+        placement = placement_for(project, environment, warehouse, schema_prefix)
+    except EnvError as exc:
+        raise SourceUnavailable(str(exc)) from None
+    environment = placement.environment
 
     if schedule is not None:
         from murakumo.schedules import effective
@@ -646,15 +654,15 @@ def build(
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
 
-        backend = _build_backend(project, warehouse, folder, schema_prefix)
+        backend = _build_backend(project, warehouse, folder, placement.prefix, placement.database)
         try:
             try:
-                backend.run_ddl(DDL(output.plan, schema_prefix=schema_prefix).raw())
+                backend.run_ddl(DDL(output.plan, schema_prefix=placement.prefix, single=placement.single).raw())
                 raw = [e for e in project.model.entities if e.layer is Layer.RAW]
                 synthetic = sample_rows(project.model, raw, rows=sample) if sample else {}
                 planned = {t.entity.name: g.schema for g in output.plan.sources for t in g.tables}
                 for entity in raw:
-                    schema = schema_prefix + planned[entity.name]
+                    schema = placement.schema(planned[entity.name])
                     key = entity.name.lower()
                     location = data.get(key) or data.get(f"{(entity.source or '').lower()}.{key}")
                     before = backend.rows_in(schema, entity)
@@ -669,7 +677,7 @@ def build(
                         result.rejected[entity.name] = backend.last_load[1:]
                     if entity.name in result.loaded and project.manifest.quality.run_log:
                         counts = backend.last_load or (result.loaded[entity.name] - before, 0, None)
-                        backend.record_load(schema_prefix, entity.source or "raw", entity, counts)
+                        backend.record_load(placement.schema("audit"), entity.source or "raw", entity, counts)
             except LoadError as exc:
                 result.error = str(exc)
                 return result
@@ -681,7 +689,9 @@ def build(
             variables = backend.dbt_environment()
             if warehouse is Warehouse.DUCKDB:
                 variables.pop("MURAKUMO_SCHEMA")  # the environment's own schema, as in profiles.yml
-                variables["MURAKUMO_SCHEMA_PREFIX"] = schema_prefix
+            variables.update(placement.dbt_variables())
+            if placement.single:
+                variables["MURAKUMO_SCHEMA"] = placement.single
             variables["MURAKUMO_SCHEDULE"] = schedule or ""  # recorded in audit.run_log
             run = _run_dbt(
                 folder / "dbt",

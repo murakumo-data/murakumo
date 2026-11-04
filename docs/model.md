@@ -216,6 +216,7 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK103 | error | Two objects share an id |
 | MK104–106 | error | Two sources, metrics or relationships have the same name |
 | MK107 | error | A table has the name of the staging model generated for a raw table (`stg_<source>__<table>`) |
+| MK108 | warning | Two tables of different layers (or a table and an audit table) share a name, so they would collide in someone's own schema on a shared warehouse |
 | MK201 | error | An entity's source is not declared |
 | MK202 | error | An entity's domain is not in `project.domains` |
 | MK203 | error | grain, watermark, partition, cluster or test columns do not exist |

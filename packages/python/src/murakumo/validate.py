@@ -81,6 +81,28 @@ def validate_project(project: Project) -> list[Diagnostic]:
                 )
             )
 
+    # Someone's own schema (on a shared warehouse) holds every layer, so table names must not repeat
+    # across layers: a raw table, a model and an audit table of the same name would collide there.
+    if manifest.collaboration.personal_schemas and manifest.targets.warehouse.type.value != "duckdb":
+        audit_tables = {"run_log", "model_runs", "dq_results", "row_counts", "daily_summary", "murakumo_migrations"}
+        owners: dict[str, list[str]] = {}
+        for entity in model.entities:
+            owners.setdefault(entity.name.lower(), []).append(f"{entity.layer.value} table {entity.name}")
+        for name, raw in staged.items():
+            owners.setdefault(name, []).append(f"the staging model of {raw.name}")
+        for name in audit_tables:
+            if name in owners:
+                owners[name].append("an audit table")
+        for name, who in owners.items():
+            if len(who) > 1:
+                out.append(
+                    warning(
+                        "MK108",
+                        f"{' and '.join(who)} share the name {name}; in someone's own schema (one per person) "
+                        "they would be the same table: rename one",
+                    )
+                )
+
     ids: list[str] = [str(o.id) for o in (*model.sources, *model.entities, *model.relationships, *model.metrics)]
     ids += [str(a.id) for e in model.entities for a in e.attributes]
     for dup in _duplicates(ids):

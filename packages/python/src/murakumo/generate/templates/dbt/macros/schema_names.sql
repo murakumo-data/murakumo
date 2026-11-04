@@ -2,8 +2,12 @@
     appended to the target schema. MURAKUMO_SCHEMA_PREFIX puts every schema of a run side by side
     with others in one database, as `murakumo verify` does: verify_..._staging, verify_..._marts. -#}
 {% macro generate_schema_name(custom_schema_name, node) -%}
+    {#- Someone's own builds (MURAKUMO_SINGLE_SCHEMA) put every layer in one schema named after them. -#}
+    {%- set single = env_var('MURAKUMO_SINGLE_SCHEMA', '') -%}
     {%- set prefix = env_var('MURAKUMO_SCHEMA_PREFIX', '') -%}
-    {%- if custom_schema_name is none -%}
+    {%- if single -%}
+        {{ single }}
+    {%- elif custom_schema_name is none -%}
         {{ target.schema }}
     {%- else -%}
         {{ prefix ~ (custom_schema_name | trim) }}

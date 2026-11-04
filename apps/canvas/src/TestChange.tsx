@@ -12,8 +12,8 @@ type Step = {
   title: string
   text: string
   kind: string
-  options: (prefix: string) => Record<string, unknown>
-  command: (prefix: string) => string
+  options: (prefix: string, env: string) => Record<string, unknown>
+  command: (prefix: string, env: string) => string
   danger?: boolean
 }
 
@@ -23,32 +23,32 @@ const STEPS: Step[] = [
     title: 'Copy production',
     text: 'Copies the shared schemas into schemas starting with the prefix. On Snowflake a clone is instant and takes no space until rows change; on DuckDB the tables are copied.',
     kind: 'env_clone',
-    options: (prefix) => ({ prefix }),
-    command: (prefix) => `murakumo env clone --prefix ${prefix}`,
+    options: (prefix, env) => ({ environment: env, prefix }),
+    command: (prefix, env) => `murakumo env clone --env ${env} --prefix ${prefix}`,
   },
   {
     id: 'migrate',
     title: "Apply this branch's migrations",
     text: "Runs the migrations production has not run yet on the copy: the copy keeps production's record, so only this branch's new ones run. If one fails here, it would have failed in production.",
     kind: 'migrate_apply',
-    options: (prefix) => ({ prefix }),
-    command: (prefix) => `murakumo migrate --apply --prefix ${prefix}`,
+    options: (prefix, env) => ({ environment: env, prefix }),
+    command: (prefix, env) => `murakumo migrate --apply --env ${env} --prefix ${prefix}`,
   },
   {
     id: 'build',
     title: 'Build and test there',
     text: "Builds every model on the copy, with this branch's code, and runs every test.",
     kind: 'build',
-    options: (prefix) => ({ environment: 'prod', prefix }),
-    command: (prefix) => `murakumo build --env prod --prefix ${prefix}`,
+    options: (prefix, env) => ({ environment: env, prefix }),
+    command: (prefix, env) => `murakumo build --env ${env} --prefix ${prefix}`,
   },
   {
     id: 'drop',
     title: 'Drop the copy',
     text: 'When you have looked, drop every schema under the prefix. The shared schemas are never touched.',
     kind: 'env_drop',
-    options: (prefix) => ({ prefix }),
-    command: (prefix) => `murakumo env drop --prefix ${prefix} --yes`,
+    options: (prefix, env) => ({ environment: env, prefix }),
+    command: (prefix, env) => `murakumo env drop --env ${env} --prefix ${prefix} --yes`,
     danger: true,
   },
 ]
@@ -60,18 +60,29 @@ const suggest = (branch: string) =>
     .replace(/^_+|_+$/g, '')
     .slice(0, 24) || 'change'}_`.replace(/^pr_(\d)/, 'pr_$1')
 
-export function TestChange({ branch, onClose, onOpenJob }: { branch: string; onClose: () => void; onOpenJob: (id: string) => void }) {
+export function TestChange({
+  branch,
+  environments,
+  onClose,
+  onOpenJob,
+}: {
+  branch: string
+  environments: string[] // the shared ones; the last (prod) is copied by default
+  onClose: () => void
+  onOpenJob: (id: string) => void
+}) {
   const [prefix, setPrefix] = useState(() => suggest(branch))
+  const [env, setEnvName] = useState(environments[environments.length - 1] ?? 'prod')
   const [jobs, setJobs] = useState<Record<string, Job>>({})
   const [error, setError] = useState<string | null>(null)
-  const [env, setEnv] = useState<EnvInfo | null>(null)
+  const [look, setEnv] = useState<EnvInfo | null>(null)
   const timers = useRef<number[]>([])
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
   const valid = /^[a-z][a-z0-9_]*_$/.test(prefix) && !prefix.startsWith('dev_')
 
   const look = async () => {
     try {
-      setEnv(await api.env('prod', prefix))
+      setEnv(await api.env(env, prefix))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -80,7 +91,7 @@ export function TestChange({ branch, onClose, onOpenJob }: { branch: string; onC
   const start = async (step: Step) => {
     setError(null)
     try {
-      const job = await api.startJob(step.kind, step.options(prefix))
+      const job = await api.startJob(step.kind, step.options(prefix, env))
       setJobs((all) => ({ ...all, [step.id]: job }))
       const follow = async () => {
         const now = await api.job(job.id, 1_000_000) // state only: the lines are in Activity
@@ -105,6 +116,16 @@ export function TestChange({ branch, onClose, onOpenJob }: { branch: string; onC
           What a pull request's preview does, here and now: try <code>{branch}</code> on a copy of production before it is
           merged. Each step is one <code>murakumo</code> command; its output is in Activity.
         </p>
+        <label className="build__row">
+          <span>Copy of</span>
+          <select className="input" value={env} disabled={Object.keys(jobs).length > 0} onChange={(e) => setEnvName(e.target.value)}>
+            {environments.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="build__row">
           <span>Schema prefix</span>
           <input className="input" value={prefix} disabled={Object.keys(jobs).length > 0} onChange={(e) => setPrefix(e.target.value.trim())} />
@@ -138,7 +159,7 @@ export function TestChange({ branch, onClose, onOpenJob }: { branch: string; onC
                   </button>
                 </div>
                 <p className="muted small">{step.text}</p>
-                <code className="stepper__command">{step.command(prefix)}</code>
+                <code className="stepper__command">{step.command(prefix, env)}</code>
                 {job && job.state !== 'running' && (
                   <button className="link-button small" onClick={() => onOpenJob(job.id)}>
                     {job.state === 'succeeded' ? 'See the output' : 'See what went wrong'}
@@ -148,14 +169,14 @@ export function TestChange({ branch, onClose, onOpenJob }: { branch: string; onC
             )
           })}
         </ol>
-        {env && (
+        {look && (
           <section className="stepper__look">
-            <h4 className="runs__heading">What is under {env.prefix || 'the shared schemas'}</h4>
-            {env.reason ? (
-              <p className="muted small">{env.reason}</p>
+            <h4 className="runs__heading">What is under {look.prefix || 'the shared schemas'} in {env}</h4>
+            {look.reason ? (
+              <p className="muted small">{look.reason}</p>
             ) : (
               <ul className="stepper__schemas">
-                {env.schemas.map((s) => (
+                {look.schemas.map((s) => (
                   <li key={s.schema}>
                     <code>{s.schema}</code> <span className="muted">{s.exists ? `${s.tables} table${s.tables === 1 ? '' : 's'}` : 'not created'}</span>
                   </li>

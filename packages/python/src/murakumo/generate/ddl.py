@@ -29,9 +29,10 @@ def _comment(text: str | None, backslash: bool = False) -> str:
 
 
 class DDL:
-    def __init__(self, plan: Plan, schema_prefix: str = ""):
+    def __init__(self, plan: Plan, schema_prefix: str = "", single: str | None = None):
         self.plan = plan
         self.prefix = schema_prefix
+        self.single = single  # one schema for everything: someone's own
         self.target = plan.target
         self.dialect = plan.target.dialect
         self.warehouse = plan.target.warehouse
@@ -88,7 +89,7 @@ class DDL:
         out = [HEADER.format(warehouse=self.warehouse.value)]
         for group in self.plan.sources:
             out.append(f"\n-- Source: {group.name}\n")
-            out.append(self.schema(self.prefix + group.schema))
+            out.append(self.schema(self.single or self.prefix + group.schema))
             for table in group.tables:
                 entity = table.entity
                 # Landing tables accept whatever the source sends; staging tests catch bad rows.
@@ -99,7 +100,7 @@ class DDL:
                     (name, self.target.physical(parse_type(logical)), True, "Written by ingestion.")
                     for name, logical in LANDING_COLUMNS.items()
                 ]
-                out.append("\n" + self.table(self.prefix + group.schema, entity, columns, []))
+                out.append("\n" + self.table(self.single or self.prefix + group.schema, entity, columns, []))
         return "".join(out)
 
     def key_suffix(self) -> str:

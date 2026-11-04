@@ -9,8 +9,16 @@ import { api, type RunLog } from './api'
 const when = (text: string | null) =>
   text ? new Date(text.replace(' ', 'T')).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''
 
-export function RunsPanel({ refresh, onModel }: { refresh: number; onModel: (name: string) => void }) {
-  const [environment, setEnvironment] = useState('dev')
+export function RunsPanel({
+  refresh,
+  onModel,
+  environments,
+}: {
+  refresh: number
+  onModel: (name: string) => void
+  environments: { personal: string; shared: string[] }
+}) {
+  const [environment, setEnvironment] = useState(environments.personal)
   const [log, setLog] = useState<RunLog | null>(null)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(async () => {
@@ -29,8 +37,12 @@ export function RunsPanel({ refresh, onModel }: { refresh: number; onModel: (nam
     <div className="runs">
       <div className="runs__bar">
         <select className="input input--auto" value={environment} onChange={(e) => setEnvironment(e.target.value)} aria-label="Environment">
-          <option value="dev">dev</option>
-          <option value="prod">prod</option>
+          <option value={environments.personal}>my own</option>
+          {environments.shared.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
         </select>
         <span className="muted small">{log?.audit}</span>
         <button className="icon-button icon-button--small runs__refresh" title="Refresh" aria-label="Refresh" onClick={load}>

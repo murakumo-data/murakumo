@@ -302,3 +302,17 @@ def test_a_table_named_like_a_generated_staging_model_is_refused(tmp_path):
     edit.add_entity(project, "stg_nyc_tlc__taxi_zone_lookup", Layer.STAGING)
     codes = [(d.code, d.message) for d in validate_project(project)]
     assert any(code == "MK107" and "taxi_zone_lookup" in message for code, message in codes)
+
+
+def test_names_that_would_collide_in_ones_own_schema(tmp_path):
+    from murakumo import edit
+    from murakumo.ir.model import Layer
+    from murakumo.manifest import Warehouse
+    from murakumo.scaffold import init_project
+    from murakumo.validate import validate_project
+
+    project = init_project(tmp_path / "proj", warehouse=Warehouse.SNOWFLAKE)
+    edit.add_entity(project, "run_log", Layer.MARTS)
+    assert any(d.code == "MK108" and "run_log" in d.message for d in validate_project(project))
+    project.manifest.collaboration.personal_schemas = False
+    assert not any(d.code == "MK108" for d in validate_project(project))
