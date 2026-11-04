@@ -121,6 +121,7 @@ export type Settings = {
   python_engine: string
   plain_sql: boolean
   run_log: boolean
+  raw_text: boolean
   base_branch: string
   personal_schemas: boolean
   personal_database: string | null

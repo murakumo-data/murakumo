@@ -103,6 +103,7 @@ class DuckDBBackend:
         import duckdb
 
         self.duckdb = duckdb
+        self.raw_text = project.manifest.modelling.raw_columns == "text"  # read every column as text
         self.path = path or folder / "verify.duckdb"
         self.connection = duckdb.connect(str(self.path))
 
@@ -137,7 +138,9 @@ class DuckDBBackend:
         # CSV rows DuckDB cannot read are set aside and counted, instead of failing the whole load.
         rejects = f"murakumo_rejects_{entity.name.lower()}"
         duck = target_for(Warehouse.DUCKDB)
-        types = ", ".join(f"'{a.name}': '{duck.physical(a.logical_type)}'" for a in entity.attributes)
+        types = ", ".join(
+            f"'{a.name}': '{'VARCHAR' if self.raw_text else duck.physical(a.logical_type)}'" for a in entity.attributes
+        )
         options = (
             f", types = {{{types}}}, store_rejects = true, rejects_table = '{rejects}', rejects_scan = '{rejects}_scan'"
         )

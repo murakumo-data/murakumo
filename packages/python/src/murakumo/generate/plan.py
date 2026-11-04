@@ -203,6 +203,21 @@ class Planner:
     def cast(self, sql: str, data_type: str) -> str:
         return f"cast({sql} as {data_type})"
 
+    def try_cast(self, sql: str, data_type: str) -> str:
+        """A conversion that gives null instead of failing (raw columns kept as text): each
+        warehouse's own form (TRY_CAST, SAFE_CAST...)."""
+        import sqlglot
+        from sqlglot import exp
+
+        dialect = "tsql" if self.target.dialect in ("fabric", "synapse") else self.target.dialect
+        try:
+            converted = exp.TryCast(
+                this=sqlglot.parse_one(sql, read=dialect), to=exp.DataType.build(data_type, dialect=dialect)
+            )
+            return converted.sql(dialect=dialect)
+        except sqlglot.errors.SqlglotError:
+            return f"try_cast({sql} as {data_type})"
+
     # tests ------------------------------------------------------------------------------------
 
     def column_tests(self, entity: Entity, attribute: Attribute, column: str, history: bool = False) -> list[Test]:
@@ -245,13 +260,16 @@ class Planner:
     def plan_staging(self, entity: Entity) -> DbtModel:
         alias = "source"
         columns: list[Column] = []
+        text = self.project.manifest.modelling.raw_columns == "text"
+        string = self.target.physical_name("string")
         for attribute in entity.attributes:
             name = snake(attribute.name)
             data_type = self.physical(attribute)
+            convert = self.try_cast if text and data_type != string else self.cast
             columns.append(
                 Column(
                     name=name,
-                    sql=self.cast(f"{alias}.{self.quote(attribute.name)}", data_type),
+                    sql=convert(f"{alias}.{self.quote(attribute.name)}", data_type),
                     data_type=data_type,
                     description=attribute.description,
                     tests=self.column_tests(entity, attribute, name),

@@ -116,6 +116,7 @@ class SettingsBody(BaseModel):
     python_engine: str | None = Field(default=None, pattern="^(pyspark|polars|none)$")
     plain_sql: bool | None = None
     run_log: bool | None = None
+    raw_text: bool | None = None
     base_branch: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[\w./-]+$")
     personal_schemas: bool | None = None
     personal_database: str | None = Field(default=None, max_length=255, pattern=r"^[\w.$-]*$")
@@ -759,6 +760,7 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             "python_engine": m.generation.python_engine,
             "plain_sql": m.generation.plain_sql,
             "run_log": m.quality.run_log,
+            "raw_text": m.modelling.raw_columns == "text",
             "base_branch": m.collaboration.base_branch,
             "personal_schemas": m.collaboration.personal_schemas,
             "personal_database": m.collaboration.personal_database,
@@ -801,6 +803,10 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                     "personal_database": ("collaboration", "personal_database"),
                 }
                 current = settings()
+                if "raw_text" in given and given["raw_text"] is not None and given["raw_text"] != current["raw_text"]:
+                    value = "text" if given["raw_text"] else "typed"
+                    write_section(root, ("modelling", "raw_columns"), value)
+                    changed.append(f"raw columns: {'text' if current['raw_text'] else 'typed'} → {value}")
                 for key, path in paths.items():
                     if key in given and given[key] is not None and given[key] != current[key]:
                         try:

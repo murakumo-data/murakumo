@@ -93,7 +93,7 @@ function ProjectSettings({ onState, onMessage }: { onState: (state: State) => vo
       ))}
     </select>
   )
-  const toggle = (key: 'plain_sql' | 'run_log' | 'personal_schemas') => (
+  const toggle = (key: 'plain_sql' | 'run_log' | 'personal_schemas' | 'raw_text') => (
     <input type="checkbox" checked={settings[key]} disabled={saving} onChange={(e) => save({ [key]: e.target.checked })} />
   )
   return (
@@ -128,6 +128,10 @@ function ProjectSettings({ onState, onMessage }: { onState: (state: State) => vo
         </label>
         <label className="settings__check">
           {toggle('run_log')} Record every run in the audit tables (rows loaded and rejected, tests)
+        </label>
+        <label className="settings__check">
+          {toggle('raw_text')} Keep raw columns as text, as they arrived: staging converts them, and values that do
+          not convert become null and are counted, instead of failing the load
         </label>
       </fieldset>
       <fieldset className="settings__group">

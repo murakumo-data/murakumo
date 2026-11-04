@@ -93,8 +93,11 @@ class DDL:
             for table in group.tables:
                 entity = table.entity
                 # Landing tables accept whatever the source sends; staging tests catch bad rows.
+                text = self.plan.project.manifest.modelling.raw_columns == "text"
+                string = self.target.physical_name("string")
                 columns = [
-                    (a.name, self.target.physical(a.logical_type), True, a.description) for a in entity.attributes
+                    (a.name, string if text else self.target.physical(a.logical_type), True, a.description)
+                    for a in entity.attributes
                 ]
                 columns += [
                     (name, self.target.physical(parse_type(logical)), True, "Written by ingestion.")

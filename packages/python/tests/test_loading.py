@@ -116,3 +116,38 @@ def test_a_late_row_reaches_the_incremental_fact(tmp_path):
     pickups = [str(r[0]) for r in con.execute("select pickup_at from marts.fct_trip order by 1").fetchall()]
     con.close()
     assert pickups == ["2024-01-02 09:00:00", "2024-01-10 10:00:00", "2024-01-11 10:00:00"]
+
+
+def test_raw_columns_as_text(tmp_path):
+    """Kept as text, a value that does not fit its type arrives, becomes null in staging, and is counted."""
+    pytest.importorskip("dbt.adapters.duckdb")
+    import duckdb
+
+    from murakumo.generate import generate
+    from murakumo.generate.verify import build
+
+    project = init_project(tmp_path / "taxi")
+    project.manifest.modelling.raw_columns = "text"
+    files = generate(project).files
+    staging = files["dbt/models/staging/nyc_tlc/stg_nyc_tlc__taxi_zone_lookup.sql"]
+    assert 'TRY_CAST(source."LocationID" AS INT)' in staging or "TRY_CAST" in staging
+    assert "murakumo_converts_to" in files["dbt/models/staging/nyc_tlc/_nyc_tlc__sources.yml"]
+
+    write(tmp_path / "zones.csv", [1, "x,Bad,Row,Boro Zone\n", 2])
+    result = build(project, sample=5, data={"taxi_zone_lookup": str(tmp_path / "zones.csv")})
+    assert result.error is None and result.loaded["taxi_zone_lookup"] == 3  # every row arrives, as text
+    assert "taxi_zone_lookup" not in result.rejected
+    con = duckdb.connect(str(project.root / "taxi.duckdb"), read_only=True)
+    raw_type = con.execute(
+        "select data_type from information_schema.columns where table_schema = 'raw_nyc_tlc' "
+        "and table_name = 'taxi_zone_lookup' and column_name = 'LocationID'"
+    ).fetchone()[0]
+    ids = [
+        r[0] for r in con.execute("select location_id from staging.stg_nyc_tlc__taxi_zone_lookup order by 1").fetchall()
+    ]
+    warned = con.execute(
+        "select status, failures from audit.dq_results where test like 'source_murakumo_converts_to%taxi_zone_lookup%LocationID%'"
+    ).fetchall()
+    con.close()
+    assert raw_type == "VARCHAR" and ids == [1, 2, None]
+    assert warned == [("warn", 1)]

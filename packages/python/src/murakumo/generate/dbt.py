@@ -43,7 +43,7 @@ def render(plan: Plan) -> dict[str, str]:
     tags = schedule_tags(project, plan)
 
     for group in plan.sources:
-        files[f"models/staging/{group.name}/_{group.name}__sources.yml"] = _yaml(_sources(group))
+        files[f"models/staging/{group.name}/_{group.name}__sources.yml"] = _yaml(_sources(group, plan))
 
     by_folder: dict[str, list[DbtModel]] = {}
     for model in plan.models:
@@ -191,7 +191,7 @@ def _model_yaml(model: DbtModel, plan: Plan, tags: list[str] | None = None) -> d
     return data
 
 
-def _sources(group) -> dict:
+def _sources(group, plan: Plan | None = None) -> dict:
     source: dict[str, Any] = {
         "name": group.name,
         # Someone's own schema holds everything; otherwise the raw schema, under any prefix.
@@ -214,12 +214,19 @@ def _sources(group) -> dict:
         if table.entity.name != table.entity.name.lower():
             entry["quoting"] = {"identifier": True}
         columns = []
+        text = plan is not None and plan.project.manifest.modelling.raw_columns == "text"
         for attribute in table.entity.attributes:
             column: dict[str, Any] = {"name": attribute.name}
             if attribute.description:
                 column["description"] = attribute.description
             if attribute.name != attribute.name.lower():
                 column["quote"] = True
+            physical = plan.target.physical(attribute.logical_type) if text else None
+            if text and physical != plan.target.physical_name("string"):
+                # Kept as text: count the values staging will not be able to convert (a warning, not a stop).
+                column["data_tests"] = [
+                    {"murakumo_converts_to": {"data_type": physical, "config": {"severity": "warn"}}}
+                ]
             columns.append(column)
         entry["columns"] = columns
         tables.append(entry)

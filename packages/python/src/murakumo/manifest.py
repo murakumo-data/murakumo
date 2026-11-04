@@ -178,6 +178,9 @@ class Modelling(Section):
     default_scd: int = Field(default=2, ge=0, le=6)
     surrogate_keys: str = Field(default="hash", pattern="^(hash|sequence)$")
     cumulative_tables: bool = False
+    # text: raw tables keep every column as text, exactly as it arrived; staging converts the types,
+    # and a value that does not convert becomes null and is counted (a warning) instead of failing the load.
+    raw_columns: str = Field(default="typed", pattern="^(typed|text)$")
 
 
 class Conventions(Section):
