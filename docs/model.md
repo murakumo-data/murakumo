@@ -44,7 +44,9 @@ source: nyc_tlc                 # for raw tables: the source system
 grain: [trip_id]                # the columns that make a row unique
 history: none                   # none | scd1 | scd2 | scd3 | scd4 | scd6 | snapshot
 load: incremental               # full | append | incremental | cdc | streaming
-watermark: pickup_at            # the column that says what is new, for incremental loads
+watermark: pickup_at            # the column that orders a key's versions (and, by choice, says what is new)
+incremental_by: load_time       # load_time (the default: what was loaded since the last run) | watermark
+lookback_hours: 0               # an incremental table also re-reads this many hours, for stragglers
 partition_by: [day(pickup_at)]  # a column, or a transform: day(), month(), year(), hour(), bucket(n, col)
 cluster_by: []
 freshness: { warn_after_hours: 24, error_after_hours: 48 }
@@ -216,6 +218,7 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK103 | error | Two objects share an id |
 | MK104–106 | error | Two sources, metrics or relationships have the same name |
 | MK107 | error | A table has the name of the staging model generated for a raw table (`stg_<source>__<table>`) |
+| MK108 | warning | Two tables of different layers (or a table and an audit table) share a name, so they would collide in someone's own schema on a shared warehouse |
 | MK201 | error | An entity's source is not declared |
 | MK202 | error | An entity's domain is not in `project.domains` |
 | MK203 | error | grain, watermark, partition, cluster or test columns do not exist |
@@ -231,11 +234,12 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK305 | warning | An entity has no columns |
 | MK306 | warning | A PII column is not classified confidential or restricted |
 | MK307 | warning | A name is not snake_case (raw tables are exempt: they mirror the source) |
-| MK308 | warning | An incremental load has no watermark |
+| MK308 | warning | An incremental raw table has no watermark |
 | MK309 | warning | SCD2 or SCD6 history without a primary or natural key |
 | MK310 | error | A cumulative table has no `cumulative:` setting |
 | MK311 | warning | A primary key column is nullable |
 | MK312 | error | A cumulative table has no grain |
+| MK313 | warning | A table is built incrementally by its watermark (`incremental_by: watermark`) but has no watermark column, so it is rebuilt in full |
 | MK401 | error | An import would overwrite a table that belongs to another source or layer |
 | MK402 | error | A dictionary row has no table or column name, or the file has no rows |
 | MK403 | warning | A dictionary value could not be used (type, classification, foreign key) |

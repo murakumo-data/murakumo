@@ -222,6 +222,7 @@ function Canvas() {
   const [runningPython, setRunningPython] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [scheduleRuns, setScheduleRuns] = useState<RunLog['schedules'] | null>(null)
+  const [schedulerJob, setSchedulerJob] = useState<Job | null>(null)
   const canvasRef = useRef<State['canvas']>({})
   const addNoteRef = useRef<() => void>(() => {})
   const busy = useRef(0)
@@ -325,13 +326,23 @@ function Canvas() {
       .catch(() => {})
   }, [])
 
-  // When each schedule last ran, for the Schedules panel: read when it opens and after each job.
+  // When each schedule last ran, for the Schedules panel, and whether they run on this computer:
+  // read while it is open (the scheduler's runs finish on their own).
   useEffect(() => {
     if (side !== 'schedules') return
-    api.runs().then(
-      (log) => setScheduleRuns(log.schedules),
-      () => setScheduleRuns(null),
-    )
+    const read = () => {
+      api.runs().then(
+        (log) => setScheduleRuns(log.schedules),
+        () => setScheduleRuns(null),
+      )
+      api.jobs().then(
+        (r) => setSchedulerJob(r.jobs.find((j) => j.kind === 'scheduler' && j.state === 'running') ?? null),
+        () => {},
+      )
+    }
+    read()
+    const timer = window.setInterval(read, 15000)
+    return () => window.clearInterval(timer)
   }, [side, jobsDone])
 
   // The first time the canvas opens, a short tour; the help button starts it again.
@@ -1235,6 +1246,7 @@ function Canvas() {
               {side === 'runs' && (
                 <RunsPanel
                   refresh={jobsDone}
+                  environments={state.environments}
                   onModel={(name) => {
                     const entity = entities.find((e) => e.name.toLowerCase() === name.toLowerCase())
                     if (entity) focus(entity)
@@ -1264,6 +1276,19 @@ function Canvas() {
                   onHighlight={(s) => setScheduleShown(s ? { name: s.name, entities: s.entities } : null)}
                   lastRuns={scheduleRuns}
                   onRunNow={(schedule) => startJob('build', { schedule })}
+                  scheduler={{ running: schedulerJob !== null, since: schedulerJob?.started ?? null }}
+                  onScheduler={async (start) => {
+                    if (start) {
+                      const job = await api.startJob('scheduler').catch((e) => {
+                        setMessage({ text: e.message, tone: 'info' })
+                        return null
+                      })
+                      setSchedulerJob(job)
+                    } else if (schedulerJob) {
+                      await api.cancelJob(schedulerJob.id)
+                      setSchedulerJob(null)
+                    }
+                  }}
                 />
               )}
               {side === 'domains' && <DomainsPanel state={state} run={run} filter={domainFilter} onFilter={setDomainFilter} />}
@@ -1455,6 +1480,7 @@ function Canvas() {
       {testing && (
         <TestChange
           branch={testing}
+          environments={state.environments.shared}
           onClose={() => setTesting(null)}
           onOpenJob={(id) => {
             setTesting(null)

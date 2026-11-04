@@ -41,3 +41,6 @@ models:
                 min_value: 0.0
       - name: _updated_at
         data_type: TIMESTAMPTZ
+      - name: _loaded_at
+        description: When its source row was loaded.
+        data_type: TIMESTAMPTZ

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from murakumo.environments import EnvError, connect, prefix_for
+from murakumo.environments import EnvError, connect, placement_for
 from murakumo.manifest import Warehouse
 from murakumo.project import Project
 
@@ -33,12 +33,17 @@ def read(
 
     ``recorded`` is False (with ``reason``) when nothing has been recorded where this looks."""
     warehouse = project.manifest.targets.warehouse.type
-    name = environment or (project.manifest.targets.environments or ["dev"])[0]
-    chosen = prefix_for(project, name, warehouse, prefix)
-    where = f"{chosen}audit"
-    empty = {"audit": where, "recorded": False, "days": [], "runs": [], "loads": [], "failed": [], "schedules": {}}
+    empty: dict[str, Any] = {"recorded": False, "days": [], "runs": [], "loads": [], "failed": [], "schedules": {}}
     try:
-        connection = connect(project, read_only=read_only)
+        placement = placement_for(project, environment, warehouse, prefix)
+    except EnvError as exc:
+        return {**empty, "audit": "", "reason": str(exc)}
+    where = placement.schema("audit")
+    empty["audit"] = where
+    try:
+        connection = connect(
+            project, read_only=read_only, database=placement.database, environment=placement.environment
+        )
     except EnvError as exc:
         return {**empty, "reason": str(exc)}
     audit = where if warehouse is Warehouse.DUCKDB else f"{connection.database}.{where}"

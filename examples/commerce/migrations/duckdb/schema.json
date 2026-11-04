@@ -1,6 +1,6 @@
 {
   "warehouse": "duckdb",
-  "migration": 2,
+  "migration": 3,
   "tables": [
     {
       "id": "772ed744-3320-4d78-af94-2f50516ae545",
@@ -94,6 +94,11 @@
         {
           "id": "3f721466-3ca6-4fa1-a3f8-2aa6b1831e48:_updated_at",
           "name": "_updated_at",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "3f721466-3ca6-4fa1-a3f8-2aa6b1831e48:_loaded_at",
+          "name": "_loaded_at",
           "type": "TIMESTAMPTZ"
         }
       ]

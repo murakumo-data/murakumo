@@ -42,7 +42,18 @@ murakumo rename schedule hourly_sales sales_hourly
 murakumo remove schedule sales_hourly
 murakumo schedules --timezone Europe/London
 murakumo build --schedule hourly_sales                   # run one schedule by hand
+murakumo scheduler                                       # run every schedule here, at its times
 ```
+
+### Running the schedules on this computer
+
+An orchestrator runs the schedules in production. Before that, or for a project that lives on one
+machine, `murakumo scheduler` does the same here: it sleeps until the next schedule is due, builds
+what it refreshes (`murakumo build --schedule NAME`), and waits for the next, until stopped
+(Ctrl+C). Each run is recorded in the run log with its schedule, so `murakumo runs` and the canvas
+show when each last ran. `--env dev` builds an environment instead of your own schema;
+`--data TABLE=FOLDER` loads the new files in a folder before each run. In the canvas, the Schedules
+panel's **Run them here** starts it (beside any other job) and **Stop** stops it.
 
 Cron times take `*`, numbers, ranges (`1-5`), steps (`*/15`), lists (`6,18`), month and day names
 (`jan`, `mon`) and `@hourly`, `@daily`, `@weekly`, `@monthly`. `murakumo validate` checks them,
@@ -117,29 +128,36 @@ change only when the project does.
 ```bash
 murakumo ci                         # .github/workflows/murakumo.yml at the repository root
 murakumo ci --provider gitlab       # .gitlab-ci.yml
-murakumo ci --deploy                # also build production on pushes to main, after approval
+murakumo ci --deploy                # also deploy each environment when its branch changes
 murakumo ci --dry-run               # print it instead
 murakumo ci --run                   # run the same checks here
 ```
 
-The workflow runs on every pull request and push to main, in the project's folder:
+The workflow runs on every pull request, and on every push to an environment's branch (`dev`,
+`stage`, `main`), in the project's folder:
 
 1. `murakumo validate --strict`: the model has no errors or warnings;
 2. `murakumo generate --check`: `generated/` matches the model;
 3. `murakumo migrate --check`: every table change has its migration;
 4. `murakumo verify`: the dbt project builds and its tests pass, on DuckDB with made-up rows.
 
-With `--deploy`, a second job builds the production environment after the checks pass, on pushes
-to main only: on GitHub it uses the `production` environment (add required reviewers to it under
-Settings → Environments, so each deploy waits for approval); on GitLab it is a manual job. The
-warehouse credentials come from the CI's secrets (`SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER` and
-`SNOWFLAKE_PRIVATE_KEY`, the key's contents, for Snowflake). A project that builds into a DuckDB
-file has nothing to deploy to.
+With `--deploy`, a job per environment deploys it after the checks pass, when its branch changes:
+`murakumo migrate --apply --env dev`, then `murakumo build --env dev` on a push to `dev`, and so
+on up to prod from `main`. On GitHub each job uses a GitHub environment of the same name (add
+required reviewers to `prod` under Settings → Environments, so each production deploy waits for
+approval); on GitLab, prod is a manual job and the others run on their own. The warehouse
+credentials come from the CI's secrets (`SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER` and
+`SNOWFLAKE_PRIVATE_KEY`, the key's contents, for Snowflake), and each environment's role from
+`SNOWFLAKE_ROLE_DEV`, `SNOWFLAKE_ROLE_PROD`... (`murakumo env provision` creates those roles). A
+project that builds into DuckDB files has nothing to deploy to.
 
-On every pull request, a step before the checks writes the model changes and their impact
-(`murakumo diff --format markdown`) to the run's summary page; see [teamwork.md](teamwork.md).
-`--preview` adds a job that builds each pull request on a clone of production with its new
-migrations, and drops it when the pull request closes (Snowflake).
+On every pull request, steps before the checks make sure it follows the git flow (`murakumo
+branch check`: new work into `dev`, `dev` into `stage`, `stage` into `main`) and write the model
+changes and their impact (`murakumo diff --format markdown`) to the run's summary page; see
+[teamwork.md](teamwork.md). Branch names reach those steps as variables, never written into the
+script, since whoever opens a pull request chooses its branch's name. `--preview` adds a job that
+builds each pull request on a clone of the environment it goes into, with its new migrations, and
+drops it when the pull request closes (Snowflake).
 
 The file is yours once written. If it differs from what Murakumo would write, `murakumo ci` shows
 the difference and changes nothing; `--force` replaces it. The canvas's **CI** panel does the

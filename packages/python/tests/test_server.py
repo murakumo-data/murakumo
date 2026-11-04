@@ -346,3 +346,17 @@ def test_env_and_diff(client, project):
     assert client.get("/api/env?prefix=PROD").status_code == 400
     assert client.get("/api/diff?ref=main;rm").status_code == 400
     assert client.get("/api/diff?ref=main").status_code == 409  # not a git repository
+
+
+def test_environments_in_settings(client, project):
+    settings = client.get("/api/settings").json()
+    assert [e["name"] for e in settings["environments"]] == ["dev", "stage", "prod"]
+    environments = settings["environments"]
+    environments[2]["database"] = "taxi_live.duckdb"
+    changed = client.put("/api/settings", json={"environments": environments, "personal_database": "SANDBOX"}).json()
+    assert changed["environments"][2]["database"] == "taxi_live.duckdb" and changed["personal_database"] == "SANDBOX"
+    text = (project.root / "murakumo.yaml").read_text()
+    assert "taxi_live.duckdb" in text and "branch: main" in text
+    assert client.get("/api/env/provision").json()["sql"].startswith("-- Nothing to run on DuckDB")
+    bad = [{"name": "prod; drop", "database": None, "branch": None}]
+    assert client.put("/api/settings", json={"environments": bad}).status_code == 422

@@ -223,7 +223,8 @@ def test_modelling_warnings(project_dir):
 
     diagnostics = load_and_validate(project_dir)
     assert all(d.level is Level.WARNING for d in diagnostics)
-    assert codes(diagnostics) == ["MK301", "MK302", "MK303", "MK304", "MK305", "MK306", "MK307", "MK308", "MK311"]
+    # No MK308: an incremental mart picks up rows by load time, with no watermark needed.
+    assert codes(diagnostics) == ["MK301", "MK302", "MK303", "MK304", "MK305", "MK306", "MK307", "MK311"]
 
 
 def test_raw_layer_keeps_source_names(project_dir):
@@ -302,3 +303,17 @@ def test_a_table_named_like_a_generated_staging_model_is_refused(tmp_path):
     edit.add_entity(project, "stg_nyc_tlc__taxi_zone_lookup", Layer.STAGING)
     codes = [(d.code, d.message) for d in validate_project(project)]
     assert any(code == "MK107" and "taxi_zone_lookup" in message for code, message in codes)
+
+
+def test_names_that_would_collide_in_ones_own_schema(tmp_path):
+    from murakumo import edit
+    from murakumo.ir.model import Layer
+    from murakumo.manifest import Warehouse
+    from murakumo.scaffold import init_project
+    from murakumo.validate import validate_project
+
+    project = init_project(tmp_path / "proj", warehouse=Warehouse.SNOWFLAKE)
+    edit.add_entity(project, "run_log", Layer.MARTS)
+    assert any(d.code == "MK108" and "run_log" in d.message for d in validate_project(project))
+    project.manifest.collaboration.personal_schemas = False
+    assert not any(d.code == "MK108" for d in validate_project(project))

@@ -29,6 +29,9 @@ def team(tmp_path):
     identity(ana, "ana")
     git(ana, "checkout", "-q", "-b", "main")
     project = init_project(ana / "platform")
+    from murakumo.manifest_edit import write_section
+
+    project.manifest = write_section(project.root, ("collaboration", "base_branch"), "main")  # these tests share main
     write(generate(project), project.root)
     write_migration(project, plan_migration(project))
     git(ana, "add", "-A")

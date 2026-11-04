@@ -96,10 +96,11 @@ export function GitPanel({ onState, onMessage, revision, onTestChange }: Props) 
         </button>
       </div>
       <p className="muted small">
-        {info.personal_prefix
-          ? `Your ${info.personal_environment} builds go to your own schemas, ${info.personal_prefix}staging and so on, so nobody else's work is touched.`
-          : `Your ${info.personal_environment} builds go to the project's DuckDB file on this computer.`}
+        {info.personal_schema
+          ? `Your own builds go to ${info.personal_where.replace(/^your own copy: /, '')}, so nobody else's work is touched.`
+          : "Your own builds go to the project's DuckDB file on this computer."}
       </p>
+      <NewWork info={info} onState={onState} onMessage={onMessage} onChanged={() => load(false)} />
       {!info.on_base && (
         <p className="small">
           {info.behind === 0
@@ -204,6 +205,7 @@ export function GitPanel({ onState, onMessage, revision, onTestChange }: Props) 
         </button>
       </section>
 
+      {info.flow.length > 1 && <Promote flow={info.flow} onMessage={onMessage} />}
       <Compare base={info.base} onMessage={onMessage} />
     </div>
   )
@@ -290,6 +292,125 @@ function Compare({ base, onMessage }: { base: string; onMessage: (text: string, 
             >
               Copy the report for a pull request
             </button>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** Start new work on a branch of its own (feature/..., fix/..., chore/...), from the latest dev. */
+function NewWork(props: {
+  info: GitStatus
+  onState: (state: State) => void
+  onMessage: (text: string, tone: 'info' | 'error') => void
+  onChanged: () => void
+}) {
+  const { info, onState, onMessage, onChanged } = props
+  const [kind, setKind] = useState('feature')
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const first = info.flow[0]?.branch
+  const act = async (action: () => Promise<void>) => {
+    setBusy(true)
+    try {
+      await action()
+      onChanged()
+    } catch (e) {
+      onMessage(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section className="section">
+      <h3 className="section__title">Start new work</h3>
+      <p className="muted small">
+        On a branch of its own, from the latest {first ?? info.base}; back into it through a pull request.
+      </p>
+      <form
+        className="git__commit"
+        onSubmit={(e) => {
+          e.preventDefault()
+          act(async () => {
+            const done = await api.newBranch(kind, name)
+            onState(done.state)
+            setName('')
+            onMessage(`On ${done.branch}. Commit your changes, push, and open a pull request into ${first ?? info.base}.`, 'info')
+          })
+        }}
+      >
+        <select className="input input--auto" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind of work">
+          <option value="feature">feature</option>
+          <option value="fix">fix</option>
+          <option value="chore">chore</option>
+          <option value="hotfix">hotfix</option>
+        </select>
+        <input className="input" placeholder="add-zone-codes" aria-label="Branch name" value={name} onChange={(e) => setName(e.target.value)} />
+        <button className="button button--small" type="submit" disabled={busy || !name.trim()}>
+          Start
+        </button>
+      </form>
+      {info.flow.length > 0 && (
+        <button
+          className="link-button small"
+          disabled={busy}
+          title="Create the environments' branches from main if they are missing (murakumo branch start)"
+          onClick={() => act(async () => onMessage((await api.startFlow()).done.join(' '), 'info'))}
+        >
+          Create the flow's missing branches ({info.flow.map((f) => f.branch).join(' → ')})
+        </button>
+      )}
+    </section>
+  )
+}
+
+/** Promote an environment's branch to the next: what would move, and where to open the pull request. */
+function Promote({ flow, onMessage }: { flow: GitStatus['flow']; onMessage: (text: string, tone: 'info' | 'error') => void }) {
+  const [result, setResult] = useState<Awaited<ReturnType<typeof api.promotion>> | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  return (
+    <section className="section">
+      <h3 className="section__title">Promote</h3>
+      <p className="muted small">
+        {flow.map((f) => `${f.branch} (${f.environment})`).join(' → ')}. Merging into a branch deploys to its environment.
+      </p>
+      <div className="git__actions">
+        {flow.slice(0, -1).map((f, i) => (
+          <button
+            key={f.branch}
+            className="button button--small"
+            disabled={busy !== null}
+            onClick={async () => {
+              setBusy(f.branch)
+              try {
+                setResult(await api.promotion(f.branch))
+              } catch (e) {
+                onMessage(e instanceof Error ? e.message : String(e), 'error')
+              } finally {
+                setBusy(null)
+              }
+            }}
+          >
+            {busy === f.branch ? 'Checking…' : `${f.branch} → ${flow[i + 1].branch}`}
+          </button>
+        ))}
+      </div>
+      {result && (
+        <div className="compare">
+          <p className="small">
+            {result.commits} commit{result.commits === 1 ? '' : 's'} on <code>{result.from}</code> not on <code>{result.to}</code> yet
+            {result.changes.length ? ', with these model changes:' : '; no model changes.'}
+          </p>
+          <ChangeList changes={result.changes} empty="" />
+          {result.url ? (
+            <a className="button button--small button--primary" href={result.url} target="_blank" rel="noreferrer">
+              Open the pull request
+            </a>
+          ) : (
+            <p className="muted small">
+              Open a pull request from {result.from} into {result.to} where the repository is hosted.
+            </p>
           )}
         </div>
       )}

@@ -189,6 +189,19 @@ runs at a time; **Stop** stops it. The last twenty are kept with their output.
   day after another.
 - **Data dictionaries**: **+ Add source** with a CSV or Excel dictionary has **Choose a file from
   this computer…**, which copies it into `data/` and fills in the path; then import as usual.
+- **Environments and the git flow** (in **Team** and **Settings**): **Start new work** creates a
+  `feature/`, `fix/`, `chore/` or `hotfix/` branch from the latest `dev`; **Promote** shows what
+  moving `dev` into `stage` (or `stage` into `main`) would bring and opens the pull request on
+  GitHub or GitLab; **Create missing dev, stage branches** starts the flow. Settings → Project →
+  **Environments** sets each environment's database and branch and where people's own schemas
+  live, and **Setup SQL…** shows what an administrator runs once (`murakumo env provision`).
+- **Loading and increments** (in the inspector): a raw table's **New rows** says how loads take new
+  rows (append, incremental by key, or full); a modelled table's **Each run** builds it in full,
+  by load time (late rows included, with a look-back in hours), or by its watermark. Settings →
+  Project's **Keep raw columns as text** converts them in staging instead, counting what does not
+  convert. The Build dialog can load every new file in `data/` that starts with a table's name.
+- **Schedules here**: the Schedules panel's **Run them here** runs every schedule on this computer at
+  its times (`murakumo scheduler`), until **Stop**.
 - **Test my change** (in **Team**, or Activity): what a pull request's preview does, one step at a
   time: copy production into a prefix (`pr_<branch>_`), apply this branch's new migrations there,
   build and test there, and drop the copy. Each step shows its command and result, and what is
@@ -259,7 +272,11 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | POST | `/api/jobs` | Start a job: `{kind, options}`; kind is `build`, `verify`, `run`, `backfill`, `migrate_apply`, `env_clone`, `env_drop`, `export` or `generate`, and each option is checked before the command is built |
 | GET | `/api/jobs`, `/api/jobs/{id}?since=` | The jobs, newest first; one job and its output from line `since` on |
 | POST | `/api/jobs/{id}/cancel` | Stop a job, and what it started |
-| GET, PUT | `/api/settings` | The project's settings and their choices; change any of `warehouse`, `orchestrator`, `pattern`, `python_engine`, `plain_sql`, `run_log`, `base_branch`, `personal_schemas` |
+| GET, PUT | `/api/settings` | The project's settings and their choices; change any of `warehouse`, `orchestrator`, `pattern`, `python_engine`, `plain_sql`, `run_log`, `raw_text`, `base_branch`, `personal_schemas`, `personal_database`, `environments: [{name, database, branch}]` |
+| POST | `/api/git/start` | Create the environments' missing branches from main (`murakumo branch start`) |
+| POST | `/api/git/branch` | Start new work: `{kind, name}`; kind is feature, fix, chore or hotfix |
+| GET | `/api/git/promotion?branch=` | What promoting a branch to the next would move, and the pull request's address |
+| GET | `/api/env/provision` | The setup SQL for the environments |
 | GET | `/api/setup?connect=` | What `murakumo setup` checks, each with how to fix it |
 | GET, PUT, DELETE | `/api/uploads`, `/api/uploads/{name}` | Files in `data/`; add one as its raw bytes (`application/octet-stream` only), or remove one |
 | GET | `/api/runs?environment=&prefix=` | The audit tables: days, runs, loads, the last run's failed tests, each schedule's last run |

@@ -23,3 +23,19 @@ select *
 from {{ model }}
 where not ({{ expression }})
 {% endtest %}
+
+{#- Raw columns kept as text: the values that will not convert to the column's type in staging. -#}
+{% test murakumo_converts_to(model, column_name, data_type) %}
+{#- A conversion that gives null instead of failing; some adapters' dbt.safe_cast is a plain cast. -#}
+{%- if target.type in ('duckdb', 'snowflake', 'databricks', 'spark', 'sqlserver', 'fabric', 'synapse') -%}
+    {%- set converted = 'try_cast(' ~ column_name ~ ' as ' ~ data_type ~ ')' -%}
+{%- elif target.type == 'bigquery' -%}
+    {%- set converted = 'safe_cast(' ~ column_name ~ ' as ' ~ data_type ~ ')' -%}
+{%- else -%}
+    {%- set converted = dbt.safe_cast(column_name, data_type) -%}
+{%- endif %}
+select {{ column_name }}
+from {{ model }}
+where {{ column_name }} is not null
+  and {{ converted }} is null
+{% endtest %}

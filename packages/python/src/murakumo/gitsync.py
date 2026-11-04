@@ -129,7 +129,15 @@ def ahead_behind(w: Where) -> tuple[int, int]:
 
 def fetch(w: Where, remote: str) -> None:
     if remote in _git(w.root, "remote").stdout.split():
-        _git(w.root, "fetch", "--quiet", remote, w.base)
+        try:
+            _git(w.root, "fetch", "--quiet", remote, w.base)
+        except GitError as exc:
+            if "couldn't find remote ref" not in str(exc):
+                raise
+            raise GitError(
+                f"{remote} has no branch {w.base} yet. New work starts from {w.base}: create it once from main "
+                f"(`murakumo branch start` does), or set collaboration.base_branch in murakumo.yaml"
+            ) from None
 
 
 def status(project: Project, refresh: bool = False) -> dict[str, Any]:

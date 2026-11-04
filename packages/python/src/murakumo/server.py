@@ -116,8 +116,22 @@ class SettingsBody(BaseModel):
     python_engine: str | None = Field(default=None, pattern="^(pyspark|polars|none)$")
     plain_sql: bool | None = None
     run_log: bool | None = None
+    raw_text: bool | None = None
     base_branch: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[\w./-]+$")
     personal_schemas: bool | None = None
+    personal_database: str | None = Field(default=None, max_length=255, pattern=r"^[\w.$-]*$")
+    environments: list[EnvironmentBody] | None = None
+
+
+class EnvironmentBody(BaseModel):
+    name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    database: str | None = Field(default=None, max_length=255, pattern=r"^[\w.$/-]*$")
+    branch: str | None = Field(default=None, max_length=100, pattern=r"^[\w./-]*$")
+
+
+class BranchBody(BaseModel):
+    kind: str = Field(pattern="^(feature|fix|chore|hotfix)$")
+    name: str = Field(min_length=1, max_length=80)
 
 
 class JobBody(BaseModel):
@@ -321,6 +335,10 @@ def state(root: Path) -> dict[str, Any]:
         ],
         "diagnostics": [_diagnostic(d, project, root) for d in diagnostics],
         "history": HISTORIES[root].summary() if root in HISTORIES else {"undo": None, "redo": None},
+        "environments": {
+            "personal": project.manifest.collaboration.personal_environment if project else "personal",
+            "shared": project.manifest.targets.names if project else [],
+        },
         "choices": {
             "sources": sources,
             "layers": [v.value for v in Layer],
@@ -742,8 +760,11 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             "python_engine": m.generation.python_engine,
             "plain_sql": m.generation.plain_sql,
             "run_log": m.quality.run_log,
+            "raw_text": m.modelling.raw_columns == "text",
             "base_branch": m.collaboration.base_branch,
             "personal_schemas": m.collaboration.personal_schemas,
+            "personal_database": m.collaboration.personal_database,
+            "environments": [e.model_dump() for e in m.targets.environments],
             "choices": {
                 "warehouses": [w.value for w in Warehouse],
                 "orchestrators": [o.value for o in Orchestrator],
@@ -779,8 +800,13 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                     "run_log": ("quality", "run_log"),
                     "base_branch": ("collaboration", "base_branch"),
                     "personal_schemas": ("collaboration", "personal_schemas"),
+                    "personal_database": ("collaboration", "personal_database"),
                 }
                 current = settings()
+                if "raw_text" in given and given["raw_text"] is not None and given["raw_text"] != current["raw_text"]:
+                    value = "text" if given["raw_text"] else "typed"
+                    write_section(root, ("modelling", "raw_columns"), value)
+                    changed.append(f"raw columns: {'text' if current['raw_text'] else 'typed'} → {value}")
                 for key, path in paths.items():
                     if key in given and given[key] is not None and given[key] != current[key]:
                         try:
@@ -788,11 +814,28 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                         except ManifestEditError:  # no such section yet: add it, with just this key
                             write_section(root, path[:1], {path[1]: given[key]})
                         changed.append(f"{key.replace('_', ' ')}: {current[key]} → {given[key]}")
+                if body.environments is not None:
+                    wanted = [
+                        {k: v for k, v in e.model_dump().items() if v not in (None, "")} for e in body.environments
+                    ]
+                    if wanted != [{k: v for k, v in e.items() if v not in (None, "")} for e in current["environments"]]:
+                        write_section(root, ("targets", "environments"), wanted)
+                        changed.append("environments: " + ", ".join(e["name"] for e in wanted))
             except (ValueError, ManifestEditError) as exc:
                 raise HTTPException(400, {"message": str(exc)}) from None
             if changed:
                 history.record("settings: " + "; ".join(changed), before, history_module.take(root))
             return {**settings(), "changed": changed, "state": state(root)}
+
+    @app.get("/api/env/provision")
+    def get_provision() -> dict[str, str]:
+        """What an administrator runs once to create the environments (`murakumo env provision`)."""
+        from murakumo.environments import provision
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return {"sql": provision(project)}
 
     @app.get("/api/setup")
     def get_setup(connect: bool = False) -> dict[str, Any]:
@@ -868,7 +911,7 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.get("/api/env")
     def get_env(environment: str | None = None, prefix: str | None = None) -> dict[str, Any]:
         """Where an environment's builds go (`murakumo env`): the prefix, and each schema's tables."""
-        from murakumo.environments import EnvError, connect, describe, developer, prefix_for
+        from murakumo.environments import EnvError, connect, describe, developer, placement_for
 
         project, _ = _blocked(root)
         if project is None:
@@ -876,21 +919,28 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         if prefix and not jobs_module.PREFIX.match(prefix):
             raise HTTPException(400, {"message": "a schema prefix is lower case and ends in _"})
         warehouse = project.manifest.targets.warehouse.type
-        name = environment or (project.manifest.targets.environments or ["dev"])[0]
-        chosen = prefix_for(project, name, warehouse, prefix)
+        try:
+            placement = placement_for(project, environment, warehouse, prefix)
+        except EnvError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
         out: dict[str, Any] = {
             "developer": developer(),
-            "environment": name,
-            "prefix": chosen,
+            "environment": placement.environment,
+            "prefix": placement.prefix,
+            "single": placement.single,
+            "database": placement.database,
+            "where": placement.describe(),
             "warehouse": warehouse.value,
             "schemas": [],
         }
         try:
-            connection = connect(project, read_only=True)
+            connection = connect(
+                project, read_only=True, database=placement.database, environment=placement.environment
+            )
         except EnvError as exc:
             return {**out, "reason": str(exc)}
         try:
-            out["schemas"] = describe(project, connection, chosen)
+            out["schemas"] = describe(project, connection, placement)
         finally:
             connection.close()
         return out
@@ -976,7 +1026,8 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         project, _ = _blocked(root)
         if project is None:
             raise HTTPException(409, {"message": "the project did not load"})
-        from murakumo.environments import developer, prefix_for
+        from murakumo import branches as branches_module
+        from murakumo.environments import developer, placement_for
 
         info = git_call(lambda: gitsync.status(project, refresh=refresh))
         personal = project.manifest.collaboration.personal_environment
@@ -985,8 +1036,43 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             **info,
             "developer": developer(),
             "personal_environment": personal,
-            "personal_prefix": prefix_for(project, personal, warehouse),
+            "flow": [{"environment": f.environment, "branch": f.branch} for f in branches_module.flow(project)],
+            "personal_prefix": placement_for(project, None, warehouse).prefix,
+            "personal_schema": placement_for(project, None, warehouse).single,
+            "personal_where": placement_for(project, None, warehouse).describe(),
         }
+
+    @app.post("/api/git/start")
+    def post_git_start() -> dict[str, Any]:
+        """Create the environments' branches (dev, stage) from main if missing (`murakumo branch start`)."""
+        from murakumo import branches as branches_module
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return {"done": git_call(lambda: branches_module.start(project))}
+
+    @app.post("/api/git/branch")
+    def post_git_branch(body: BranchBody) -> dict[str, Any]:
+        """Start new work on a branch of its own, from the latest dev (`murakumo branch new`)."""
+        from murakumo import branches as branches_module
+
+        with lock:
+            project, _ = _blocked(root)
+            if project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            branch = git_call(lambda: branches_module.new(project, body.kind, body.name))
+            return {"branch": branch, "state": state(root)}
+
+    @app.get("/api/git/promotion")
+    def get_promotion(branch: str) -> dict[str, Any]:
+        """What promoting an environment's branch to the next would move (`murakumo branch promote`)."""
+        from murakumo import branches as branches_module
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        return git_call(lambda: branches_module.promotion(project, branch))
 
     @app.post("/api/git/sync")
     def post_sync(resume: bool = False) -> dict[str, Any]:

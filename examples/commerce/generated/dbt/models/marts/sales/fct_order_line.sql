@@ -22,10 +22,11 @@ select
     cast(orders.o_orderstatus as VARCHAR) as order_status,
     cast(lineitem.l_quantity as DECIMAL(15,2)) as quantity,
     cast(lineitem.l_extendedprice * (1 - lineitem.l_discount) as DECIMAL(18,4)) as net_amount,
-    cast(current_timestamp as TIMESTAMPTZ) as _updated_at
+    cast(current_timestamp as TIMESTAMPTZ) as _updated_at,
+    cast(lineitem._ingested_at as TIMESTAMPTZ) as _loaded_at
 from lineitem
 left join orders
     on lineitem.l_orderkey = orders.o_orderkey
 {% if is_incremental() %}
-where orders.o_orderdate > (select coalesce(max(ordered_on), cast('1900-01-01' as DATE)) from {{ this }})
+where cast(lineitem._ingested_at as TIMESTAMPTZ) > (select coalesce(max(_loaded_at), cast('1900-01-01' as TIMESTAMPTZ)) from {{ this }})
 {% endif %}

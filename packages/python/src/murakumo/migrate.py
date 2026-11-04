@@ -458,8 +458,9 @@ def write_migration(project: Project, pending: Pending, name: str | None = None)
 APPLIED = "murakumo_migrations"  # in the audit schema: which migration files have run
 
 
-def prefixed(sql: str, prefix: str, dialect: str, schemas: set[str]) -> list[str]:
-    """The statements of a migration, with the project's schemas moved under ``prefix``."""
+def prefixed(sql: str, prefix: str, dialect: str, schemas: set[str], single: str | None = None) -> list[str]:
+    """The statements of a migration, with the project's schemas moved under ``prefix`` (or, for
+    someone's own builds, all into the one schema ``single``)."""
     import sqlglot
     from sqlglot import exp
 
@@ -467,29 +468,34 @@ def prefixed(sql: str, prefix: str, dialect: str, schemas: set[str]) -> list[str
     for tree in sqlglot.parse(sql, read=dialect):
         if tree is None:
             continue
-        if prefix:
+        if prefix or single:
+            moved = lambda name: single or prefix + name  # noqa: E731
             if isinstance(tree, exp.Create) and str(tree.args.get("kind", "")).upper() == "SCHEMA":
                 table = tree.this
                 if table.name.lower() in schemas:
-                    table.set("this", exp.to_identifier(prefix + table.name))
+                    table.set("this", exp.to_identifier(moved(table.name)))
             for table in tree.find_all(exp.Table):
                 if table.db and table.db.lower() in schemas:
-                    table.set("db", exp.to_identifier(prefix + table.db))
+                    table.set("db", exp.to_identifier(moved(table.db)))
         statements.append(tree.sql(dialect=dialect))
     return statements
 
 
-def apply_migrations(project: Project, connection, prefix: str = "", mark_only: bool = False) -> list[str]:
-    """Run the migration files this warehouse (under ``prefix``) has not run yet, in order.
+def apply_migrations(project: Project, connection, placement="", mark_only: bool = False) -> list[str]:
+    """Run the migration files a placement (a prefix, someone's own schema, or an environment's own
+    schemas) has not run yet, in order.
 
-    Each one is recorded in ``<prefix>audit.murakumo_migrations``. ``mark_only`` records them without
-    running them, for tables that were brought up to date by hand.
+    Each one is recorded in its audit schema's ``murakumo_migrations``. ``mark_only`` records them
+    without running them, for tables that were brought up to date by hand.
     """
-    from murakumo.environments import project_schemas
+    from murakumo.environments import Placement, project_schemas
 
+    if isinstance(placement, str):  # a prefix, as before 0.7
+        placement = Placement("", prefix=placement.lower())
+    prefix, single = placement.prefix, placement.single
     warehouse = connection.warehouse
     files = sorted(p for p in folder(project.root, warehouse).glob("*.sql") if _NUMBERED.match(p.name))
-    audit = f"{prefix}audit"
+    audit = placement.schema("audit")
     record = f"{audit}.{APPLIED}" if warehouse is Warehouse.DUCKDB else f"{connection.database}.{audit}.{APPLIED}"
     schema_name = audit if warehouse is Warehouse.DUCKDB else f"{connection.database}.{audit}"
     connection.execute(f"create schema if not exists {schema_name}")
@@ -505,7 +511,7 @@ def apply_migrations(project: Project, connection, prefix: str = "", mark_only: 
         if number in done:
             continue
         if not mark_only:
-            for statement in prefixed(path.read_text(encoding="utf-8"), prefix, dialect, schemas):
+            for statement in prefixed(path.read_text(encoding="utf-8"), prefix, dialect, schemas, single):
                 connection.execute(statement)
         connection.execute(
             f"insert into {record} values ({number}, '{path.stem}', current_timestamp, {str(mark_only).lower()})"

@@ -102,9 +102,23 @@ murakumo generate --warehouse snowflake     # or set targets.warehouse.type: sno
 ```
 
 The generated `profiles.yml` reads the same variables: key-pair login, role
-`SNOWFLAKE_ROLE_<ENV>`, warehouse `SNOWFLAKE_WAREHOUSE`, and database `SNOWFLAKE_DATABASE`,
-which defaults to `targets.warehouse.database` (or the project name in upper case, when the
-manifest names a DuckDB file).
+`SNOWFLAKE_ROLE_<ENV>` (`SNOWFLAKE_ROLE_PERSONAL` for your own builds), warehouse
+`SNOWFLAKE_WAREHOUSE`, and for each environment its database from `murakumo.yaml`. An environment
+without a database of its own (projects from before 0.7) uses `SNOWFLAKE_DATABASE`, which defaults
+to `targets.warehouse.database` (or the project name in upper case, when the manifest names a
+DuckDB file).
+
+## Environments
+
+A project made with `murakumo init --target snowflake` has three environments, each a database
+(`TAXI_DEV`, `TAXI_STAGE`, `TAXI_PROD`), and everyone's own builds go to a schema named after them
+in `MURAKUMO`. `murakumo env provision` prints what to run once, as `ACCOUNTADMIN` (or
+`SYSADMIN` and `SECURITYADMIN`), to create them: the databases, an x-small warehouse that suspends
+itself, a deployer role per environment for CI (`TAXI_DEPLOYER_PROD`...), a developer role for
+people (`TAXI_DEVELOPER`: builds in `MURAKUMO`, reads the environments to copy them), and the
+grants. Then grant the developer role to each person and each deployer role to the CI user, and set
+`SNOWFLAKE_ROLE_PERSONAL=TAXI_DEVELOPER` (people) and `SNOWFLAKE_ROLE_PROD=TAXI_DEPLOYER_PROD`
+(CI). See [working as a team](teamwork.md).
 
 ## Verify
 

@@ -95,7 +95,7 @@ def _deploy_parts(project: Project) -> tuple[list[str], dict[str, str], bool] | 
     if warehouse is Warehouse.DUCKDB:
         return None  # a DuckDB file built in CI disappears with the runner
     required, _ = profile_variables(project, warehouse)
-    environments = project.manifest.targets.environments or ["dev"]
+    environments = project.manifest.targets.names
     target = "prod" if "prod" in environments else environments[-1]
     secrets = {name: name for name in required if name != "SNOWFLAKE_PRIVATE_KEY_PATH"}
     key_file = warehouse is Warehouse.SNOWFLAKE
@@ -105,7 +105,7 @@ def _deploy_parts(project: Project) -> tuple[list[str], dict[str, str], bool] | 
         secrets["SNOWFLAKE_PRIVATE_KEY"] = "SNOWFLAKE_PRIVATE_KEY"
     if warehouse is Warehouse.SNOWFLAKE:
         commands = [_install([_EXTRAS[warehouse], "verify"]) + " --with " + target_for(warehouse).adapter]
-        commands.append(f"murakumo build --env {target}")
+        commands += [f"murakumo migrate --apply --env {target}", f"murakumo build --env {target}"]
     else:
         adapter = target_for(warehouse).adapter
         commands = [
@@ -131,15 +131,26 @@ def preview_possible(project: Project) -> bool:
 
 
 def _preview_commands(prefix: str, target: str) -> list[str]:
+    """Copy the environment a pull request goes into, apply its migrations there, build and test."""
     return [
-        f"murakumo env clone --prefix {prefix}",
-        f"murakumo migrate --apply --prefix {prefix}",
+        f"murakumo env clone --env {target} --prefix {prefix}",
+        f"murakumo migrate --apply --env {target} --prefix {prefix}",
         f"murakumo build --env {target} --prefix {prefix}",
     ]
 
 
+def _deploys(project: Project, commands: list[str]) -> list[tuple[str, str, list[str]]]:
+    """(environment, branch, commands) for each environment that deploys from a branch; just
+    production from main when none says so. ``commands`` are production's, re-aimed at each."""
+    from murakumo.branches import flow
+
+    target = _target(project)
+    stages = [(s.environment, s.branch) for s in flow(project)] or [(target, "main")]
+    return [(env, branch, [c.replace(f"--env {target}", f"--env {env}") for c in commands]) for env, branch in stages]
+
+
 def _target(project: Project) -> str:
-    environments = project.manifest.targets.environments or ["dev"]
+    environments = project.manifest.targets.names
     return "prod" if "prod" in environments else environments[-1]
 
 
@@ -151,9 +162,18 @@ def github_workflow(project: Project, deploy: bool, preview: bool = False) -> st
         {"uses": "astral-sh/setup-uv@v6"},
         {"name": "Install Murakumo", "run": _install(["duckdb", "verify"])},
         {
+            # Branch names come in as variables, never written into the script: whoever opens a pull
+            # request chooses its branch's name.
+            "name": "The pull request follows the flow",
+            "if": "github.event_name == 'pull_request'",
+            "env": {"HEAD_BRANCH": "${{ github.head_ref }}", "BASE_BRANCH": "${{ github.base_ref }}"},
+            "run": 'murakumo branch check --head "$HEAD_BRANCH" --base "$BASE_BRANCH"',
+        },
+        {
             "name": "Model changes and their impact",
             "if": "github.event_name == 'pull_request'",
-            "run": 'murakumo diff "origin/${{ github.base_ref }}" --format markdown >> "$GITHUB_STEP_SUMMARY"',
+            "env": {"BASE_BRANCH": "${{ github.base_ref }}"},
+            "run": 'murakumo diff "origin/$BASE_BRANCH" --format markdown >> "$GITHUB_STEP_SUMMARY"',
         },
     ]
     check_steps += [{"name": name, "run": "murakumo " + " ".join(args)} for name, args in CHECKS]
@@ -169,7 +189,9 @@ def github_workflow(project: Project, deploy: bool, preview: bool = False) -> st
     }
     parts = _deploy_parts(project) if (deploy or preview) else None
 
-    def warehouse_job(name: str, condition: str, commands: list[str], **extra: Any) -> dict[str, Any]:
+    def warehouse_job(
+        name: str, condition: str, commands: list[str], variables: dict[str, str] | None = None, **extra: Any
+    ) -> dict[str, Any]:
         install, secrets, key_file = parts
         steps: list[dict[str, Any]] = [{"uses": "actions/checkout@v4"}, {"uses": "astral-sh/setup-uv@v6"}]
         if key_file:
@@ -182,37 +204,47 @@ def github_workflow(project: Project, deploy: bool, preview: bool = False) -> st
             "runs-on": "ubuntu-latest",
             **extra,
             "defaults": {"run": {"working-directory": folder}},
-            "env": {name: "${{ secrets." + secret + " }}" for name, secret in sorted(secrets.items())},
+            "env": {
+                **{name: "${{ secrets." + secret + " }}" for name, secret in sorted(secrets.items())},
+                **(variables or {}),
+            },
             "steps": steps,
         }
 
+    deploys = _deploys(project, parts[0][1:]) if parts else []
     if parts and deploy:
-        jobs["deploy"] = warehouse_job(
-            "Build production",
-            "github.event_name == 'push' && github.ref == 'refs/heads/main'",
-            parts[0][1:],
-            needs="check",
-            # Add required reviewers to this environment (Settings → Environments) to approve each deploy.
-            environment="production",
-        )
+        for env, branch, commands in deploys:
+            jobs[f"deploy-{env}"] = warehouse_job(
+                f"Deploy {env}",
+                f"github.event_name == 'push' && github.ref == 'refs/heads/{branch}'",
+                commands,
+                needs="check",
+                # Add required reviewers to this environment (Settings → Environments) to approve each deploy.
+                environment=env,
+            )
     if parts and preview:
         prefix = "pr_${{ github.event.number }}_"
+        target = 'murakumo branch env "$BASE_BRANCH"'
+        base = {"BASE_BRANCH": "${{ github.base_ref }}"}
         jobs["preview"] = warehouse_job(
-            "Preview the pull request on a clone of production",
+            "Preview the pull request on a copy of the environment it goes into",
             "github.event_name == 'pull_request' && github.event.action != 'closed'",
-            _preview_commands(prefix, _target(project)),
+            [f'ENV="$({target})"', *_preview_commands(prefix, '"$ENV"')],
+            base,
             needs="check",
             concurrency={"group": "preview-${{ github.event.number }}", "cancel-in-progress": True},
         )
         jobs["preview-cleanup"] = warehouse_job(
             "Drop the pull request's schemas",
             "github.event_name == 'pull_request' && github.event.action == 'closed'",
-            [f"murakumo env drop --prefix {prefix} --yes"],
+            [f'murakumo env drop --env "$({target})" --prefix {prefix} --yes'],
+            base,
         )
     pull_request = {"types": ["opened", "synchronize", "reopened", "closed"]} if preview else None
+    branches = [branch for _, branch, _ in _deploys(project, [])]
     workflow = {
         "name": "murakumo",
-        "on": {"pull_request": pull_request, "push": {"branches": ["main"]}, "workflow_dispatch": None},
+        "on": {"pull_request": pull_request, "push": {"branches": branches}, "workflow_dispatch": None},
         "jobs": jobs,
     }
     text = _yaml(workflow)
@@ -235,6 +267,8 @@ def gitlab_pipeline(project: Project, deploy: bool, preview: bool = False) -> st
             "script": [
                 'if [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" ]; then '
                 'git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" && '
+                'murakumo branch check --head "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" '
+                '--base "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" && '
                 'murakumo diff "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"; fi',
                 *("murakumo " + " ".join(args) for _, args in CHECKS),
             ],
@@ -250,14 +284,21 @@ def gitlab_pipeline(project: Project, deploy: bool, preview: bool = False) -> st
         # The warehouse credentials come from CI/CD variables (Settings → CI/CD → Variables).
         setup = [*before, *(_GITLAB_KEY if key_file else []), install[0]]
         if deploy:
-            pipeline["murakumo-deploy"] = {
-                "stage": "deploy",
-                "image": "python:3.12",
-                "before_script": setup,
-                "script": install[1:],
-                "rules": [{"if": "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH", "when": "manual"}],
-                "environment": {"name": "production"},
-            }
+            for env, branch, commands in _deploys(project, install[1:]):
+                pipeline[f"murakumo-deploy-{env}"] = {
+                    "stage": "deploy",
+                    "image": "python:3.12",
+                    "before_script": setup,
+                    "script": commands,
+                    # Production waits for someone to start it; the others deploy when their branch changes.
+                    "rules": [
+                        {
+                            "if": f'$CI_COMMIT_BRANCH == "{branch}"',
+                            **({"when": "manual"} if env == _target(project) else {}),
+                        }
+                    ],
+                    "environment": {"name": env},
+                }
         if preview:
             prefix = "pr_${CI_MERGE_REQUEST_IID}_"
             review = {
@@ -269,7 +310,10 @@ def gitlab_pipeline(project: Project, deploy: bool, preview: bool = False) -> st
                 "stage": "preview",
                 "image": "python:3.12",
                 "before_script": setup,
-                "script": _preview_commands(prefix, _target(project)),
+                "script": [
+                    'ENV="$(murakumo branch env "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME")"',
+                    *_preview_commands(prefix, '"$ENV"'),
+                ],
                 "rules": [{"if": "$CI_PIPELINE_SOURCE == 'merge_request_event'"}],
                 "environment": review,
             }
@@ -277,7 +321,10 @@ def gitlab_pipeline(project: Project, deploy: bool, preview: bool = False) -> st
                 "stage": "preview",
                 "image": "python:3.12",
                 "before_script": setup,
-                "script": [f"murakumo env drop --prefix {prefix} --yes"],
+                "script": [
+                    'ENV="$(murakumo branch env "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME")"',
+                    f'murakumo env drop --env "$ENV" --prefix {prefix} --yes',
+                ],
                 "rules": [{"if": "$CI_PIPELINE_SOURCE == 'merge_request_event'", "when": "manual"}],
                 "environment": {"name": "review/$CI_MERGE_REQUEST_IID", "action": "stop"},
             }

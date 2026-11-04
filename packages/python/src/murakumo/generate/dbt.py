@@ -43,7 +43,7 @@ def render(plan: Plan) -> dict[str, str]:
     tags = schedule_tags(project, plan)
 
     for group in plan.sources:
-        files[f"models/staging/{group.name}/_{group.name}__sources.yml"] = _yaml(_sources(group))
+        files[f"models/staging/{group.name}/_{group.name}__sources.yml"] = _yaml(_sources(group, plan))
 
     by_folder: dict[str, list[DbtModel]] = {}
     for model in plan.models:
@@ -191,10 +191,13 @@ def _model_yaml(model: DbtModel, plan: Plan, tags: list[str] | None = None) -> d
     return data
 
 
-def _sources(group) -> dict:
+def _sources(group, plan: Plan | None = None) -> dict:
     source: dict[str, Any] = {
         "name": group.name,
-        "schema": f"{{{{ env_var('MURAKUMO_SCHEMA_PREFIX', '') }}}}{group.schema}",
+        # Someone's own schema holds everything; otherwise the raw schema, under any prefix.
+        "schema": "{{ env_var('MURAKUMO_SINGLE_SCHEMA', '') or env_var('MURAKUMO_SCHEMA_PREFIX', '') ~ '"
+        + group.schema
+        + "' }}",
     }
     if group.description:
         source["description"] = group.description
@@ -211,12 +214,19 @@ def _sources(group) -> dict:
         if table.entity.name != table.entity.name.lower():
             entry["quoting"] = {"identifier": True}
         columns = []
+        text = plan is not None and plan.project.manifest.modelling.raw_columns == "text"
         for attribute in table.entity.attributes:
             column: dict[str, Any] = {"name": attribute.name}
             if attribute.description:
                 column["description"] = attribute.description
             if attribute.name != attribute.name.lower():
                 column["quote"] = True
+            physical = plan.target.physical(attribute.logical_type) if text else None
+            if text and physical != plan.target.physical_name("string"):
+                # Kept as text: count the values staging will not be able to convert (a warning, not a stop).
+                column["data_tests"] = [
+                    {"murakumo_converts_to": {"data_type": physical, "config": {"severity": "warn"}}}
+                ]
             columns.append(column)
         entry["columns"] = columns
         tables.append(entry)
@@ -262,13 +272,22 @@ def profiles(plan: Plan) -> dict:
     warehouse = plan.target.warehouse
     configured = manifest.targets.warehouse.database
     is_file = _is_file(configured)
-    database = warehouse_database(manifest)
+    default_database = warehouse_database(manifest)
+    personal = manifest.collaboration.personal_environment
     outputs = {}
-    for environment in manifest.targets.environments:
+    # Everyone's own environment first (what `murakumo build` builds), then the shared ones, each in
+    # its own database when murakumo.yaml gives it one.
+    for environment, own in [
+        (personal, manifest.collaboration.personal_database),
+        *((e.name, e.database) for e in manifest.targets.environments),
+    ]:
         upper = environment.upper()
         schema = f"{{{{ env_var('MURAKUMO_SCHEMA', '{environment}') }}}}"
+        database = own if own and not _is_file(own) else default_database
         if warehouse is Warehouse.DUCKDB:
-            path = configured if is_file else f"{name}.duckdb"
+            path = own if own and environment != personal else configured if is_file else f"{name}.duckdb"
+            if not path.endswith((".duckdb", ".db")):
+                path = f"{path}.duckdb"
             outputs[environment] = {
                 "type": "duckdb",
                 "path": f"{{{{ env_var('MURAKUMO_DUCKDB_PATH', '{path}') }}}}",
@@ -317,8 +336,7 @@ def profiles(plan: Plan) -> dict:
                 "schema": schema,
                 "threads": 4,
             }
-    default = manifest.targets.environments[0] if manifest.targets.environments else "dev"
-    return {name: {"target": default, "outputs": outputs}}
+    return {name: {"target": personal, "outputs": outputs}}
 
 
 def _is_file(database: str | None) -> bool:

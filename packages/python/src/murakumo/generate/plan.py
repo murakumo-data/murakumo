@@ -179,6 +179,18 @@ class Planner:
     def file(self, entity: Entity):
         return self.project.origins.get(entity.id)
 
+    def loaded_at(self, base: Entity, alias: str) -> Column | None:
+        """When the row's source row was loaded: the raw row's _ingested_at, carried through every
+        modelled table as _loaded_at, so incremental tables can pick up what arrived since."""
+        if base.layer is Layer.RAW:
+            source = f"{alias}._ingested_at"
+        elif base.history in (History.SCD2, History.SCD6) or base.kind is EntityKind.CUMULATIVE:
+            return None
+        else:
+            source = f"{alias}._loaded_at"
+        data_type = self.target.physical_name("timestamp_tz")
+        return Column("_loaded_at", self.cast(source, data_type), data_type, "When its source row was loaded.")
+
     def updated_at(self) -> Column:
         """When the row was last built. Cast, because ``current_timestamp`` has a different type per
         warehouse (Snowflake: TIMESTAMP_LTZ) and enforced contracts compare types exactly."""
@@ -190,6 +202,21 @@ class Planner:
 
     def cast(self, sql: str, data_type: str) -> str:
         return f"cast({sql} as {data_type})"
+
+    def try_cast(self, sql: str, data_type: str) -> str:
+        """A conversion that gives null instead of failing (raw columns kept as text): each
+        warehouse's own form (TRY_CAST, SAFE_CAST...)."""
+        import sqlglot
+        from sqlglot import exp
+
+        dialect = "tsql" if self.target.dialect in ("fabric", "synapse") else self.target.dialect
+        try:
+            converted = exp.TryCast(
+                this=sqlglot.parse_one(sql, read=dialect), to=exp.DataType.build(data_type, dialect=dialect)
+            )
+            return converted.sql(dialect=dialect)
+        except sqlglot.errors.SqlglotError:
+            return f"try_cast({sql} as {data_type})"
 
     # tests ------------------------------------------------------------------------------------
 
@@ -233,13 +260,16 @@ class Planner:
     def plan_staging(self, entity: Entity) -> DbtModel:
         alias = "source"
         columns: list[Column] = []
+        text = self.project.manifest.modelling.raw_columns == "text"
+        string = self.target.physical_name("string")
         for attribute in entity.attributes:
             name = snake(attribute.name)
             data_type = self.physical(attribute)
+            convert = self.try_cast if text and data_type != string else self.cast
             columns.append(
                 Column(
                     name=name,
-                    sql=self.cast(f"{alias}.{self.quote(attribute.name)}", data_type),
+                    sql=convert(f"{alias}.{self.quote(attribute.name)}", data_type),
                     data_type=data_type,
                     description=attribute.description,
                     tests=self.column_tests(entity, attribute, name),
@@ -336,6 +366,9 @@ class Planner:
                 )
             )
         columns.append(self.updated_at())
+        loaded = self.loaded_at(base, aliases[base.name.lower()])
+        if loaded is not None:
+            columns.append(loaded)
 
         names = {a.name.lower(): a.name for a in entity.attributes}
         tests: list[Test] = []
@@ -362,7 +395,15 @@ class Planner:
             description=entity.description,
             config=self.warehouse_config(entity),
         )
-        if incremental and entity.watermark:
+        if incremental and loaded is not None and entity.incremental_by == "load_time":
+            # What was loaded since the last run (looking back a little, for stragglers): late rows
+            # are picked up, and rows processed again are replaced by key.
+            floor = self.cast("'1900-01-01'", loaded.data_type)
+            latest = f"coalesce(max(_loaded_at), {floor})"
+            if entity.lookback_hours:
+                latest = f"{{{{ dbt.dateadd('hour', -{int(entity.lookback_hours)}, \"{latest}\") }}}}"
+            model.incremental_filter = f"{loaded.sql} > (select {latest} from {{{{ this }}}})"
+        elif incremental and entity.watermark:
             watermark = mapped.get(entity.watermark.lower())
             target_column = entity.attribute(entity.watermark)
             if watermark is not None and target_column is not None:
@@ -470,7 +511,7 @@ class Planner:
         versions.materialized = "view"
         versions.contract = False
         versions.tests = []
-        versions.columns = [c for c in versions.columns if c.name != "_updated_at"]
+        versions.columns = [c for c in versions.columns if c.name not in ("_updated_at", "_loaded_at")]
         for column in versions.columns:  # one row per key before the snapshot adds versions
             column.tests = [Test("unique", column.name)] if column.name in keys and len(keys) == 1 else []
         snapshot = Snapshot(

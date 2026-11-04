@@ -3651,3 +3651,47 @@ button.tree-row__label:not(:disabled) {
 .compare__reach {
   margin: 2px 0 0 4px;
 }
+
+.settings__envs {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.settings__envs th {
+  padding: 0 4px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text-muted);
+}
+
+.settings__envs th:first-child {
+  width: 22%;
+}
+
+.settings__envs td {
+  padding: 2px 4px 2px 0;
+}
+
+.setup__sql--block {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+}
+.inspector__hint { margin: -4px 0 6px; }
+
+.schedules__here {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
+.schedules__here p {
+  margin: 2px 0 0;
+}

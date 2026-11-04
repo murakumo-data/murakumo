@@ -81,6 +81,28 @@ def validate_project(project: Project) -> list[Diagnostic]:
                 )
             )
 
+    # Someone's own schema (on a shared warehouse) holds every layer, so table names must not repeat
+    # across layers: a raw table, a model and an audit table of the same name would collide there.
+    if manifest.collaboration.personal_schemas and manifest.targets.warehouse.type.value != "duckdb":
+        audit_tables = {"run_log", "model_runs", "dq_results", "row_counts", "daily_summary", "murakumo_migrations"}
+        owners: dict[str, list[str]] = {}
+        for entity in model.entities:
+            owners.setdefault(entity.name.lower(), []).append(f"{entity.layer.value} table {entity.name}")
+        for name, raw in staged.items():
+            owners.setdefault(name, []).append(f"the staging model of {raw.name}")
+        for name in audit_tables:
+            if name in owners:
+                owners[name].append("an audit table")
+        for name, who in owners.items():
+            if len(who) > 1:
+                out.append(
+                    warning(
+                        "MK108",
+                        f"{' and '.join(who)} share the name {name}; in someone's own schema (one per person) "
+                        "they would be the same table: rename one",
+                    )
+                )
+
     ids: list[str] = [str(o.id) for o in (*model.sources, *model.entities, *model.relationships, *model.metrics)]
     ids += [str(a.id) for e in model.entities for a in e.attributes]
     for dup in _duplicates(ids):
@@ -244,8 +266,14 @@ def _check_entity(
             out.append(error("MK312", "a cumulative table needs a grain: the key it accumulates per", file, "grain"))
     if entity.kind is EntityKind.DIMENSION and not entity.primary_key:
         out.append(warning("MK304", "a dimension should have a primary key", file))
-    if entity.load is LoadPattern.INCREMENTAL and not entity.watermark:
+    if entity.load is LoadPattern.INCREMENTAL and not entity.watermark and entity.layer is Layer.RAW:
         out.append(warning("MK308", "an incremental load needs a watermark column to know what is new", file, "load"))
+    if entity.incremental_by == "watermark" and entity.load is LoadPattern.INCREMENTAL and not entity.watermark:
+        out.append(
+            warning(
+                "MK313", "incremental_by: watermark needs a watermark column; it will rebuild in full", file, "load"
+            )
+        )
     if entity.history in (History.SCD2, History.SCD6) and not any(
         a.key in (KeyRole.PRIMARY, KeyRole.NATURAL) for a in entity.attributes
     ):

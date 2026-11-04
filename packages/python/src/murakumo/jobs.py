@@ -31,7 +31,6 @@ NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 PREFIX = re.compile(r"^[a-z][a-z0-9_]*_$")
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # a terminal spinner redraws one line; captured, each frame is a line
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")  # colours and cursor moves, which a log page cannot show
-ENVIRONMENTS = ("dev", "prod")
 ENGINES = ("polars", "pyspark")
 
 
@@ -61,9 +60,7 @@ def _count(value: Any, what: str, most: int = 1_000_000) -> int:
 def _common(options: dict[str, Any], args: list[str], env: bool = True) -> None:
     """The options most jobs share: environment, schema prefix."""
     if env and options.get("environment"):
-        if options["environment"] not in ENVIRONMENTS:
-            raise JobError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
-        args += ["--env", options["environment"]]
+        args += ["--env", _name(options["environment"], "the environment")]
     if options.get("prefix"):
         if not PREFIX.match(str(options["prefix"])):
             raise JobError("a schema prefix is lower case and ends in _, like pr_42_")
@@ -74,9 +71,15 @@ def _data(root: Path, options: dict[str, Any], args: list[str]) -> None:
     """Raw tables read from files: {table: path}, each path inside the project folder."""
     for table, path in (options.get("data") or {}).items():
         _name(table, "a raw table")
-        full = (root / str(path)).resolve()
-        if not full.is_relative_to(root.resolve()) or not full.is_file():
-            raise JobError(f"{path} is not a file in the project")
+        text = str(path)
+        if any(c in text for c in "*?["):  # a glob: every new file it matches, inside the project
+            if ".." in text or text.startswith("/") or not re.fullmatch(r"[\w./*?\[\]-]+", text):
+                raise JobError(f"{path} is not a pattern inside the project")
+            args += ["--data", f"{table}={text}"]
+            continue
+        full = (root / text).resolve()
+        if not full.is_relative_to(root.resolve()) or not (full.is_file() or full.is_dir()):
+            raise JobError(f"{path} is not a file or folder in the project")
         args += ["--data", f"{table}={full.relative_to(root.resolve())}"]
 
 
@@ -123,18 +126,23 @@ def command(root: Path, kind: str, options: dict[str, Any]) -> tuple[str, list[s
         return f"Backfill {table} {start} to {end}", args
     if kind == "migrate_apply":
         args = ["migrate", "--apply"]
-        _common(options, args, env=False)
+        _common(options, args)
         if options.get("mark_only"):
             args.append("--mark-applied")
         return f"Apply migrations{' under ' + options['prefix'] if options.get('prefix') else ''}", args
     if kind == "env_clone":
         args = ["env", "clone"]
-        _common(options, args, env=False)
+        _common(options, args)
         return f"Clone production into {options.get('prefix') or 'your schemas'}", args
     if kind == "env_drop":
         args = ["env", "drop", "--yes"]
-        _common(options, args, env=False)
+        _common(options, args)
         return f"Drop {options.get('prefix') or 'your schemas'}", args
+    if kind == "scheduler":
+        args = ["scheduler"]
+        _common(options, args)
+        _data(root, options, args)
+        return "Run the schedules here", args
     if kind == "export":
         return "Export as plain SQL", ["export", "sql"]
     if kind == "generate":
@@ -182,13 +190,17 @@ class Jobs:
 
     @property
     def running(self) -> Job | None:
-        return next((j for j in self.jobs if j.state == "running"), None)
+        return next((j for j in self.jobs if j.state == "running" and j.kind != "scheduler"), None)
 
     def start(self, kind: str, options: dict[str, Any]) -> Job:
         title, args = command(self.root, kind, options)
         with self.lock:
-            if self.running:
-                raise JobError(f"{self.running.title} is still running; wait for it, or stop it")
+            busy = next(
+                (j for j in self.jobs if j.state == "running" and (j.kind == "scheduler") == (kind == "scheduler")),
+                None,
+            )
+            if busy:  # the scheduler runs beside one other job; anything else waits its turn
+                raise JobError(f"{busy.title} is still running; wait for it, or stop it")
             job = Job(uuid.uuid4().hex[:12], kind, title, "murakumo " + " ".join(args))
             self.jobs.append(job)
             del self.jobs[:-KEEP]

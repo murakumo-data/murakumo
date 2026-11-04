@@ -94,7 +94,7 @@ def test_mapping_expressions_are_rewritten_per_dialect(taxi):
 
 def test_updated_at_is_cast_to_the_contract_type(taxi):
     # Snowflake's current_timestamp is TIMESTAMP_LTZ; the contract says TIMESTAMP_TZ.
-    updated = plan_for(taxi, "snowflake").model("fct_trip").columns[-1]
+    updated = next(c for c in plan_for(taxi, "snowflake").model("fct_trip").columns if c.name == "_updated_at")
     assert updated.sql == "cast(current_timestamp as TIMESTAMP_TZ)" and updated.data_type == "TIMESTAMP_TZ"
 
 
@@ -102,7 +102,15 @@ def test_incremental_fact(taxi):
     fact = plan_for(taxi).model("fct_trip")
     assert fact.materialized == "incremental"
     assert fact.unique_key == ["trip_id"]
-    assert "cast('1900-01-01' as TIMESTAMP)" in fact.incremental_filter
+    # By load time: what arrived since the last run, late rows included.
+    assert fact.incremental_filter == (
+        "cast(yellow_tripdata._ingested_at as TIMESTAMPTZ) > "
+        "(select coalesce(max(_loaded_at), cast('1900-01-01' as TIMESTAMPTZ)) from {{ this }})"
+    )
+    assert any(c.name == "_loaded_at" for c in fact.columns)
+    taxi.model.entity("fct_trip").incremental_by = "watermark"  # or by its business time, as before
+    assert "cast('1900-01-01' as TIMESTAMP)" in plan_for(taxi).model("fct_trip").incremental_filter
+    assert "pickup_at" in plan_for(taxi).model("fct_trip").incremental_filter
 
 
 def test_composite_keys_are_tested_as_a_combination():
@@ -185,7 +193,9 @@ def test_dbt_yaml_is_valid_and_complete(taxi):
     assert all("data_type" in c for c in fact["columns"])
     sources = yaml.safe_load(files["dbt/models/staging/nyc_tlc/_nyc_tlc__sources.yml"])
     # verify on a shared warehouse prefixes every schema of a run
-    assert sources["sources"][0]["schema"] == "{{ env_var('MURAKUMO_SCHEMA_PREFIX', '') }}raw_nyc_tlc"
+    assert sources["sources"][0]["schema"] == (
+        "{{ env_var('MURAKUMO_SINGLE_SCHEMA', '') or env_var('MURAKUMO_SCHEMA_PREFIX', '') ~ 'raw_nyc_tlc' }}"
+    )
     assert "MURAKUMO_SCHEMA_PREFIX" in files["dbt/macros/murakumo/schema_names.sql"]
 
 
@@ -197,7 +207,8 @@ def test_warehouse_database_ignores_duckdb_file_names(taxi):
     profiles = yaml.safe_load(generate(taxi, "snowflake").files["dbt/profiles.yml"])
     assert profiles["taxi"]["outputs"]["dev"]["database"] == "{{ env_var('SNOWFLAKE_DATABASE', 'TAXI') }}"
     duckdb_profile = yaml.safe_load(generate(taxi).files["dbt/profiles.yml"])
-    assert "taxi.duckdb" in duckdb_profile["taxi"]["outputs"]["dev"]["path"]
+    assert "taxi.duckdb" in duckdb_profile["taxi"]["outputs"]["personal"]["path"]  # everyone's own
+    assert "taxi_dev.duckdb" in duckdb_profile["taxi"]["outputs"]["dev"]["path"]  # the shared dev
 
 
 def test_raw_ddl_takes_a_schema_prefix(taxi):

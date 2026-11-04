@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.7.0 (unreleased)
+
+Environments, deployment, and loading only what is new.
+
+- **Environments as databases**:
+  - Each environment (dev, stage, prod) has a database and the branch that deploys it, set in
+    `murakumo.yaml` (`targets.environments`). On DuckDB, each is a file.
+  - Projects from before 0.7, with `environments: [dev, prod]`, keep working.
+  - `murakumo config` keeps the databases in step when the warehouse changes.
+  - **Provisioning:** `murakumo env provision` prints the setup SQL: databases, a deployer role per
+    environment, a developer role, a self-suspending warehouse, and the grants. `murakumo setup
+    --connect` checks every database and offers the same SQL.
+  - **In the canvas:** Settings → Project → **Environments**, with **Setup SQL…**.
+- **Your own schema**:
+  - `murakumo build` with no `--env` builds your own copy, in one schema named after you, in
+    `MURAKUMO` (`collaboration.personal_database`), as dbt does it.
+  - `env clone` copies an environment into it; `env drop` drops it.
+  - **MK108** warns about table names that would collide there.
+  - Pull-request copies still use a prefix, now beside the environment they target
+    (`--env prod --prefix pr_1_`).
+  - Each environment's Snowflake role (`SNOWFLAKE_ROLE_<ENV>`) is used by the loader and the env
+    commands, as dbt uses it.
+- **The git flow**:
+  - **Branch commands:** `murakumo branch start` (creates dev and stage from main), `new` (feature,
+    fix, chore or hotfix), `check` (the pull request follows dev → stage → main), `env` and
+    `promote`.
+  - **CI:** deploys each environment from its branch (migrations, then build); checks every pull
+    request follows the flow; and previews a pull request on a clone of the environment it goes
+    into. Branch names reach CI scripts as variables, not written into them (actionlint's
+    script-injection check).
+  - **Team panel:** **Start new work** and **Promote**, which shows what would move and opens the
+    pull request.
+  - **Setup:** says when the flow's branches are missing.
+  - New projects start new work from `dev`.
+- **Loading only new data**:
+  - `--data` takes a folder or a glob.
+  - Each file loaded is remembered by its content in `audit.loaded_files`, so it goes in once, even
+    renamed.
+  - A raw table's `load` now applies: `append` adds new files, `incremental` merges by primary key
+    (the latest kept), `full` replaces the table when anything changed.
+  - **In the canvas:** **New rows** in the inspector; the Build dialog loads every new file in
+    `data/` for a table.
+- **Incremental tables by load time**:
+  - Modelled tables carry `_loaded_at` (the raw row's `_ingested_at`), and incremental ones read
+    what was loaded since their last run, so late-arriving rows are no longer missed.
+  - `lookback_hours` re-reads a margin.
+  - `incremental_by: watermark` keeps the old behaviour (MK313 when it has no watermark).
+  - MK308 now applies to raw tables only.
+  - Existing incremental tables gain the column through a migration (the commerce example's
+    `0003_loaded_at`).
+- **Raw columns as text** (`modelling.raw_columns: text`, a switch in Settings):
+  - Landing tables keep every column as text.
+  - Staging converts with each warehouse's safe cast.
+  - Values that do not convert are counted by a warning test, `murakumo_converts_to`, instead of
+    failing the load.
+- **`murakumo scheduler`**:
+  - Runs the schedules on this computer at their times, optionally loading new files first.
+  - Each run is recorded in the run log, with its schedule.
+  - **In the canvas:** **Run them here** / **Stop** in the Schedules panel, running beside other jobs.
+- **A best-practices review** ([docs/practices.md](docs/practices.md)): Murakumo against Kimball,
+  dbt, Snowflake and *Designing Data-Intensive Applications* practice, with the gaps sorted into
+  milestones.
+- **Fixes**:
+  - **MK107:** a table named like a generated staging model is refused.
+  - **Import cycle:** a circular import between lineage and the pipeline docs is fixed.
+- Docs: [working as a team](docs/teamwork.md) rewritten for environments, your own schema and the
+  flow; loading, increments and text columns in [generating](docs/generating.md); the scheduler and
+  per-environment deploys in [orchestration](docs/orchestration.md); environments in
+  [Snowflake](docs/snowflake.md); end-to-end steps 14.9, 14.10, 15.5 and Part 16 updated.
+
 ## 0.6.0 (2026-11-04)
 
 Everything the CLI does, in the canvas: run builds and checks as jobs with live output, set the

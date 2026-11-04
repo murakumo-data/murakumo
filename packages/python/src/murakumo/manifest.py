@@ -119,10 +119,41 @@ class LakehouseTarget(Section):
     native_warehouse_tables: list[str] = Field(default_factory=list)
 
 
+class Environment(Section):
+    """A place the project is built: dev, stage, prod. Each can have a database of its own (a
+    Snowflake database, a DuckDB file) and the git branch that deploys to it."""
+
+    name: Name
+    database: str | None = None  # default: the warehouse's database (one database for every environment)
+    branch: str | None = None  # merging into this branch deploys to this environment
+
+    @field_validator("name")
+    @classmethod
+    def _not_personal(cls, value: str) -> str:
+        if value.lower() == "personal":
+            raise ValueError("'personal' is everyone's own environment; name a shared one dev, stage or prod")
+        return value
+
+
 class Targets(Section):
     warehouse: WarehouseTarget = Field(default_factory=WarehouseTarget)
     lakehouse: LakehouseTarget | None = None
-    environments: list[str] = Field(default_factory=lambda: ["dev", "prod"])
+    environments: list[Environment] = Field(default_factory=lambda: [Environment(name="dev"), Environment(name="prod")])
+
+    @field_validator("environments", mode="before")
+    @classmethod
+    def _names_alone(cls, value: Any) -> Any:
+        """Before 0.7 environments were names only (environments: [dev, prod]); those still load."""
+        if isinstance(value, list):
+            return [{"name": v} if isinstance(v, str) else v for v in value]
+        return value
+
+    @property
+    def names(self) -> list[str]:
+        return [e.name for e in self.environments] or ["dev"]
+
+    def environment(self, name: str) -> Environment | None:
+        return next((e for e in self.environments if e.name.lower() == name.lower()), None)
 
 
 class Ingestion(Section):
@@ -147,6 +178,9 @@ class Modelling(Section):
     default_scd: int = Field(default=2, ge=0, le=6)
     surrogate_keys: str = Field(default="hash", pattern="^(hash|sequence)$")
     cumulative_tables: bool = False
+    # text: raw tables keep every column as text, exactly as it arrived; staging converts the types,
+    # and a value that does not convert becomes null and is counted (a warning) instead of failing the load.
+    raw_columns: str = Field(default="typed", pattern="^(typed|text)$")
 
 
 class Conventions(Section):
@@ -216,8 +250,9 @@ class Orchestration(Section):
 class Collaboration(Section):
     base_branch: str = "main"  # the branch people branch from and bring in with `murakumo sync`
     remote: str = "origin"
-    personal_schemas: bool = True  # on a shared warehouse, build the personal environment into dev_<name>_*
-    personal_environment: str = "dev"
+    personal_schemas: bool = True  # on a shared warehouse, everyone's own builds go to a schema of their own
+    personal_database: str | None = None  # where those schemas live (MURAKUMO); default: the warehouse's database
+    personal_environment: str = "personal"  # what `murakumo build` builds when no --env is given
 
 
 class Generation(Section):
