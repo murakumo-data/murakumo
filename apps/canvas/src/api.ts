@@ -51,6 +51,7 @@ export type Diagnostic = {
   file: string | null
   where: string | null
   entity_id: string | null
+  column_id?: string | null // the column it is about, when it is about one
 }
 
 export type Position = { x: number; y: number }
@@ -109,6 +110,20 @@ export type Orchestration = {
   pipelines: string // where `murakumo generate` writes the orchestrator's pipelines
 }
 
+export type ColourLabel = { name: string; colour: string; description?: string | null }
+export type Note = { id: string; text: string; x: number; y: number; width: number; colour?: string | null; diagram?: string | null }
+export type Diagram = { id: string; name: string; entities: string[] }
+
+// What the canvas draws besides the model, kept in model/layout.yaml with the positions.
+export type CanvasSettings = {
+  collapse_over?: number
+  collapsed?: Record<string, boolean> // per table: true collapsed, false expanded (over collapse_over)
+  labels?: ColourLabel[]
+  colours?: Record<string, string> // table id -> label name
+  notes?: Note[]
+  diagrams?: Diagram[]
+}
+
 export type Domain = { name: string; owner: string | null; description: string | null; entities: number }
 
 export type State = {
@@ -118,10 +133,13 @@ export type State = {
   editable: boolean
   model: { entities: Entity[]; relationships: Relationship[] } | null
   layout: Record<string, Position>
+  canvas: CanvasSettings
   domains: Domain[]
   sources: SourceInfo[]
   orchestration: Orchestration | null
   diagnostics: Diagnostic[]
+  history: { undo: string | null; redo: string | null } // what undo and redo would take back
+  message?: string // said by undo and redo
   choices: {
     sources: string[]
     layers: Layer[]
@@ -296,11 +314,18 @@ export const api = {
   state: () => request<State>('GET', '/state'),
   revision: () => request<{ revision: string; generated: string }>('GET', '/revision', undefined, false),
   currentRevision: () => revision,
+  undo: () => request<State>('POST', '/undo'),
+  saveCanvas: (settings: CanvasSettings & { label?: string }) => request<State>('PUT', '/canvas', settings),
+  redo: () => request<State>('POST', '/redo'),
 
   addEntity: (body: { name: string; layer: Layer; kind?: string; source?: string | null; position?: Position }) =>
     request<State>('POST', '/entities', body),
   updateEntity: (id: string, changes: Record<string, unknown>) => request<State>('PATCH', `/entities/${id}`, changes),
   removeEntity: (id: string) => request<State>('DELETE', `/entities/${id}`),
+  updateEntities: (ids: string[], changes: Record<string, unknown>) => request<State>('PATCH', '/entities', { ids, changes }),
+  removeEntities: (ids: string[]) => request<State>('POST', '/entities/remove', { ids }),
+  copyColumns: (entityId: string, columns: string[]) =>
+    request<State>('POST', `/entities/${entityId}/columns/copy`, { columns }),
 
   addColumn: (entityId: string, body: { name: string; type: string; primary_key?: boolean }) =>
     request<State>('POST', `/entities/${entityId}/columns`, body),

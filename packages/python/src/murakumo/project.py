@@ -362,15 +362,48 @@ def load_layout(root: Path) -> dict[UUID, Position]:
     return positions
 
 
-def save_layout(project: Project, positions: dict[UUID, Position]) -> None:
-    """Write positions for the entities that still exist, in model order so diffs stay small."""
+def load_canvas(root: Path) -> dict[str, Any]:
+    """Everything in the layout file but positions: collapsed tables, colour labels, notes, diagrams."""
+    path = root / LAYOUT_FILE
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None
+    except (OSError, yaml.YAMLError):
+        return {}
+    return {k: v for k, v in data.items() if k != "positions"} if isinstance(data, dict) else {}
+
+
+def save_layout(project: Project, positions: dict[UUID, Position], canvas: dict[str, Any] | None = None) -> None:
+    """Write positions for the entities that still exist, in model order so diffs stay small, and
+    the canvas settings (kept as they are unless given), dropping what points at removed entities."""
     rows = {
         str(e.id): {"x": positions[e.id][0], "y": positions[e.id][1]}
         for e in project.model.entities
         if e.id in positions
     }
+    settings = _prune_canvas(load_canvas(project.root) if canvas is None else canvas, project)
     path = project.root / LAYOUT_FILE
-    if rows:
-        _write(path, {"positions": rows})
+    if rows or settings:
+        _write(path, {**({"positions": rows} if rows else {}), **settings})
     elif path.exists():
         path.unlink()
+
+
+CANVAS_KEYS = ("collapse_over", "collapsed", "labels", "colours", "notes", "diagrams")
+
+
+def _prune_canvas(canvas: dict[str, Any], project: Project) -> dict[str, Any]:
+    ids = {str(e.id) for e in project.model.entities}
+    out: dict[str, Any] = {}
+    for key in CANVAS_KEYS:
+        value = canvas.get(key)
+        if key == "collapsed" and isinstance(value, dict):
+            value = {k: bool(v) for k, v in value.items() if k in ids}
+        elif key == "colours" and isinstance(value, dict):
+            value = {k: v for k, v in value.items() if k in ids}
+        elif key == "diagrams" and isinstance(value, list):
+            value = [
+                {**d, "entities": [i for i in d.get("entities", []) if i in ids]} for d in value if isinstance(d, dict)
+            ]
+        if value not in (None, {}, []):
+            out[key] = value
+    return out

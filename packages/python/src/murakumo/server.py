@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import re
 import threading
 from collections.abc import Callable
 from contextvars import ContextVar
@@ -32,6 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from murakumo import __version__, edit
+from murakumo import history as history_module
 from murakumo import schedules as schedules_module
 from murakumo import sources as sources_module
 from murakumo.diagnostics import Diagnostic, Level
@@ -42,7 +44,7 @@ from murakumo.ir.types import TypeName
 from murakumo.lineage import resolve_ref, trace
 from murakumo.manifest import MANIFEST_FILE, Warehouse
 from murakumo.migrate import MIGRATIONS_DIR, Pending, plan_migration, write_migration
-from murakumo.project import MODEL_DIR, Project, load_layout, load_project, save_layout, save_model
+from murakumo.project import MODEL_DIR, Project, load_canvas, load_layout, load_project, save_layout, save_model
 from murakumo.validate import validate_project
 
 REVISION_HEADER = "X-Murakumo-Revision"
@@ -99,6 +101,53 @@ class NewRelationship(BaseModel):
 
 class Layout(BaseModel):
     positions: dict[UUID, Position]
+
+
+class CopyColumns(BaseModel):
+    columns: list[str] = Field(min_length=1)  # entity.column
+
+
+class BulkChange(BaseModel):
+    ids: list[UUID] = Field(min_length=1)
+    changes: dict[str, Any]
+
+
+class BulkRemove(BaseModel):
+    ids: list[UUID] = Field(min_length=1)
+
+
+class Label(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    colour: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    description: str | None = None
+
+
+class Note(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    text: str = ""
+    x: int = 0
+    y: int = 0
+    width: int = Field(default=220, ge=80, le=1200)
+    colour: str | None = None
+    diagram: str | None = None  # the diagram it was written on; none: shown on "All tables"
+
+
+class Diagram(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=80)
+    entities: list[str] = Field(default_factory=list)
+
+
+class CanvasSettings(BaseModel):
+    """What the canvas draws besides the model: given keys replace what is saved, others stay."""
+
+    label: str | None = None  # what undo calls this change
+    collapse_over: int | None = Field(default=None, ge=0, le=500)
+    collapsed: dict[str, bool] | None = None
+    labels: list[Label] | None = None
+    colours: dict[str, str] | None = None
+    notes: list[Note] | None = None
+    diagrams: list[Diagram] | None = None
 
 
 class MappingBody(BaseModel):
@@ -200,7 +249,25 @@ def _diagnostic(d: Diagnostic, project: Project | None, root: Path) -> dict[str,
         "file": str(file) if file is not None else None,
         "where": d.where,
         "entity_id": entity_id,
+        "column_id": _column_of(d, project, entity_id),
     }
+
+
+_COLUMN_WHERE = re.compile(r"^(?:attributes|mappings)\[([^\]]+)\]")
+
+
+def _column_of(d: Diagnostic, project: Project | None, entity_id: str | None) -> str | None:
+    """The column a problem is about, from where it was found (``attributes[name]``, ``mappings[name]``),
+    so the canvas can mark the column itself."""
+    match = _COLUMN_WHERE.match(d.where or "")
+    if project is None or entity_id is None or match is None:
+        return None
+    entity = next((e for e in project.model.entities if str(e.id) == entity_id), None)
+    column = entity and next((a for a in entity.attributes if a.name.lower() == match.group(1).lower()), None)
+    return str(column.id) if column else None
+
+
+HISTORIES: dict[Path, history_module.History] = {}  # one undo history per project the server edits
 
 
 def state(root: Path) -> dict[str, Any]:
@@ -223,6 +290,7 @@ def state(root: Path) -> dict[str, Any]:
         "editable": editable,
         "model": project.model.model_dump(mode="json", by_alias=True) if project else None,
         "layout": {str(k): {"x": x, "y": y} for k, (x, y) in layout.items()},
+        "canvas": load_canvas(root) if project is not None else {},
         "sources": sources_module.list_sources(project) if project else [],
         "orchestration": schedules_module.summary(project) if project else None,
         "domains": [
@@ -230,6 +298,7 @@ def state(root: Path) -> dict[str, Any]:
             for d in (project.manifest.project.domains if project else [])
         ],
         "diagnostics": [_diagnostic(d, project, root) for d in diagnostics],
+        "history": HISTORIES[root].summary() if root in HISTORIES else {"undo": None, "redo": None},
         "choices": {
             "sources": sources,
             "layers": [v.value for v in Layer],
@@ -325,6 +394,7 @@ def canvas_files() -> Path | None:
 def create_app(root: Path, static: Path | None = None) -> FastAPI:
     root = root.resolve()
     lock = threading.Lock()  # one change at a time: load, edit, save
+    history = HISTORIES.setdefault(root, history_module.History())
     app = FastAPI(
         title="Murakumo canvas API", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json"
     )
@@ -352,6 +422,8 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 raise HTTPException(
                     409, {"message": "fix the errors in the model files before editing", "state": state(root)}
                 )
+            before = history_module.take(root)
+            old_model, old_manifest = project.model.model_copy(deep=True), project.manifest.model_copy(deep=True)
             try:
                 placed = action(project)
             except edit.EditError as exc:
@@ -367,6 +439,11 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 positions.update(placed)
             save_model(project, prune=prune)
             save_layout(project, positions)  # drops the positions of removed entities
+            history.record(
+                history_module.label(old_model, project.model, old_manifest, project.manifest),
+                before,
+                history_module.take(root),
+            )
             return state(root)
 
     def entity_name(project: Project, entity_id: UUID) -> str:
@@ -486,9 +563,57 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
         return change(action, rev, prune=True, previewable=True)
 
+    @app.patch("/api/entities")
+    def update_entities(body: BulkChange, rev: Revision = None) -> dict[str, Any]:
+        """The same change (domain, layer...) to several tables at once: one change, one undo."""
+        if "name" in body.changes:
+            raise HTTPException(400, {"message": "rename tables one at a time"})
+
+        def action(project: Project) -> None:
+            for name in [entity_name(project, i) for i in body.ids]:
+                edit.update_entity(project, name, dict(body.changes))
+
+        return change(action, rev, prune=True, previewable=True)
+
+    @app.post("/api/entities/remove")
+    def remove_entities(body: BulkRemove, rev: Revision = None) -> dict[str, Any]:
+        def action(project: Project) -> None:
+            for name in [entity_name(project, i) for i in body.ids]:
+                edit.remove_entity(project, name)
+
+        return change(action, rev, prune=True, previewable=True)
+
     @app.delete("/api/entities/{entity_id}")
     def remove_entity(entity_id: UUID, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_entity(p, entity_name(p, entity_id)), rev, prune=True, previewable=True)
+
+    @app.post("/api/entities/{entity_id}/columns/copy")
+    def copy_columns(entity_id: UUID, body: CopyColumns, rev: Revision = None) -> dict[str, Any]:
+        """Bring in columns of other tables: same names, types, descriptions and keys' nullability,
+        each mapped to where it comes from (raw tables are loaded, not mapped). One change, one undo."""
+
+        def action(project: Project) -> None:
+            name = entity_name(project, entity_id)
+            target = project.model.entity(name)
+            have = {a.name.lower() for a in target.attributes}
+            for ref in body.columns:
+                source_entity, _, column_name = ref.partition(".")
+                source = project.model.entity(source_entity)
+                if source is None:
+                    raise edit.EditError(f"there is no table {source_entity}")
+                column = next((a for a in source.attributes if a.name.lower() == column_name.lower()), None)
+                if column is None:
+                    raise edit.EditError(f"{source_entity} has no column {column_name}")
+                if column.name.lower() in have:
+                    continue
+                have.add(column.name.lower())
+                edit.add_column(
+                    project, name, column.name, str(column.type), False, None, column.description, column.pii, None
+                )
+                if target.layer.value != "raw":
+                    edit.set_mapping(project, name, column.name, [f"{source.name}.{column.name}"])
+
+        return change(action, rev)
 
     @app.post("/api/entities/{entity_id}/columns")
     def add_column(entity_id: UUID, body: NewColumn, rev: Revision = None) -> dict[str, Any]:
@@ -793,6 +918,41 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.delete("/api/domains/{name}")
     def remove_domain(name: str, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_domain(p, name), rev)
+
+    @app.post("/api/undo")
+    def undo() -> dict[str, Any]:
+        """Take back the last change the canvas made."""
+        return travel(history.undo, "Undid")
+
+    @app.post("/api/redo")
+    def redo() -> dict[str, Any]:
+        return travel(history.redo, "Redid")
+
+    def travel(step: Callable[[Path], str], done: str) -> dict[str, Any]:
+        with lock:
+            try:
+                what = step(root)
+            except history_module.HistoryError as exc:
+                raise HTTPException(409, {"message": str(exc), "state": state(root)}) from None
+            return {**state(root), "message": f"{done}: {what}"}
+
+    @app.put("/api/canvas")
+    def put_canvas(body: CanvasSettings) -> dict[str, Any]:
+        """Collapsed tables, colour labels, notes and diagrams: kept in the layout file, and undoable."""
+        with lock:
+            result = load_project(root)
+            if result.project is None:
+                raise HTTPException(409, {"message": "the project did not load"})
+            given = {k: v for k, v in body.model_dump(mode="json").items() if k in body.model_fields_set}
+            label = given.pop("label", None) or "change the canvas"
+            settings = {**load_canvas(root), **given}
+            if "labels" in given:  # a removed label leaves no table coloured with it
+                names = {lb["name"] for lb in given["labels"]}
+                settings["colours"] = {k: v for k, v in (settings.get("colours") or {}).items() if v in names}
+            before = history_module.take(root)
+            save_layout(result.project, load_layout(root), settings)
+            history.record(label, before, history_module.take(root))
+            return state(root)
 
     @app.put("/api/layout")
     def put_layout(body: Layout) -> dict[str, str]:
