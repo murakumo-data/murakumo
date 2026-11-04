@@ -3224,3 +3224,166 @@ button.tree-row__label:not(:disabled) {
     animation: none;
   }
 }
+
+/* Settings and setup -------------------------------------------------------------------------- */
+
+.settings {
+  display: grid;
+  gap: 12px;
+}
+
+.tabs--inline {
+  height: 32px;
+  margin: -4px -4px 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__form {
+  display: grid;
+  gap: 14px;
+}
+
+.settings__group {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.settings__group legend {
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.settings__group p {
+  margin: -2px 0 4px;
+}
+
+.settings__row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.35;
+}
+
+.setup {
+  display: grid;
+  gap: 10px;
+}
+
+.setup__verdict {
+  padding: 8px 10px;
+  font-weight: 600;
+  border-radius: var(--radius);
+}
+
+.setup__verdict--ok {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.setup__verdict--todo {
+  color: var(--error);
+  background: var(--error-bg);
+}
+
+.setup__area h4 {
+  margin: 6px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.setup__area ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup__check {
+  padding: 6px 8px;
+  border-radius: var(--radius);
+}
+
+.setup__check--todo {
+  background: var(--error-bg);
+}
+
+.setup__check--warn {
+  background: var(--warning-bg);
+}
+
+.setup__check p {
+  margin: 4px 0 0 23px;
+}
+
+.setup__title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.setup__steps {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding-left: 40px;
+}
+
+.setup__command {
+  display: block;
+  padding: 3px 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: var(--code-bg);
+  border-radius: 3px;
+}
+
+.setup__sql {
+  margin: 6px 0 0 23px;
+  padding: 8px;
+  overflow-x: auto;
+  font: 11.5px var(--mono);
+  background: var(--code-bg);
+  border-radius: var(--radius);
+}
+
+.setup--warn {
+  color: var(--warning);
+}
+
+/* Long commands and paths scroll inside their own box; the panel never grows wider. */
+.drawer__body {
+  overflow-x: hidden;
+}
+
+.setup__check,
+.setup__steps li,
+.setup__area ul > li {
+  min-width: 0;
+}
+
+.setup__check p {
+  overflow-wrap: anywhere;
+}
+
+.setup__command {
+  max-width: 100%;
+}

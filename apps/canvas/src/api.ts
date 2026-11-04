@@ -110,6 +110,32 @@ export type Orchestration = {
   pipelines: string // where `murakumo generate` writes the orchestrator's pipelines
 }
 
+export type Settings = {
+  warehouse: string
+  orchestrator: string
+  pattern: string
+  python_engine: string
+  plain_sql: boolean
+  run_log: boolean
+  base_branch: string
+  personal_schemas: boolean
+  choices: { warehouses: string[]; orchestrators: string[]; patterns: string[]; python_engines: string[] }
+  changed?: string[]
+  state?: State
+}
+
+// One thing `murakumo setup` checks on this machine, and how to put it right.
+export type SetupCheck = {
+  area: string
+  title: string
+  status: 'ok' | 'todo' | 'warn' | 'info'
+  detail: string | null
+  steps: string[]
+  sql: string | null
+  sql_where: string | null
+  docs: string[]
+}
+
 export type JobState = 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 // A long command (build, verify, backfill...) the server runs in the background.
@@ -331,6 +357,10 @@ export const api = {
   revision: () => request<{ revision: string; generated: string }>('GET', '/revision', undefined, false),
   currentRevision: () => revision,
   undo: () => request<State>('POST', '/undo'),
+  settings: () => request<Settings>('GET', '/settings', undefined, false),
+  saveSettings: (changes: Partial<Settings>) => request<Settings>('PUT', '/settings', changes, false),
+  setup: (connect = false) =>
+    request<{ ready: boolean; checks: SetupCheck[] }>('GET', `/setup?connect=${connect}`, undefined, false),
   startJob: (kind: string, options: Record<string, unknown> = {}) => request<Job>('POST', '/jobs', { kind, options }, false),
   jobs: () => request<{ jobs: Job[] }>('GET', '/jobs', undefined, false),
   job: (id: string, since = 0) => request<Job>('GET', `/jobs/${id}?since=${since}`, undefined, false),

@@ -103,6 +103,19 @@ class Layout(BaseModel):
     positions: dict[UUID, Position]
 
 
+class SettingsBody(BaseModel):
+    """What `murakumo config` and murakumo.yaml's switches set; only the fields given change."""
+
+    warehouse: Warehouse | None = None
+    orchestrator: str | None = None
+    pattern: str | None = None
+    python_engine: str | None = Field(default=None, pattern="^(pyspark|polars|none)$")
+    plain_sql: bool | None = None
+    run_log: bool | None = None
+    base_branch: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[\w./-]+$")
+    personal_schemas: bool | None = None
+
+
 class JobBody(BaseModel):
     kind: str
     options: dict[str, Any] = Field(default_factory=dict)
@@ -710,6 +723,83 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 return {**written, "run": checks.run.as_dict()}
             except ci_module.CIError as exc:
                 raise HTTPException(409, {"message": str(exc)}) from None
+
+    def settings() -> dict[str, Any]:
+        from murakumo.manifest import ModellingPattern, Orchestrator
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        m = project.manifest
+        return {
+            "warehouse": m.targets.warehouse.type.value,
+            "orchestrator": m.generation.orchestrator.value,
+            "pattern": m.modelling.pattern.value,
+            "python_engine": m.generation.python_engine,
+            "plain_sql": m.generation.plain_sql,
+            "run_log": m.quality.run_log,
+            "base_branch": m.collaboration.base_branch,
+            "personal_schemas": m.collaboration.personal_schemas,
+            "choices": {
+                "warehouses": [w.value for w in Warehouse],
+                "orchestrators": [o.value for o in Orchestrator],
+                "patterns": [p.value for p in ModellingPattern],
+                "python_engines": ["none", "polars", "pyspark"],
+            },
+        }
+
+    @app.get("/api/settings")
+    def get_settings() -> dict[str, Any]:
+        return settings()
+
+    @app.put("/api/settings")
+    def put_settings(body: SettingsBody) -> dict[str, Any]:
+        """Change the project's settings in murakumo.yaml, keeping its comments; undoable."""
+        from murakumo.manifest import ModellingPattern, Orchestrator
+        from murakumo.manifest_edit import ManifestEditError, write_section
+        from murakumo.scaffold import configure_project
+
+        given = body.model_dump(exclude_unset=True)
+        with lock:
+            before = history_module.take(root)
+            try:
+                changed = configure_project(
+                    root,
+                    body.warehouse,
+                    Orchestrator(body.orchestrator) if body.orchestrator else None,
+                    ModellingPattern(body.pattern) if body.pattern else None,
+                )
+                paths = {
+                    "python_engine": ("generation", "python_engine"),
+                    "plain_sql": ("generation", "plain_sql"),
+                    "run_log": ("quality", "run_log"),
+                    "base_branch": ("collaboration", "base_branch"),
+                    "personal_schemas": ("collaboration", "personal_schemas"),
+                }
+                current = settings()
+                for key, path in paths.items():
+                    if key in given and given[key] is not None and given[key] != current[key]:
+                        try:
+                            write_section(root, path, given[key])
+                        except ManifestEditError:  # no such section yet: add it, with just this key
+                            write_section(root, path[:1], {path[1]: given[key]})
+                        changed.append(f"{key.replace('_', ' ')}: {current[key]} → {given[key]}")
+            except (ValueError, ManifestEditError) as exc:
+                raise HTTPException(400, {"message": str(exc)}) from None
+            if changed:
+                history.record("settings: " + "; ".join(changed), before, history_module.take(root))
+            return {**settings(), "changed": changed, "state": state(root)}
+
+    @app.get("/api/setup")
+    def get_setup(connect: bool = False) -> dict[str, Any]:
+        """What this project needs on this machine (`murakumo setup`): each check, and how to fix it."""
+        from murakumo.guide import Status, run_checks
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        checks = run_checks(project, connect=connect)
+        return {"ready": not any(c.status is Status.TODO for c in checks), "checks": [c.as_dict() for c in checks]}
 
     from murakumo import jobs as jobs_module
 

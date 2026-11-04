@@ -32,6 +32,7 @@ import {
   Redo2,
   Rows3,
   Search as SearchIcon,
+  Settings2,
   SlidersHorizontal,
   Spline,
   SquarePlus,
@@ -82,6 +83,7 @@ import { NewRelationship } from './NewRelationship'
 import { NoteNode, type NoteNodeType } from './Notes'
 import { SchedulesPanel } from './Schedules'
 import { Search } from './Search'
+import { SettingsPanel } from './Settings'
 import { SourcesPanel } from './Sources'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
@@ -127,10 +129,10 @@ const CARDINALITY: Record<string, string> = {
 }
 
 type Selection = { kind: 'entity' | 'relationship'; id: string } | null
-type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git' | 'activity'
+type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git' | 'activity' | 'settings'
 type Theme = 'system' | 'light' | 'dark'
 
-const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git', 'activity']
+const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git', 'activity', 'settings']
 
 function savedSide(): Side | null {
   const saved = recall('murakumo.side')
@@ -938,7 +940,7 @@ function Canvas() {
     remember('murakumo.side', next ?? '')
     if (id === 'schedules' && next === null) setScheduleShown(null)
   }
-  const drawerTitle = side === 'domains' ? 'Domains' : panels.find((p) => p.id === side)?.label
+  const drawerTitle = side === 'domains' ? 'Domains' : side === 'settings' ? 'Settings' : panels.find((p) => p.id === side)?.label
 
   return (
     <div className="app">
@@ -1128,6 +1130,9 @@ function Canvas() {
             ))}
           </div>
           <div className="rail__group rail__group--end">
+            <RailButton label="Settings" active={side === 'settings'} onClick={() => toggleSide('settings')}>
+              <Settings2 size={18} />
+            </RailButton>
             <a className="rail__button" href="/api/pipeline-docs" target="_blank" rel="noreferrer" title="Pipeline docs" aria-label="Pipeline docs">
               <BookOpen size={18} />
             </a>
@@ -1207,6 +1212,7 @@ function Canvas() {
               )}
               {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} />}
               {side === 'ci' && <CIPanel onMessage={showMessage} />}
+              {side === 'settings' && <SettingsPanel revision={state.revision} onState={setState} onMessage={showMessage} />}
               {side === 'activity' && (
                 <ActivityPanel
                   focus={jobFocus}

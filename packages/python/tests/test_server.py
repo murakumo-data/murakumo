@@ -291,3 +291,28 @@ def test_lineage(client):
     result = client.get("/api/lineage", params={"entity": "dim_taxi_zone", "column": "borough"}).json()
     assert {"entity": "taxi_zone_lookup", "column": "Borough", "layer": "raw", "depth": -1} in result["nodes"]
     assert client.get("/api/lineage", params={"entity": "nope"}).status_code == 404
+
+
+def test_settings_change_murakumo_yaml_keeping_comments_and_can_be_undone(client, project):
+    path = project.root / "murakumo.yaml"
+    path.write_text("# my notes about this project\n" + path.read_text())
+    settings = client.get("/api/settings").json()
+    assert settings["warehouse"] == "duckdb" and "polars" in settings["choices"]["python_engines"]
+
+    changed = client.put(
+        "/api/settings", json={"python_engine": "polars", "run_log": False, "orchestrator": "dagster"}
+    ).json()
+    assert changed["python_engine"] == "polars" and changed["run_log"] is False and changed["orchestrator"] == "dagster"
+    assert len(changed["changed"]) == 3
+    assert path.read_text().startswith("# my notes about this project")
+    assert changed["state"]["history"]["undo"].startswith("settings: ")
+
+    client.post("/api/undo")
+    assert client.get("/api/settings").json()["python_engine"] == "none"
+    assert client.put("/api/settings", json={"python_engine": "bash"}).status_code == 422
+    assert client.put("/api/settings", json={"base_branch": "dev; rm"}).status_code == 422
+
+
+def test_setup_lists_checks(client):
+    setup = client.get("/api/setup").json()
+    assert setup["checks"] and {"area", "title", "status", "steps"} <= set(setup["checks"][0])
