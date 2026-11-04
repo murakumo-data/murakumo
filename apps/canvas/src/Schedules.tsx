@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { api, type ScheduleInfo, type State } from './api'
+import { api, type RunLog, type ScheduleInfo, type State } from './api'
 import { TextField } from './Field'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
@@ -37,9 +37,16 @@ const split = (text: string | null) =>
 const formatRun = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-type Props = { state: State; run: Run; highlighted: string | null; onHighlight: (schedule: ScheduleInfo | null) => void }
+type Props = {
+  state: State
+  run: Run
+  highlighted: string | null
+  onHighlight: (schedule: ScheduleInfo | null) => void
+  lastRuns: RunLog['schedules'] | null // when each last ran here, from the audit tables
+  onRunNow: (schedule: string) => void
+}
 
-export function SchedulesPanel({ state, run, highlighted, onHighlight }: Props) {
+export function SchedulesPanel({ state, run, highlighted, onHighlight, lastRuns, onRunNow }: Props) {
   const info = state.orchestration
   const [adding, setAdding] = useState(false)
   if (!info) return null
@@ -104,6 +111,23 @@ export function SchedulesPanel({ state, run, highlighted, onHighlight }: Props) 
             <div className="schedules__when">
               <strong>{s.when}</strong>
               {s.next_runs[0] && <span className="muted small"> · next {formatRun(s.next_runs[0])}</span>}
+            </div>
+            <div className="schedules__last">
+              {lastRuns?.[s.name] ? (
+                <span className={lastRuns[s.name].status === 'success' ? 'job--ok small' : 'job--failed small'}>
+                  Last ran {formatRun(lastRuns[s.name].started_at.replace(' ', 'T'))}:{' '}
+                  {lastRuns[s.name].status === 'success' ? 'succeeded' : lastRuns[s.name].status}
+                </span>
+              ) : (
+                <span className="muted small">Not run here yet</span>
+              )}
+              <button
+                className="button button--small"
+                title={`Build what ${s.name} refreshes, now (murakumo build --schedule ${s.name})`}
+                onClick={() => onRunNow(s.name)}
+              >
+                Run now
+              </button>
             </div>
             {!info.implicit && (
               <div className="schedules__fields">

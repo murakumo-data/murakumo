@@ -23,6 +23,7 @@ import {
   Database,
   FileCode2,
   GitBranch,
+  History,
   ImageDown,
   KeyRound,
   LayoutGrid,
@@ -54,14 +55,14 @@ import {
   type ReactNode,
 } from 'react'
 
-import { api, ApiError, type Entity, type Job, type Generated, type Layer, type LineageResult, type Note, type Position, type State } from './api'
+import { api, ApiError, type Entity, type Job, type RunLog, type Generated, type Layer, type LineageResult, type Note, type Position, type State } from './api'
 import { CIPanel } from './CI'
 import { GitPanel } from './Git'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
 import { ActivityPanel } from './Activity'
 import { arrange, exportImage, type Direction } from './arrange'
-import { BuildDialog } from './Build'
+import { BuildDialog, PythonRunDialog } from './Build'
 import { BulkBar } from './BulkBar'
 import { DiagramTabs } from './Diagrams'
 import { EntityNode, tableHandle, type EntityNodeType } from './EntityNode'
@@ -83,6 +84,7 @@ import { LineageBar, LineageEdge, type LineageEdgeType } from './Lineage'
 import { NewRelationship } from './NewRelationship'
 import { NoteNode, type NoteNodeType } from './Notes'
 import { SchedulesPanel } from './Schedules'
+import { RunsPanel } from './Runs'
 import { Search } from './Search'
 import { SettingsPanel } from './Settings'
 import { SourcesPanel } from './Sources'
@@ -130,10 +132,10 @@ const CARDINALITY: Record<string, string> = {
 }
 
 type Selection = { kind: 'entity' | 'relationship'; id: string } | null
-type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git' | 'activity' | 'settings'
+type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git' | 'activity' | 'settings' | 'runs'
 type Theme = 'system' | 'light' | 'dark'
 
-const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git', 'activity', 'settings']
+const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git', 'activity', 'settings', 'runs']
 
 function savedSide(): Side | null {
   const saved = recall('murakumo.side')
@@ -215,6 +217,9 @@ function Canvas() {
   const [jobFocus, setJobFocus] = useState<string | null>(null)
   const [jobRunning, setJobRunning] = useState(false)
   const [building, setBuilding] = useState(false)
+  const [jobsDone, setJobsDone] = useState(0)
+  const [runningPython, setRunningPython] = useState(false)
+  const [scheduleRuns, setScheduleRuns] = useState<RunLog['schedules'] | null>(null)
   const canvasRef = useRef<State['canvas']>({})
   const addNoteRef = useRef<() => void>(() => {})
   const busy = useRef(0)
@@ -306,6 +311,7 @@ function Canvas() {
   const jobFinished = useCallback(
     (job: Job) => {
       setJobRunning(false)
+      setJobsDone((n) => n + 1)
       if (job.kind === 'generate' || job.kind === 'export') loadGenerated()
     },
     [loadGenerated],
@@ -316,6 +322,15 @@ function Canvas() {
       .then((r) => setJobRunning(r.jobs.some((j) => j.state === 'running')))
       .catch(() => {})
   }, [])
+
+  // When each schedule last ran, for the Schedules panel: read when it opens and after each job.
+  useEffect(() => {
+    if (side !== 'schedules') return
+    api.runs().then(
+      (log) => setScheduleRuns(log.schedules),
+      () => setScheduleRuns(null),
+    )
+  }, [side, jobsDone])
 
   // The first time the canvas opens, a short tour; the help button starts it again.
   const loaded = state !== null
@@ -917,6 +932,7 @@ function Canvas() {
     { id: 'schedules', label: 'Schedules', icon: <CalendarClock size={18} /> },
     { id: 'git', label: 'Team', icon: <GitBranch size={18} /> },
     { id: 'ci', label: 'CI', icon: <Workflow size={18} /> },
+    { id: 'runs', label: 'Runs', icon: <History size={18} /> },
     {
       id: 'activity',
       label: 'Activity',
@@ -1214,6 +1230,15 @@ function Canvas() {
               )}
               {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} />}
               {side === 'ci' && <CIPanel onMessage={showMessage} />}
+              {side === 'runs' && (
+                <RunsPanel
+                  refresh={jobsDone}
+                  onModel={(name) => {
+                    const entity = entities.find((e) => e.name.toLowerCase() === name.toLowerCase())
+                    if (entity) focus(entity)
+                  }}
+                />
+              )}
               {side === 'settings' && <SettingsPanel revision={state.revision} onState={setState} onMessage={showMessage} />}
               {side === 'activity' && (
                 <ActivityPanel
@@ -1222,6 +1247,7 @@ function Canvas() {
                   actions={[
                     { label: 'Build…', title: 'Load data and build every model and test into the warehouse (murakumo build)', onClick: () => setBuilding(true) },
                     { label: 'Verify', title: 'Build the project on DuckDB with made-up rows and run every test, twice (murakumo verify)', onClick: () => startJob('verify', { rows: 200 }) },
+                    { label: 'Run as Python…', title: 'Run the pipeline as Polars or PySpark jobs (murakumo run)', onClick: () => setRunningPython(true) },
                     { label: 'Generate', title: 'Write generated/ (murakumo generate)', onClick: () => startJob('generate') },
                   ]}
                 />
@@ -1232,6 +1258,8 @@ function Canvas() {
                   run={run}
                   highlighted={scheduleShown?.name ?? null}
                   onHighlight={(s) => setScheduleShown(s ? { name: s.name, entities: s.entities } : null)}
+                  lastRuns={scheduleRuns}
+                  onRunNow={(schedule) => startJob('build', { schedule })}
                 />
               )}
               {side === 'domains' && <DomainsPanel state={state} run={run} filter={domainFilter} onFilter={setDomainFilter} />}
@@ -1398,6 +1426,7 @@ function Canvas() {
                 generatedRevision={generated?.revision ?? ''}
                 lineageOf={lineageOf}
                 onLineage={setLineageOf}
+                onJob={startJob}
               />
             )}
             {selectedRelationship && (
@@ -1419,6 +1448,15 @@ function Canvas() {
         />
       )}
       {shortcuts && <Shortcuts onClose={() => setShortcuts(false)} />}
+      {runningPython && (
+        <PythonRunDialog
+          state={state}
+          onClose={() => setRunningPython(false)}
+          onStart={async (options) => {
+            if (await startJob('run', options)) setRunningPython(false)
+          }}
+        />
+      )}
       {building && (
         <BuildDialog
           state={state}

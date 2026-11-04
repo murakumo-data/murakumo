@@ -9,6 +9,8 @@ models:
         domain: product
       contract:
         enforced: true
+      tags:
+        - schedule_nightly
     columns:
       - name: part_id
         data_type: BIGINT

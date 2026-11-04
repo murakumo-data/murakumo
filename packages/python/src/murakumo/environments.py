@@ -117,14 +117,22 @@ class Connection:
         self.raw.close()
 
 
-def connect(project: Project, warehouse: Warehouse | None = None) -> Connection:
+def connect(project: Project, warehouse: Warehouse | None = None, read_only: bool = False) -> Connection:
+    """A connection to the project's warehouse. ``read_only`` lets the canvas read a DuckDB file
+    without taking the lock a build needs to write it."""
     warehouse = Warehouse(warehouse or project.manifest.targets.warehouse.type)
     if warehouse is Warehouse.DUCKDB:
         import duckdb
 
         from murakumo.generate.verify import _duckdb_path
 
-        return Connection(warehouse, duckdb.connect(str(_duckdb_path(project))))
+        path = _duckdb_path(project)
+        if read_only and not path.exists():
+            raise EnvError(f"{path.name} does not exist yet: build the project first")
+        try:
+            return Connection(warehouse, duckdb.connect(str(path), read_only=read_only))
+        except duckdb.IOException as exc:
+            raise EnvError(f"{path.name} is in use by another process (a build?); try again when it ends") from exc
     if warehouse is Warehouse.SNOWFLAKE:
         from murakumo.generate.dbt import warehouse_database
         from murakumo.importers import snowflake

@@ -136,6 +136,30 @@ export type SetupCheck = {
   docs: string[]
 }
 
+export type RunLog = {
+  audit: string
+  recorded: boolean
+  reason?: string
+  days: { day: string; runs: number; rows_ingested: number; rows_rejected: number; models_failed: number; tests_failed: number }[]
+  runs: {
+    run_id: string
+    started_at: string
+    finished_at: string | null
+    engine: string
+    environment: string
+    schedule: string | null
+    invoked_by: string | null
+    status: string
+    models_ok: number
+    models_failed: number
+    tests_passed: number
+    tests_failed: number
+  }[]
+  loads: { loaded_at: string; source: string; table: string; rows_ingested: number; rows_rejected: number; reason: string | null }[]
+  failed: { model: string; test: string; column: string | null; failures: number; severity: string }[]
+  schedules: Record<string, { started_at: string; finished_at: string | null; status: string }>
+}
+
 export type Upload = { name: string; path: string; size: number }
 
 export type JobState = 'running' | 'succeeded' | 'failed' | 'cancelled'
@@ -382,6 +406,8 @@ export const api = {
     if (!response.ok) throw new ApiError(response.status, data.message ?? response.statusText)
     return data as Upload
   },
+  runs: (environment?: string) =>
+    request<RunLog>('GET', `/runs${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`, undefined, false),
   startJob: (kind: string, options: Record<string, unknown> = {}) => request<Job>('POST', '/jobs', { kind, options }, false),
   jobs: () => request<{ jobs: Job[] }>('GET', '/jobs', undefined, false),
   job: (id: string, since = 0) => request<Job>('GET', `/jobs/${id}?since=${since}`, undefined, false),

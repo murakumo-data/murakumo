@@ -7,6 +7,8 @@ models:
       group: sales
       meta:
         domain: sales
+      tags:
+        - schedule_hourly_sales
     columns:
       - name: customer_id
       - name: dates_active
@@ -32,6 +34,8 @@ models:
         domain: sales
       contract:
         enforced: true
+      tags:
+        - schedule_hourly_sales
     columns:
       - name: customer_id
         data_type: BIGINT
@@ -103,6 +107,8 @@ models:
         domain: sales
       contract:
         enforced: true
+      tags:
+        - schedule_hourly_sales
     columns:
       - name: order_id
         data_type: BIGINT

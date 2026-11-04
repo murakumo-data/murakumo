@@ -97,9 +97,12 @@ def test_dbt_selectors(project):
     schedules.add_schedule(project, "nightly", "0 6 * * *")
     data = yaml.safe_load(generate(project).files["dbt/selectors.yml"])
     zones, nightly = data["selectors"]
-    assert [i["value"] for i in zones["definition"]["union"]] == ["dim_taxi_zone", "stg_nyc_tlc__taxi_zone_lookup"]
-    assert all(i["indirect_selection"] == "cautious" for i in zones["definition"]["union"])
+    # One criterion per schedule, its tag, so a test between two of its tables is selected too.
+    assert zones["definition"]["union"] == [{"method": "tag", "value": "schedule_zones", "indirect_selection": "cautious"}]
     assert {"method": "test_name", "value": "relationships"} in nightly["definition"]["union"]
+    models = yaml.safe_load(generate(project).files["dbt/models/marts/mobility/_mobility__models.yml"])["models"]
+    tagged = {m["name"]: m.get("config", {}).get("tags") for m in models}
+    assert tagged["dim_taxi_zone"] == ["schedule_zones"] and tagged["fct_trip"] == ["schedule_nightly"]
     assert nightly["description"] == "every day at 06:00 UTC"
 
 

@@ -3,6 +3,9 @@ version: 2
 models:
   - name: stg_nyc_tlc__taxi_zone_lookup
     description: Reference list of TLC taxi zones, used to decode pickup and dropoff location IDs.
+    config:
+      tags:
+        - schedule_nightly
     columns:
       - name: location_id
         description: Taxi zone identifier.
@@ -54,6 +57,9 @@ models:
         description: Hash of every source column, to detect changed rows.
   - name: stg_nyc_tlc__yellow_tripdata
     description: One row per completed yellow taxi trip, published monthly as Parquet.
+    config:
+      tags:
+        - schedule_nightly
     columns:
       - name: vendor_id
         description: TPEP provider that supplied the record.

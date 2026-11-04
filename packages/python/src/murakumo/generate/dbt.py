@@ -38,6 +38,9 @@ def render(plan: Plan) -> dict[str, str]:
     files["dbt_project.yml"] = _yaml(_dbt_project(plan))
     files["profiles.yml"] = _yaml(profiles(plan))
     files["README.md"] = _readme(plan)
+    from murakumo.schedules import schedule_tags
+
+    tags = schedule_tags(project, plan)
 
     for group in plan.sources:
         files[f"models/staging/{group.name}/_{group.name}__sources.yml"] = _yaml(_sources(group))
@@ -55,7 +58,7 @@ def render(plan: Plan) -> dict[str, str]:
     for folder, models in sorted(by_folder.items()):
         leaf = folder.rsplit("/", 1)[-1]
         files[f"models/{folder}/_{leaf}__models.yml"] = _yaml(
-            {"version": 2, "models": [_model_yaml(m, plan) for m in models]}
+            {"version": 2, "models": [_model_yaml(m, plan, tags.get(m.name)) for m in models]}
         )
 
     groups = _groups(plan)
@@ -75,6 +78,7 @@ def render(plan: Plan) -> dict[str, str]:
                             "unique_key": s.unique_key[0] if len(s.unique_key) == 1 else s.unique_key,
                             "strategy": "check",
                             "check_cols": "all",
+                            **({"tags": tags[s.name]} if s.name in tags else {}),
                         },
                     }
                     for s in plan.snapshots
@@ -152,7 +156,7 @@ def _groups(plan: Plan) -> list[dict]:
     return groups
 
 
-def _model_yaml(model: DbtModel, plan: Plan) -> dict:
+def _model_yaml(model: DbtModel, plan: Plan, tags: list[str] | None = None) -> dict:
     data: dict[str, Any] = {"name": model.name}
     if model.description:
         data["description"] = model.description
@@ -163,6 +167,8 @@ def _model_yaml(model: DbtModel, plan: Plan) -> dict:
         config["meta"] = {"domain": domain.name}
     if model.contract:
         config["contract"] = {"enforced": True}
+    if tags:
+        config["tags"] = tags  # the schedules that refresh it: their selectors select by tag
     if config:
         data["config"] = config
     columns = []

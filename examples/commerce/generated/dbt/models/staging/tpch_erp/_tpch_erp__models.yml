@@ -3,6 +3,9 @@ version: 2
 models:
   - name: stg_tpch_erp__customer
     description: Customers who place orders.
+    config:
+      tags:
+        - schedule_hourly_sales
     columns:
       - name: c_custkey
         description: Customer identifier.
@@ -72,6 +75,9 @@ models:
         description: Hash of every source column, to detect changed rows.
   - name: stg_tpch_erp__lineitem
     description: 'Order lines: one row per part on an order.'
+    config:
+      tags:
+        - schedule_hourly_sales
     columns:
       - name: l_orderkey
         description: Order the line belongs to.
@@ -220,6 +226,9 @@ models:
               - l_linenumber
   - name: stg_tpch_erp__nation
     description: The 25 nations customers and suppliers belong to.
+    config:
+      tags:
+        - schedule_hourly_sales
     columns:
       - name: n_nationkey
         description: Nation identifier.
@@ -257,6 +266,9 @@ models:
         description: Hash of every source column, to detect changed rows.
   - name: stg_tpch_erp__orders
     description: Customer orders (order header).
+    config:
+      tags:
+        - schedule_hourly_sales
     columns:
       - name: o_orderkey
         description: Order identifier.
@@ -335,6 +347,9 @@ models:
         description: Hash of every source column, to detect changed rows.
   - name: stg_tpch_erp__part
     description: Parts sold to customers.
+    config:
+      tags:
+        - schedule_nightly
     columns:
       - name: p_partkey
         description: Part identifier.
@@ -389,6 +404,9 @@ models:
         description: Hash of every source column, to detect changed rows.
   - name: stg_tpch_erp__partsupp
     description: Which supplier offers which part, with stock and cost.
+    config:
+      tags:
+        - schedule_nightly
     columns:
       - name: ps_partkey
         description: Part supplied.
@@ -439,6 +457,9 @@ models:
               - ps_suppkey
   - name: stg_tpch_erp__region
     description: The five world regions.
+    config:
+      tags:
+        - schedule_nightly
     columns:
       - name: r_regionkey
         description: Region identifier.
@@ -474,6 +495,9 @@ models:
         description: Hash of every source column, to detect changed rows.
   - name: stg_tpch_erp__supplier
     description: Suppliers that provide parts.
+    config:
+      tags:
+        - schedule_nightly
     columns:
       - name: s_suppkey
         description: Supplier identifier.

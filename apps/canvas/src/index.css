@@ -3452,3 +3452,129 @@ button.tree-row__label:not(:disabled) {
   margin-left: 6px;
   color: var(--error);
 }
+
+/* Runs ------------------------------------------------------------------------------------------ */
+
+.runs {
+  display: grid;
+  gap: 12px;
+}
+
+.runs__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.runs__refresh {
+  margin-left: auto;
+}
+
+.input--auto {
+  width: auto;
+}
+
+.runs__heading {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.runs__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.runs__table th,
+.runs__table td {
+  padding: 3px 6px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+
+.runs__table th:first-child,
+.runs__table td:first-child,
+.runs__table th:nth-child(2):not(:last-child) + th,
+.runs__table td code {
+  text-align: left;
+}
+
+.runs__table th {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.runs__bad {
+  font-weight: 600;
+  color: var(--error);
+}
+
+.runs__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runs__run {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.chip--small {
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.schedules__last {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.backfill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.backfill .input {
+  width: auto;
+}
+
+.runs > section,
+.runs__list > li,
+.runs__run > div {
+  min-width: 0;
+}
+
+.runs__table {
+  table-layout: fixed;
+}
+
+.runs__table td,
+.runs__table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runs__table th:first-child,
+.runs__table td:first-child {
+  width: 34%;
+}
+
+.runs__list .issue span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

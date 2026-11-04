@@ -1033,7 +1033,7 @@ cat generated/dbt/selectors.yml
 ```
 
 You should see `README.md`, `requirements.txt` and `dags/` with `taxi_platform__zones.py` and
-`taxi_platform__nightly.py`; and in `selectors.yml`, a selector per schedule naming its models.
+`taxi_platform__nightly.py`; and in `selectors.yml`, a selector per schedule, selecting the models tagged with it (`schedule_nightly`).
 Open `generated/orchestration/airflow/README.md` in a text editor: it lists the schedules and how
 to run the DAGs in Airflow.
 

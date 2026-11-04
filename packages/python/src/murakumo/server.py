@@ -865,6 +865,19 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
     from murakumo import jobs as jobs_module
 
+    @app.get("/api/runs")
+    def get_runs(environment: str | None = None, prefix: str | None = None, limit: int = 20) -> dict[str, Any]:
+        """What the runs recorded in the audit schema: by day, each run, loads, failed tests, and
+        when each schedule last ran."""
+        from murakumo import runlog
+
+        project, _ = _blocked(root)
+        if project is None:
+            raise HTTPException(409, {"message": "the project did not load"})
+        if prefix and not jobs_module.PREFIX.match(prefix):
+            raise HTTPException(400, {"message": "a schema prefix is lower case and ends in _"})
+        return runlog.read(project, environment, prefix, max(1, min(limit, 200)))
+
     jobs = jobs_module.Jobs(root)
 
     def job_call(action: Callable[[], Any]) -> Any:

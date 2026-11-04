@@ -4,63 +4,15 @@ selectors:
     description: Order lines and customers, every hour
     definition:
       union:
-        - method: fqn
-          value: customer_order_activity
-          indirect_selection: cautious
-        - method: fqn
-          value: dim_customer
-          indirect_selection: cautious
-        - method: fqn
-          value: fct_order_line
-          indirect_selection: cautious
-        - method: fqn
-          value: int_dim_customer__versions
-          indirect_selection: cautious
-        - method: fqn
-          value: snp_dim_customer
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_tpch_erp__customer
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_tpch_erp__lineitem
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_tpch_erp__nation
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_tpch_erp__orders
+        - method: tag
+          value: schedule_hourly_sales
           indirect_selection: cautious
   - name: nightly
     description: every day at 06:00 UTC
     definition:
       union:
-        - method: fqn
-          value: dim_part
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_nyc_tlc__taxi_zone_lookup
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_nyc_tlc__yellow_tripdata
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_open_meteo__weather_daily
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_open_meteo__weather_hourly
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_tpch_erp__part
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_tpch_erp__partsupp
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_tpch_erp__region
-          indirect_selection: cautious
-        - method: fqn
-          value: stg_tpch_erp__supplier
+        - method: tag
+          value: schedule_nightly
           indirect_selection: cautious
         - method: test_name
           value: relationships

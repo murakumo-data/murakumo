@@ -214,3 +214,74 @@ export function BuildDialog(props: {
     </div>
   )
 }
+
+/** Run the pipeline as Python (`murakumo run --engine`): Polars or PySpark jobs from the same SQL. */
+export function PythonRunDialog(props: { state: State; onStart: (options: Record<string, unknown>) => void; onClose: () => void }) {
+  const { state, onStart, onClose } = props
+  const schedules = state.orchestration?.implicit ? [] : (state.orchestration?.schedules ?? [])
+  const [options, setOptions] = useState({ engine: 'polars', sample: 0, schedule: '' })
+  const command = ['murakumo run --engine', options.engine, options.sample > 0 && `--sample ${options.sample}`, options.schedule && `--schedule ${options.schedule}`]
+    .filter(Boolean)
+    .join(' ')
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <form
+        className="dialog dialog--wide"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault()
+          onStart({ engine: options.engine, sample: options.sample || undefined, schedule: options.schedule || undefined })
+        }}
+      >
+        <h2>Run as Python</h2>
+        <p className="muted small">
+          Runs every model as a Polars or PySpark job, from the same SQL as the dbt project, reading the raw tables from
+          the project's DuckDB file (or made-up rows) and writing Parquet files to <code>lake/</code>. The first PySpark run
+          downloads Spark and a Java runtime (about 400 MB).
+        </p>
+        <label className="build__row">
+          <span>Engine</span>
+          <select className="input" value={options.engine} onChange={(e) => setOptions({ ...options, engine: e.target.value })}>
+            <option value="polars">Polars</option>
+            <option value="pyspark">PySpark</option>
+          </select>
+        </label>
+        <label className="build__row">
+          <span>Made-up rows</span>
+          <input
+            className="input input--narrow"
+            inputMode="numeric"
+            placeholder="0"
+            value={options.sample || ''}
+            onChange={(e) => setOptions({ ...options, sample: Number(e.target.value.replace(/\D/g, '')) || 0 })}
+          />
+        </label>
+        <p className="muted small">0 reads the raw tables already loaded; a number runs on that many made-up rows per table instead.</p>
+        {schedules.length > 0 && (
+          <label className="build__row">
+            <span>Schedule</span>
+            <select className="input" value={options.schedule} onChange={(e) => setOptions({ ...options, schedule: e.target.value })}>
+              <option value="">Everything</option>
+              {schedules.map((s) => (
+                <option key={s.name} value={s.name}>
+                  Only what {s.name} refreshes
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <p className="muted small">
+          The same in a terminal: <code>{command}</code>
+        </p>
+        <div className="dialog__actions">
+          <button type="button" className="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="button button--primary">
+            Run
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
