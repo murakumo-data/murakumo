@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0 (unreleased)
+## 0.9.0 (2026-11-04)
 
 The replication guide: everything it takes to rebuild the platform by hand, without Murakumo. And
 the modelling patterns the practices review left for 0.9.
