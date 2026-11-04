@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 (unreleased)
+## 0.8.0 (2026-11-04)
 
 Choosing the stack: how data is fetched, landed and loaded, the code for each tool, the platform's
 Snowflake settings, deploying it, and why it is built that way.
