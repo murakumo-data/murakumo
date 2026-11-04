@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import Body, FastAPI, Header, HTTPException
+from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -51,6 +51,10 @@ REVISION_HEADER = "X-Murakumo-Revision"
 PREVIEW_HEADER = "X-Murakumo-Preview"  # on an edit: say what it would reach, without saving it
 PREVIEW: ContextVar[bool] = ContextVar("preview", default=False)
 LOCAL_HOSTS = ["localhost", "127.0.0.1"]
+UPLOADS_DIR = "data"
+UPLOAD_NAME = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
+UPLOAD_TYPES = {".csv", ".parquet", ".json", ".jsonl", ".xlsx", ".xls", ".tsv"}
+UPLOAD_LIMIT = 2_000_000_000  # 2 GB: a month of NYC taxi trips is 50 MB
 
 Revision = Annotated[str | None, Header(alias=REVISION_HEADER)]
 Changes = Annotated[dict[str, Any], Body()]
@@ -800,6 +804,64 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             raise HTTPException(409, {"message": "the project did not load"})
         checks = run_checks(project, connect=connect)
         return {"ready": not any(c.status is Status.TODO for c in checks), "checks": [c.as_dict() for c in checks]}
+
+    # Files added from the canvas: data to load, dictionaries to import. They go to data/ in the
+    # project, which git ignores, so nobody commits a client's data by accident.
+    data_dir = root / UPLOADS_DIR
+
+    def upload_path(name: str) -> Path:
+        if not UPLOAD_NAME.match(name) or name.startswith("."):
+            raise HTTPException(400, {"message": "name the file with letters, digits, dots, dashes and underscores"})
+        if Path(name).suffix.lower() not in UPLOAD_TYPES:
+            raise HTTPException(400, {"message": f"add {', '.join(sorted(UPLOAD_TYPES))} files"})
+        return data_dir / name
+
+    def ignore_uploads() -> None:
+        ignore = root / ".gitignore"
+        text = ignore.read_text(encoding="utf-8") if ignore.is_file() else ""
+        if not any(line.strip() in (f"{UPLOADS_DIR}/", UPLOADS_DIR, f"/{UPLOADS_DIR}/") for line in text.splitlines()):
+            ignore.write_text(
+                text
+                + ("" if text.endswith("\n") or not text else "\n")
+                + f"# Files added from the canvas (data to load, dictionaries)\n{UPLOADS_DIR}/\n",
+                encoding="utf-8",
+            )
+
+    def describe(path: Path) -> dict[str, Any]:
+        return {"name": path.name, "path": f"{UPLOADS_DIR}/{path.name}", "size": path.stat().st_size}
+
+    @app.get("/api/uploads")
+    def list_uploads() -> dict[str, Any]:
+        files = sorted(p for p in data_dir.glob("*") if p.is_file()) if data_dir.is_dir() else []
+        return {"files": [describe(p) for p in files if p.suffix.lower() in UPLOAD_TYPES]}
+
+    @app.put("/api/uploads/{name}")
+    async def put_upload(name: str, request: Request) -> dict[str, Any]:
+        """Add a file, sent as its raw bytes. Only application/octet-stream is accepted, which a page
+        on another site cannot send here without the server's consent."""
+        if request.headers.get("content-type", "").split(";")[0].strip() != "application/octet-stream":
+            raise HTTPException(415, {"message": "send the file as application/octet-stream"})
+        path = upload_path(name)
+        data_dir.mkdir(exist_ok=True)
+        ignore_uploads()
+        partial = path.with_name(f".{path.name}.part")
+        size = 0
+        with partial.open("wb") as out:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > UPLOAD_LIMIT:
+                    out.close()
+                    partial.unlink(missing_ok=True)
+                    raise HTTPException(413, {"message": f"files up to {UPLOAD_LIMIT // 1_000_000} MB"})
+                out.write(chunk)
+        partial.replace(path)
+        return describe(path)
+
+    @app.delete("/api/uploads/{name}")
+    def delete_upload(name: str) -> dict[str, Any]:
+        path = upload_path(name)
+        path.unlink(missing_ok=True)
+        return list_uploads()
 
     from murakumo import jobs as jobs_module
 

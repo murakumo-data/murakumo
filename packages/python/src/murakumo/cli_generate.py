@@ -143,6 +143,13 @@ def _report(result, files: dict[str, str]) -> None:
         source = {k.lower(): v for k, v in files.items()}.get(table.lower())
         how = f"from {source}" if source else "synthetic"
         console.print(f"  loaded {table}: {count} rows ({how})")
+        refused, why = getattr(result, "rejected", {}).get(table, (0, None))
+        if refused:
+            console.print(
+                f"  [yellow]{refused} row(s) of {table} rejected[/yellow]: {why or 'they did not fit the columns'}"
+                " (counted in audit.row_counts)",
+                markup=True,
+            )
     for node in result.nodes:
         if node.status not in ("success", "pass"):
             colour = "yellow" if node.status == "warn" else "red"

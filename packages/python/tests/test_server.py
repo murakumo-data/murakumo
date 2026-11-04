@@ -316,3 +316,24 @@ def test_settings_change_murakumo_yaml_keeping_comments_and_can_be_undone(client
 def test_setup_lists_checks(client):
     setup = client.get("/api/setup").json()
     assert setup["checks"] and {"area", "title", "status", "steps"} <= set(setup["checks"][0])
+
+
+def test_uploads_go_to_an_ignored_data_folder(client, project):
+    put = client.put(
+        "/api/uploads/zones.csv",
+        content=b"LocationID,Zone\n1,Newark\n",
+        headers={"Content-Type": "application/octet-stream"},
+    )
+    assert put.status_code == 200 and put.json() == {"name": "zones.csv", "path": "data/zones.csv", "size": 25}
+    assert (project.root / "data" / "zones.csv").read_text().startswith("LocationID")
+    assert "data/" in (project.root / ".gitignore").read_text().splitlines()
+    assert client.get("/api/uploads").json()["files"][0]["name"] == "zones.csv"
+
+    def put_as(name, content_type="application/octet-stream"):
+        return client.put(f"/api/uploads/{name}", content=b"x", headers={"Content-Type": content_type}).status_code
+
+    assert put_as("zones.csv", "text/plain") == 415  # a form or a fetch without consent cannot send this
+    assert put_as("..%2Fescape.csv") in (400, 404)
+    assert put_as(".hidden.csv") == 400
+    assert put_as("script.sh") == 400
+    assert client.delete("/api/uploads/zones.csv").json() == {"files": []}

@@ -30,6 +30,7 @@ def test_every_run_records_itself(tmp_path):
     )
     result = build(project, sample=20, data={"taxi_zone_lookup": str(zones)}, schedule="daily")
     assert result.loaded["taxi_zone_lookup"] == 2
+    assert result.rejected["taxi_zone_lookup"][0] == 1 and "nope" in result.rejected["taxi_zone_lookup"][1]
     con = duckdb.connect(str(project.root / "taxi.duckdb"), read_only=True)
     rows = con.execute("select table_name, rows_ingested, rows_rejected from audit.row_counts").fetchall()
     loads = {name: (ingested, rejected) for name, ingested, rejected in rows}

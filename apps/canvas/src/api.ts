@@ -136,6 +136,8 @@ export type SetupCheck = {
   docs: string[]
 }
 
+export type Upload = { name: string; path: string; size: number }
+
 export type JobState = 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 // A long command (build, verify, backfill...) the server runs in the background.
@@ -361,6 +363,25 @@ export const api = {
   saveSettings: (changes: Partial<Settings>) => request<Settings>('PUT', '/settings', changes, false),
   setup: (connect = false) =>
     request<{ ready: boolean; checks: SetupCheck[] }>('GET', `/setup?connect=${connect}`, undefined, false),
+  uploads: () => request<{ files: Upload[] }>('GET', '/uploads', undefined, false),
+  deleteUpload: (name: string) => request<{ files: Upload[] }>('DELETE', `/uploads/${encodeURIComponent(name)}`, undefined, false),
+  /** Add a file to the project's data/ folder (ignored by git), sent as its bytes. */
+  upload: async (file: File): Promise<Upload> => {
+    const name = file.name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '')
+    let response: Response
+    try {
+      response = await fetch(`/api/uploads/${encodeURIComponent(name)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: file,
+      })
+    } catch {
+      throw new ApiError(0, 'Cannot reach the Murakumo server. Is `murakumo canvas` running?')
+    }
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new ApiError(response.status, data.message ?? response.statusText)
+    return data as Upload
+  },
   startJob: (kind: string, options: Record<string, unknown> = {}) => request<Job>('POST', '/jobs', { kind, options }, false),
   jobs: () => request<{ jobs: Job[] }>('GET', '/jobs', undefined, false),
   job: (id: string, since = 0) => request<Job>('GET', `/jobs/${id}?since=${since}`, undefined, false),

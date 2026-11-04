@@ -3387,3 +3387,68 @@ button.tree-row__label:not(:disabled) {
 .setup__command {
   max-width: 100%;
 }
+
+/* Build ---------------------------------------------------------------------------------------- */
+
+.dialog--wide {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.build__group {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.build__group legend {
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.build__group p {
+  margin: -4px 0 0;
+}
+
+.build__row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.build__row code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.build__files,
+.sources__upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sources__upload {
+  margin: 0 0 8px;
+}
+
+.upload .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.upload__error {
+  margin-left: 6px;
+  color: var(--error);
+}

@@ -61,6 +61,7 @@ import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
 import { ActivityPanel } from './Activity'
 import { arrange, exportImage, type Direction } from './arrange'
+import { BuildDialog } from './Build'
 import { BulkBar } from './BulkBar'
 import { DiagramTabs } from './Diagrams'
 import { EntityNode, tableHandle, type EntityNodeType } from './EntityNode'
@@ -213,6 +214,7 @@ function Canvas() {
   const [touring, setTouring] = useState(false)
   const [jobFocus, setJobFocus] = useState<string | null>(null)
   const [jobRunning, setJobRunning] = useState(false)
+  const [building, setBuilding] = useState(false)
   const canvasRef = useRef<State['canvas']>({})
   const addNoteRef = useRef<() => void>(() => {})
   const busy = useRef(0)
@@ -1218,6 +1220,7 @@ function Canvas() {
                   focus={jobFocus}
                   onFinished={jobFinished}
                   actions={[
+                    { label: 'Build…', title: 'Load data and build every model and test into the warehouse (murakumo build)', onClick: () => setBuilding(true) },
                     { label: 'Verify', title: 'Build the project on DuckDB with made-up rows and run every test, twice (murakumo verify)', onClick: () => startJob('verify', { rows: 200 }) },
                     { label: 'Generate', title: 'Write generated/ (murakumo generate)', onClick: () => startJob('generate') },
                   ]}
@@ -1416,6 +1419,15 @@ function Canvas() {
         />
       )}
       {shortcuts && <Shortcuts onClose={() => setShortcuts(false)} />}
+      {building && (
+        <BuildDialog
+          state={state}
+          onClose={() => setBuilding(false)}
+          onStart={async (options) => {
+            if (await startJob('build', options)) setBuilding(false)
+          }}
+        />
+      )}
       {touring && (
         <Tour
           onClose={() => {
