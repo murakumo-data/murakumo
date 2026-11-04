@@ -1,4 +1,5 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
+import { KeyRound, Link2 } from 'lucide-react'
 
 import type { Entity } from './api'
 import { handleId } from './layout'
@@ -52,7 +53,12 @@ export function EntityNode({ data, selected }: NodeProps<EntityNodeType>) {
               ].join(' ')}
             >
               <Handle type="target" position={Position.Left} id={handleId(column.id, 'in')} />
-              <span className="entity__key">{pk ? 'PK' : fk ? 'FK' : ''}</span>
+              <span
+                className={pk ? 'entity__key entity__key--primary' : fk ? 'entity__key entity__key--foreign' : 'entity__key'}
+                title={pk ? 'Primary key' : fk ? 'Foreign key' : undefined}
+              >
+                {pk ? <KeyRound size={12} aria-label="PK" /> : fk ? <Link2 size={12} aria-label="FK" /> : null}
+              </span>
               <span className={pk ? 'entity__column-name entity__column-name--key' : 'entity__column-name'}>
                 {column.name}
                 {!column.nullable && !pk && <span className="entity__required" title="not null">*</span>}

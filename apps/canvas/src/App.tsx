@@ -1,5 +1,6 @@
 import {
   Background,
+  BackgroundVariant,
   ConnectionMode,
   Controls,
   MiniMap,
@@ -12,7 +13,36 @@ import {
   type Connection,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  BookOpen,
+  CalendarClock,
+  CircleHelp,
+  Cloud,
+  Database,
+  FileCode2,
+  GitBranch,
+  ListTree,
+  Moon,
+  Redo2,
+  Search as SearchIcon,
+  Spline,
+  SquarePlus,
+  Sun,
+  SunMoon,
+  TriangleAlert,
+  Undo2,
+  Workflow,
+} from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 
 import { api, ApiError, type Entity, type Generated, type Layer, type LineageResult, type Position, type State } from './api'
 import { CIPanel } from './CI'
@@ -20,10 +50,13 @@ import { GitPanel } from './Git'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
 import { EntityNode, type EntityNodeType } from './EntityNode'
+import { Explorer } from './Explorer'
 import { EntityPanel, RelationshipPanel } from './Inspector'
 import { domainColour, ends, handleId, nodeHeight, placeEntities } from './layout'
 import { LineageBar, LineageEdge, type LineageEdgeType } from './Lineage'
+import { NewRelationship } from './NewRelationship'
 import { SchedulesPanel } from './Schedules'
+import { Search } from './Search'
 import { SourcesPanel } from './Sources'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
@@ -67,6 +100,36 @@ const CARDINALITY: Record<string, string> = {
 }
 
 type Selection = { kind: 'entity' | 'relationship'; id: string } | null
+type Side = 'explorer' | 'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git'
+type Theme = 'system' | 'light' | 'dark'
+
+const SIDES: Side[] = ['explorer', 'issues', 'changes', 'domains', 'sources', 'schedules', 'ci', 'git']
+
+function savedSide(): Side | null {
+  const saved = recall('murakumo.side')
+  if (saved === null) return 'explorer' // the Explorer is open the first time
+  return SIDES.includes(saved as Side) ? (saved as Side) : null
+}
+
+function savedTheme(): Theme {
+  const saved = recall('murakumo.theme')
+  return saved === 'light' || saved === 'dark' ? saved : 'system'
+}
+
+function RailButton(props: { label: string; active?: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      className={props.active ? 'rail__button rail__button--active' : 'rail__button'}
+      title={props.label}
+      aria-label={props.label}
+      aria-pressed={props.active}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </button>
+  )
+}
 
 const byName = (entities: Entity[], name: string) => entities.find((e) => e.name.toLowerCase() === name.toLowerCase())
 const column = (entity: Entity, name: string) => entity.attributes.find((a) => a.name.toLowerCase() === name.toLowerCase())
@@ -78,7 +141,10 @@ function Canvas() {
   const [message, setMessage] = useState<{ text: string; tone: 'error' | 'info' } | null>(null)
   const [selection, setSelection] = useState<Selection>(null)
   const [hidden, setHidden] = useState<Set<Layer>>(new Set())
-  const [side, setSide] = useState<'issues' | 'changes' | 'domains' | 'sources' | 'schedules' | 'ci' | 'git' | null>(null)
+  const [side, setSide] = useState<Side | null>(savedSide)
+  const [searching, setSearching] = useState(false)
+  const [relating, setRelating] = useState(false)
+  const [theme, setTheme] = useState<Theme>(savedTheme)
   const [scheduleShown, setScheduleShown] = useState<{ name: string; entities: string[] } | null>(null)
   const shownSchedule = side === 'schedules' ? scheduleShown : null // only while its panel is open
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
@@ -94,6 +160,7 @@ function Canvas() {
   const [panelWidth, setPanelWidth] = useState(savedPanelWidth)
   const [nodes, setNodes, onNodesChange] = useNodesState<EntityNodeType>([])
   const busy = useRef(0)
+  const editable = useRef(false)
   const showMessage = useCallback((text: string, tone: 'info' | 'error') => setMessage({ text, tone }), [])
   const generatedRevision = useRef<string | undefined>(undefined)
   const positions = useRef<Record<string, Position>>({})
@@ -110,6 +177,9 @@ function Canvas() {
   )
 
   const entities = useMemo(() => state?.model?.entities ?? [], [state])
+  useEffect(() => {
+    editable.current = Boolean(state?.editable)
+  }, [state])
   const relationships = useMemo(() => state?.model?.relationships ?? [], [state])
 
   // What generating now would change. Cheap (tens of milliseconds), so it follows every edit.
@@ -162,13 +232,41 @@ function Canvas() {
     load()
   }, [load])
 
-  // ⌘Z / Ctrl+Z undoes, ⇧⌘Z / Ctrl+Y redoes; inside a text field they stay the field's own.
+  // The theme: the system's, or light or dark as chosen, for the page and the canvas.
+  useEffect(() => {
+    if (theme === 'system') document.documentElement.removeAttribute('data-theme')
+    else document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
+  const cycleTheme = () => {
+    const next: Theme = theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system'
+    remember('murakumo.theme', next)
+    setTheme(next)
+  }
+
+  // Keys: ⌘K finds, T adds a table, R a relationship; ⌘Z / Ctrl+Z undoes, ⇧⌘Z / Ctrl+Y redoes.
+  // Inside a text field, keys stay the field's own.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (target && (target.closest('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)) return
-      if (!(event.metaKey || event.ctrlKey)) return
       const key = event.key.toLowerCase()
+      if ((event.metaKey || event.ctrlKey) && key === 'k') {
+        event.preventDefault()
+        setSearching(true)
+        return
+      }
+      if (document.querySelector('.dialog-backdrop')) return
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && editable.current) {
+        if (key === 't') {
+          event.preventDefault()
+          setAdding({ name: '', layer: 'raw', source: '' })
+        } else if (key === 'r') {
+          event.preventDefault()
+          setRelating(true)
+        }
+        return
+      }
+      if (!(event.metaKey || event.ctrlKey)) return
       const redo = (key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey)
       if (key !== 'z' && !redo) return
       event.preventDefault()
@@ -465,12 +563,8 @@ function Canvas() {
       next.delete(entity.layer)
       setHidden(next)
     }
-    // Centre it in the part of the canvas the side panels do not cover (at zoom 1, a pixel is a unit).
-    const width = window.innerWidth
-    const left = side ? Math.min(432, width / 3) : 0
-    const right = Math.min(panelWidth + 12, width / 3)
-    const offset = width / 2 - (left + (width - left - right) / 2)
-    flow.setCenter(position.x + 140 + offset, position.y + nodeHeight(entity) / 2, { zoom: 1, duration: 400 })
+    // The panels sit beside the canvas, not over it, so its middle is the middle of what shows.
+    flow.setCenter(position.x + 140, position.y + nodeHeight(entity) / 2, { zoom: Math.max(flow.getZoom(), 0.8), duration: 400 })
   }
 
   const filesToWrite = () => generated?.files.filter((f) => f.status !== 'unchanged').length ?? 0
@@ -574,81 +668,57 @@ function Canvas() {
   const selectedRelationship =
     selection?.kind === 'relationship' ? relationships.find((r) => r.id === selection.id) : undefined
 
+  const panels: { id: Side; label: string; icon: ReactNode; badge?: ReactNode }[] = [
+    { id: 'explorer', label: 'Explorer', icon: <ListTree size={18} /> },
+    { id: 'sources', label: 'Sources', icon: <Database size={18} />, badge: state.sources.length || null },
+    { id: 'schedules', label: 'Schedules', icon: <CalendarClock size={18} /> },
+    { id: 'git', label: 'Team', icon: <GitBranch size={18} /> },
+    { id: 'ci', label: 'CI', icon: <Workflow size={18} /> },
+    {
+      id: 'changes',
+      label: 'Changes',
+      icon: <FileCode2 size={18} />,
+      badge: pendingFiles || (migration && !migration.baseline) ? <span className="rail__dot rail__dot--pending" /> : null,
+    },
+    {
+      id: 'issues',
+      label: 'Problems',
+      icon: <TriangleAlert size={18} />,
+      badge: errors.length ? <span className="rail__dot rail__dot--error" /> : warnings.length ? <span className="rail__dot rail__dot--warning" /> : null,
+    },
+  ]
+  const toggleSide = (id: Side) => {
+    const next = side === id ? null : id
+    setSide(next)
+    remember('murakumo.side', next ?? '')
+    if (id === 'schedules' && next === null) setScheduleShown(null)
+  }
+  const drawerTitle = side === 'domains' ? 'Domains' : panels.find((p) => p.id === side)?.label
+
   return (
-    <div className={selectedEntity || selectedRelationship ? 'app app--inspecting' : 'app'}>
-      <header className="toolbar">
-        <div className="toolbar__project">
+    <div className="app">
+      <header className="topbar">
+        <div className="topbar__project">
           <span className="logo" aria-hidden>
-            ☁
+            <Cloud size={18} />
           </span>
           <strong>{state.project}</strong>
-          <span className="muted">
-            {entities.length} entities · {relationships.length} relationships
+          <span className="muted small">
+            {entities.length} tables · {relationships.length} relationships
           </span>
-        </div>
-        <div className="toolbar__layers" role="group" aria-label="Show layers">
-          {state.choices.layers.map((layer) => {
-            const count = entities.filter((e) => e.layer === layer).length
-            if (count === 0) return null
-            const off = hidden.has(layer)
-            return (
-              <button
-                key={layer}
-                className={off ? 'chip chip--off' : 'chip'}
-                aria-pressed={!off}
-                onClick={() => {
-                  const next = new Set(hidden)
-                  if (off) next.delete(layer)
-                  else next.add(layer)
-                  setHidden(next)
-                }}
-              >
-                <span className={`dot dot--${layer}`} />
-                {layer} <span className="muted">{count}</span>
-              </button>
-            )
-          })}
-          <span className="toolbar__divider" aria-hidden />
-          <button
-            className={showDomains ? 'chip' : 'chip chip--off'}
-            aria-pressed={showDomains}
-            title="Colour tables by domain and shade each domain's area"
-            onClick={() => {
-              remember('murakumo.showDomains', showDomains ? '0' : '1')
-              setShowDomains(!showDomains)
-            }}
-          >
-            Show domains
-          </button>
-          <button
-            className="chip"
-            onClick={() => setSide(side === 'sources' ? null : 'sources')}
-            aria-expanded={side === 'sources'}
-          >
-            Sources <span className="muted">{state.sources.length}</span>
-          </button>
-          <button
-            className="chip"
-            onClick={() => setSide(side === 'schedules' ? null : 'schedules')}
-            aria-expanded={side === 'schedules'}
-          >
-            Schedules <span className="muted">{state.orchestration?.implicit ? 'daily' : state.orchestration?.schedules.length}</span>
-          </button>
-          <button
-            className="chip"
-            onClick={() => setSide(side === 'domains' ? null : 'domains')}
-            aria-expanded={side === 'domains'}
-          >
-            Domains <span className="muted">{state.domains.length}</span>
-          </button>
           {domainFilter && (
             <button className="chip chip--pending" onClick={() => setDomainFilter(null)} title="Show every domain">
               only {domainFilter} ×
             </button>
           )}
         </div>
-        <div className="toolbar__actions">
-          <div className="toolbar__history" role="group" aria-label="History">
+        <button className="topbar__search" onClick={() => setSearching(true)} title="Find a table or column (⌘K)">
+          <SearchIcon size={14} />
+          <span>Find a table or column</span>
+          <kbd className="kbd">⌘K</kbd>
+        </button>
+        <div className="topbar__actions">
+          <div className="button-group" role="group" aria-label="History">
             <button
               className="icon-button"
               onClick={() => run(api.undo)}
@@ -656,7 +726,7 @@ function Canvas() {
               title={state.history.undo ? `Undo: ${state.history.undo} (⌘Z)` : 'Nothing to undo'}
               aria-label="Undo"
             >
-              ↶
+              <Undo2 size={16} />
             </button>
             <button
               className="icon-button"
@@ -665,24 +735,15 @@ function Canvas() {
               title={state.history.redo ? `Redo: ${state.history.redo} (⇧⌘Z)` : 'Nothing to redo'}
               aria-label="Redo"
             >
-              ↷
+              <Redo2 size={16} />
             </button>
           </div>
-          <button className="chip" onClick={() => setSide(side === 'git' ? null : 'git')} aria-expanded={side === 'git'}>
-            Team
-          </button>
-          <button className="chip" onClick={() => setSide(side === 'ci' ? null : 'ci')} aria-expanded={side === 'ci'}>
-            CI
-          </button>
-          <a className="chip" href="/api/pipeline-docs" target="_blank" rel="noreferrer" title="Pipeline docs: tables, columns, lineage and schedules">
-            Docs
-          </a>
           <span className="status" aria-live="polite">
-            {saving ? 'Saving…' : 'Saved to model/'}
+            {saving ? 'Saving…' : 'Saved'}
           </span>
           <button
             className={pendingFiles || (migration && !migration.baseline) ? 'chip chip--pending' : 'chip'}
-            onClick={() => setSide(side === 'changes' ? null : 'changes')}
+            onClick={() => toggleSide('changes')}
             aria-expanded={side === 'changes'}
           >
             {changesLabel}
@@ -690,16 +751,11 @@ function Canvas() {
           </button>
           <button
             className={errors.length ? 'chip chip--error' : warnings.length ? 'chip chip--warning' : 'chip chip--ok'}
-            onClick={() => setSide(side === 'issues' ? null : 'issues')}
+            onClick={() => toggleSide('issues')}
             aria-expanded={side === 'issues'}
           >
             {problemsLabel}
           </button>
-          {state.editable && (
-            <button className="button button--primary" onClick={() => setAdding({ name: '', layer: 'raw', source: '' })}>
-              + Entity
-            </button>
-          )}
         </div>
       </header>
 
@@ -717,197 +773,190 @@ function Canvas() {
         </div>
       )}
 
-      <main className="stage">
-        <Markers />
-        <ReactFlow
-          nodes={[...domainAreas, ...linkedNodes] as EntityNodeType[]}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange}
-          onNodeDragStop={savePositions}
-          onConnect={state.editable ? connect : undefined}
-          onNodeClick={(_, node) => node.type === 'entity' && setSelection({ kind: 'entity', id: node.id })}
-          onEdgeClick={(_, edge) => {
-            if (edge.type === 'lineage') return
-            setSelection({ kind: 'relationship', id: edge.id })
-            setNodes((all) => all.map((n) => (n.selected ? { ...n, selected: false } : n)))
-          }}
-          onEdgeMouseEnter={(_, edge) => setHovered(edge.id)}
-          onEdgeMouseLeave={() => setHovered(null)}
-          onPaneClick={() => setSelection(null)}
-          selectionMode={SelectionMode.Partial}
-          nodesConnectable={state.editable}
-          connectionMode={ConnectionMode.Loose}
-          deleteKeyCode={null}
-          fitView
-          fitViewOptions={{ maxZoom: 1 }}
-          minZoom={0.1}
-          colorMode="system"
-        >
-          <Background gap={24} />
-          <Controls />
-          <MiniMap pannable zoomable />
-          <Panel position="bottom-left" className="legend-panel">
-            {legend ? (
-              <Legend onClose={() => setLegend(false)} />
-            ) : (
-              <button className="chip" onClick={() => setLegend(true)} aria-expanded={false}>
-                Notation &amp; tips
-              </button>
-            )}
-          </Panel>
-          {lineage && (
-            <Panel position="top-center">
-              <LineageBar
-                lineage={lineage}
-                onClose={() => setLineageOf(null)}
-                onPick={(ref) => {
-                  setLineageOf(ref)
-                  const entity = byName(entities, ref.entity)
-                  if (entity) focus(entity)
-                }}
-              />
-            </Panel>
-          )}
-          {entities.length === 0 && (
-            <Panel position="top-center" className="empty">
-              No entities yet. Add one with <strong>+ Entity</strong>, or run <code>murakumo import</code>.
-            </Panel>
-          )}
-          {state.editable && entities.length > 1 && relationships.length === 0 && (
-            <Panel position="bottom-center" className="hint">
-              Drag from a column to a column of another entity to add a relationship, or select an entity and use
-              <strong> + Relationship</strong>.
-            </Panel>
-          )}
-        </ReactFlow>
+      <div className="workspace">
+        <nav className="rail" aria-label="Tools and panels">
+          <div className="rail__group">
+            <RailButton label="Add table (T)" disabled={!state.editable} onClick={() => setAdding({ name: '', layer: 'raw', source: '' })}>
+              <SquarePlus size={18} />
+            </RailButton>
+            <RailButton label="Add relationship (R)" disabled={!state.editable || entities.length < 2} onClick={() => setRelating(true)}>
+              <Spline size={18} />
+            </RailButton>
+          </div>
+          <div className="rail__group">
+            {panels.map((p) => (
+              <RailButton key={p.id} label={p.label} active={side === p.id} onClick={() => toggleSide(p.id)}>
+                {p.icon}
+                {p.badge && typeof p.badge === 'number' ? <span className="rail__count">{p.badge}</span> : p.badge}
+              </RailButton>
+            ))}
+          </div>
+          <div className="rail__group rail__group--end">
+            <a className="rail__button" href="/api/pipeline-docs" target="_blank" rel="noreferrer" title="Pipeline docs" aria-label="Pipeline docs">
+              <BookOpen size={18} />
+            </a>
+            <RailButton label={`Theme: ${theme}`} onClick={cycleTheme}>
+              {theme === 'dark' ? <Moon size={18} /> : theme === 'light' ? <Sun size={18} /> : <SunMoon size={18} />}
+            </RailButton>
+            <RailButton label="Notation and tips" active={legend} onClick={() => setLegend(!legend)}>
+              <CircleHelp size={18} />
+            </RailButton>
+          </div>
+        </nav>
 
-        {side === 'changes' && (
-          <aside className="issues-panel" aria-label="Changes">
-            <div className="issues-panel__head">
-              <strong>Changes</strong>
-              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
-                ×
-              </button>
-            </div>
-            <ChangesPanel
-              generated={generated}
-              entityName={(id) => entities.find((e) => e.id === id)?.name}
-              onGenerate={generateNow}
-              onMigrate={migrateNow}
-              busy={generating}
-            />
-          </aside>
-        )}
-
-        {side === 'sources' && (
-          <aside className="issues-panel" aria-label="Sources">
-            <div className="issues-panel__head">
-              <strong>Sources</strong>
-              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
-                ×
-              </button>
-            </div>
-            <SourcesPanel state={state} run={run} onMessage={(text) => setMessage({ text, tone: 'info' })} />
-          </aside>
-        )}
-
-        {side === 'git' && (
-          <aside className="issues-panel" aria-label="Team">
-            <div className="issues-panel__head">
-              <strong>Team</strong>
-              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
-                ×
-              </button>
-            </div>
-            <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} />
-          </aside>
-        )}
-
-        {side === 'ci' && (
-          <aside className="issues-panel" aria-label="CI">
-            <div className="issues-panel__head">
-              <strong>CI</strong>
-              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
-                ×
-              </button>
-            </div>
-            <CIPanel onMessage={showMessage} />
-          </aside>
-        )}
-
-        {side === 'schedules' && (
-          <aside className="issues-panel" aria-label="Schedules">
-            <div className="issues-panel__head">
-              <strong>Schedules</strong>
+        {side && (
+          <aside className="drawer" aria-label={drawerTitle}>
+            <div className="drawer__head">
+              <strong>{drawerTitle}</strong>
               <button
                 className="icon-button"
                 aria-label="Close"
-                onClick={() => {
-                  setSide(null)
-                  setScheduleShown(null)
-                }}
+                onClick={() => (side === 'domains' ? setSide('explorer') : toggleSide(side))}
               >
                 ×
               </button>
             </div>
-            <SchedulesPanel
-              state={state}
-              run={run}
-              highlighted={scheduleShown?.name ?? null}
-              onHighlight={(s) => setScheduleShown(s ? { name: s.name, entities: s.entities } : null)}
-            />
+            <div className="drawer__body">
+              {side === 'explorer' && (
+                <Explorer
+                  state={state}
+                  diagnostics={diagnostics}
+                  hidden={hidden}
+                  onToggleLayer={(layer) => {
+                    const next = new Set(hidden)
+                    if (next.has(layer)) next.delete(layer)
+                    else next.add(layer)
+                    setHidden(next)
+                  }}
+                  domainFilter={domainFilter}
+                  onDomainFilter={setDomainFilter}
+                  showDomains={showDomains}
+                  onShowDomains={() => {
+                    remember('murakumo.showDomains', showDomains ? '0' : '1')
+                    setShowDomains(!showDomains)
+                  }}
+                  onFocus={focus}
+                  onManageDomains={() => setSide('domains')}
+                  selected={selection?.kind === 'entity' ? selection.id : null}
+                />
+              )}
+              {side === 'changes' && (
+                <ChangesPanel
+                  generated={generated}
+                  entityName={(id) => entities.find((e) => e.id === id)?.name}
+                  onGenerate={generateNow}
+                  onMigrate={migrateNow}
+                  busy={generating}
+                />
+              )}
+              {side === 'sources' && (
+                <SourcesPanel state={state} run={run} onMessage={(text) => setMessage({ text, tone: 'info' })} />
+              )}
+              {side === 'git' && <GitPanel onState={setState} onMessage={showMessage} revision={state.revision} />}
+              {side === 'ci' && <CIPanel onMessage={showMessage} />}
+              {side === 'schedules' && (
+                <SchedulesPanel
+                  state={state}
+                  run={run}
+                  highlighted={scheduleShown?.name ?? null}
+                  onHighlight={(s) => setScheduleShown(s ? { name: s.name, entities: s.entities } : null)}
+                />
+              )}
+              {side === 'domains' && <DomainsPanel state={state} run={run} filter={domainFilter} onFilter={setDomainFilter} />}
+              {side === 'issues' && (
+                <>
+                  {diagnostics.length === 0 && <p className="muted">The model is valid and generates cleanly.</p>}
+                  <ul className="issue-list">
+                    {[...errors, ...warnings].map((d, i) => {
+                      const entity = entities.find((e) => e.id === d.entity_id)
+                      return (
+                        <li key={i}>
+                          <button
+                            className={`issue issue--${d.level} issue--button`}
+                            disabled={!entity}
+                            onClick={() => entity && focus(entity)}
+                          >
+                            <span className="issue__code">{d.code}</span>
+                            <span>
+                              {entity && <strong>{entity.name}: </strong>}
+                              {d.message}
+                              {!entity && d.file && <span className="issue__where"> ({d.file})</span>}
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </>
+              )}
+            </div>
           </aside>
         )}
 
-        {side === 'domains' && (
-          <aside className="issues-panel" aria-label="Domains">
-            <div className="issues-panel__head">
-              <strong>Domains</strong>
-              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
-                ×
-              </button>
-            </div>
-            <DomainsPanel state={state} run={run} filter={domainFilter} onFilter={setDomainFilter} />
-          </aside>
-        )}
-
-        {side === 'issues' && (
-          <aside className="issues-panel" aria-label="Validation">
-            <div className="issues-panel__head">
-              <strong>Problems</strong>
-              <button className="icon-button" aria-label="Close" onClick={() => setSide(null)}>
-                ×
-              </button>
-            </div>
-            {diagnostics.length === 0 && <p className="muted">The model is valid and generates cleanly.</p>}
-            <ul>
-              {[...errors, ...warnings].map((d, i) => {
-                const entity = entities.find((e) => e.id === d.entity_id)
-                return (
-                  <li key={i}>
-                    <button
-                      className={`issue issue--${d.level} issue--button`}
-                      disabled={!entity}
-                      onClick={() => entity && focus(entity)}
-                    >
-                      <span className="issue__code">{d.code}</span>
-                      <span>
-                        {entity && <strong>{entity.name}: </strong>}
-                        {d.message}
-                        {!entity && d.file && <span className="issue__where"> ({d.file})</span>}
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </aside>
-        )}
+        <main className="stage">
+          <Markers />
+          <ReactFlow
+            nodes={[...domainAreas, ...linkedNodes] as EntityNodeType[]}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={onNodesChange}
+            onNodeDragStop={savePositions}
+            onConnect={state.editable ? connect : undefined}
+            onNodeClick={(_, node) => node.type === 'entity' && setSelection({ kind: 'entity', id: node.id })}
+            onEdgeClick={(_, edge) => {
+              if (edge.type === 'lineage') return
+              setSelection({ kind: 'relationship', id: edge.id })
+              setNodes((all) => all.map((n) => (n.selected ? { ...n, selected: false } : n)))
+            }}
+            onEdgeMouseEnter={(_, edge) => setHovered(edge.id)}
+            onEdgeMouseLeave={() => setHovered(null)}
+            onPaneClick={() => setSelection(null)}
+            selectionMode={SelectionMode.Partial}
+            nodesConnectable={state.editable}
+            connectionMode={ConnectionMode.Loose}
+            deleteKeyCode={null}
+            fitView
+            fitViewOptions={{ maxZoom: 1 }}
+            minZoom={0.1}
+            colorMode={theme}
+          >
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} />
+            <Controls position="bottom-left" showInteractive={false} />
+            <MiniMap pannable zoomable position="bottom-right" />
+            {legend && (
+              <Panel position="top-left" className="legend-panel">
+                <Legend onClose={() => setLegend(false)} />
+              </Panel>
+            )}
+            {lineage && (
+              <Panel position="top-center">
+                <LineageBar
+                  lineage={lineage}
+                  onClose={() => setLineageOf(null)}
+                  onPick={(ref) => {
+                    setLineageOf(ref)
+                    const entity = byName(entities, ref.entity)
+                    if (entity) focus(entity)
+                  }}
+                />
+              </Panel>
+            )}
+            {entities.length === 0 && (
+              <Panel position="top-center" className="empty">
+                No tables yet. Add one with the <strong>+</strong> on the left (or press T), or run <code>murakumo import</code>.
+              </Panel>
+            )}
+            {state.editable && entities.length > 1 && relationships.length === 0 && (
+              <Panel position="bottom-center" className="hint">
+                Drag from a column to a column of another table to relate them, or press R.
+              </Panel>
+            )}
+          </ReactFlow>
+        </main>
 
         {(selectedEntity || selectedRelationship) && (
-          <aside className="panel" aria-label="Inspector" style={{ '--panel-width': `${panelWidth}px` } as CSSProperties}>
+          <aside className="inspector" aria-label="Inspector" style={{ '--panel-width': `${panelWidth}px` } as CSSProperties}>
             <div
               className="panel__resize"
               role="separator"
@@ -936,8 +985,21 @@ function Canvas() {
             )}
           </aside>
         )}
-      </main>
+      </div>
 
+      {searching && (
+        <Search
+          entities={entities}
+          onClose={() => setSearching(false)}
+          onPick={(hit) => {
+            focus(hit.entity)
+            if (hit.column) setLineageOf(null)
+          }}
+        />
+      )}
+      {relating && (
+        <NewRelationship state={state} from={selectedEntity} run={run} onClose={() => setRelating(false)} />
+      )}
       {adding && (
         <div className="dialog-backdrop" onClick={() => setAdding(null)}>
           <form
