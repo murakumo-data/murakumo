@@ -32,6 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from murakumo import __version__, edit
+from murakumo import history as history_module
 from murakumo import schedules as schedules_module
 from murakumo import sources as sources_module
 from murakumo.diagnostics import Diagnostic, Level
@@ -203,6 +204,9 @@ def _diagnostic(d: Diagnostic, project: Project | None, root: Path) -> dict[str,
     }
 
 
+HISTORIES: dict[Path, history_module.History] = {}  # one undo history per project the server edits
+
+
 def state(root: Path) -> dict[str, Any]:
     """Everything the canvas draws: the model, positions, diagnostics and the choices for its forms."""
     result = load_project(root)
@@ -230,6 +234,7 @@ def state(root: Path) -> dict[str, Any]:
             for d in (project.manifest.project.domains if project else [])
         ],
         "diagnostics": [_diagnostic(d, project, root) for d in diagnostics],
+        "history": HISTORIES[root].summary() if root in HISTORIES else {"undo": None, "redo": None},
         "choices": {
             "sources": sources,
             "layers": [v.value for v in Layer],
@@ -325,6 +330,7 @@ def canvas_files() -> Path | None:
 def create_app(root: Path, static: Path | None = None) -> FastAPI:
     root = root.resolve()
     lock = threading.Lock()  # one change at a time: load, edit, save
+    history = HISTORIES.setdefault(root, history_module.History())
     app = FastAPI(
         title="Murakumo canvas API", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json"
     )
@@ -352,6 +358,8 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 raise HTTPException(
                     409, {"message": "fix the errors in the model files before editing", "state": state(root)}
                 )
+            before = history_module.take(root)
+            old_model, old_manifest = project.model.model_copy(deep=True), project.manifest.model_copy(deep=True)
             try:
                 placed = action(project)
             except edit.EditError as exc:
@@ -367,6 +375,11 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 positions.update(placed)
             save_model(project, prune=prune)
             save_layout(project, positions)  # drops the positions of removed entities
+            history.record(
+                history_module.label(old_model, project.model, old_manifest, project.manifest),
+                before,
+                history_module.take(root),
+            )
             return state(root)
 
     def entity_name(project: Project, entity_id: UUID) -> str:
@@ -793,6 +806,23 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
     @app.delete("/api/domains/{name}")
     def remove_domain(name: str, rev: Revision = None) -> dict[str, Any]:
         return change(lambda p: edit.remove_domain(p, name), rev)
+
+    @app.post("/api/undo")
+    def undo() -> dict[str, Any]:
+        """Take back the last change the canvas made."""
+        return travel(history.undo, "Undid")
+
+    @app.post("/api/redo")
+    def redo() -> dict[str, Any]:
+        return travel(history.redo, "Redid")
+
+    def travel(step: Callable[[Path], str], done: str) -> dict[str, Any]:
+        with lock:
+            try:
+                what = step(root)
+            except history_module.HistoryError as exc:
+                raise HTTPException(409, {"message": str(exc), "state": state(root)}) from None
+            return {**state(root), "message": f"{done}: {what}"}
 
     @app.put("/api/layout")
     def put_layout(body: Layout) -> dict[str, str]:

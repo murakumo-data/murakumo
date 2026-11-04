@@ -139,8 +139,9 @@ function Canvas() {
     busy.current += 1
     setSaving(true)
     try {
-      setState(await action())
-      setMessage(null)
+      const next = await action()
+      setState(next)
+      setMessage(next.message ? { text: next.message, tone: 'info' } : null)
       loadGenerated()
       return true
     } catch (e) {
@@ -160,6 +161,22 @@ function Canvas() {
   useEffect(() => {
     load()
   }, [load])
+
+  // ⌘Z / Ctrl+Z undoes, ⇧⌘Z / Ctrl+Y redoes; inside a text field they stay the field's own.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && (target.closest('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)) return
+      if (!(event.metaKey || event.ctrlKey)) return
+      const key = event.key.toLowerCase()
+      const redo = (key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey)
+      if (key !== 'z' && !redo) return
+      event.preventDefault()
+      run(redo ? api.redo : api.undo)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [run])
 
   // Pick up changes made in an editor or with the CLI.
   useEffect(() => {
@@ -631,6 +648,26 @@ function Canvas() {
           )}
         </div>
         <div className="toolbar__actions">
+          <div className="toolbar__history" role="group" aria-label="History">
+            <button
+              className="icon-button"
+              onClick={() => run(api.undo)}
+              disabled={!state.editable || !state.history.undo}
+              title={state.history.undo ? `Undo: ${state.history.undo} (⌘Z)` : 'Nothing to undo'}
+              aria-label="Undo"
+            >
+              ↶
+            </button>
+            <button
+              className="icon-button"
+              onClick={() => run(api.redo)}
+              disabled={!state.editable || !state.history.redo}
+              title={state.history.redo ? `Redo: ${state.history.redo} (⇧⌘Z)` : 'Nothing to redo'}
+              aria-label="Redo"
+            >
+              ↷
+            </button>
+          </div>
           <button className="chip" onClick={() => setSide(side === 'git' ? null : 'git')} aria-expanded={side === 'git'}>
             Team
           </button>

@@ -122,6 +122,8 @@ export type State = {
   sources: SourceInfo[]
   orchestration: Orchestration | null
   diagnostics: Diagnostic[]
+  history: { undo: string | null; redo: string | null } // what undo and redo would take back
+  message?: string // said by undo and redo
   choices: {
     sources: string[]
     layers: Layer[]
@@ -296,6 +298,8 @@ export const api = {
   state: () => request<State>('GET', '/state'),
   revision: () => request<{ revision: string; generated: string }>('GET', '/revision', undefined, false),
   currentRevision: () => revision,
+  undo: () => request<State>('POST', '/undo'),
+  redo: () => request<State>('POST', '/redo'),
 
   addEntity: (body: { name: string; layer: Layer; kind?: string; source?: string | null; position?: Position }) =>
     request<State>('POST', '/entities', body),
