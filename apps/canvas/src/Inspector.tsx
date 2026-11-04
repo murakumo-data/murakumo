@@ -4,6 +4,8 @@ import { api, impactText, previewOf, type Diagnostic, type Entity, type ImpactRe
 import { EntityCodeView } from './Code'
 import { ExpressionEditor } from './ExpressionEditor'
 import { Row, SelectField, TextField } from './Field'
+import { DiagramChips } from './Diagrams'
+import { LabelSelect } from './Labels'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
 
@@ -179,6 +181,12 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage }: FormPr
             disabled={disabled}
             onSave={(domain) => save({ domain })}
           />
+        </Row>
+        <Row label="Colour">
+          <LabelSelect state={state} run={run} entities={[entity]} />
+        </Row>
+        <Row label="Diagrams">
+          <DiagramChips state={state} run={run} entity={entity} />
         </Row>
         {entity.kind === 'cumulative' && (
           <>

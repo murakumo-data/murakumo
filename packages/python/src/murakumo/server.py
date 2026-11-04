@@ -102,6 +102,15 @@ class Layout(BaseModel):
     positions: dict[UUID, Position]
 
 
+class BulkChange(BaseModel):
+    ids: list[UUID] = Field(min_length=1)
+    changes: dict[str, Any]
+
+
+class BulkRemove(BaseModel):
+    ids: list[UUID] = Field(min_length=1)
+
+
 class Label(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     colour: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
@@ -115,6 +124,7 @@ class Note(BaseModel):
     y: int = 0
     width: int = Field(default=220, ge=80, le=1200)
     colour: str | None = None
+    diagram: str | None = None  # the diagram it was written on; none: shown on "All tables"
 
 
 class Diagram(BaseModel):
@@ -530,6 +540,26 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 edit.update_entity(project, name, changes)
             if new_name and new_name != name:
                 edit.rename_entity(project, name, new_name)
+
+        return change(action, rev, prune=True, previewable=True)
+
+    @app.patch("/api/entities")
+    def update_entities(body: BulkChange, rev: Revision = None) -> dict[str, Any]:
+        """The same change (domain, layer...) to several tables at once: one change, one undo."""
+        if "name" in body.changes:
+            raise HTTPException(400, {"message": "rename tables one at a time"})
+
+        def action(project: Project) -> None:
+            for name in [entity_name(project, i) for i in body.ids]:
+                edit.update_entity(project, name, dict(body.changes))
+
+        return change(action, rev, prune=True, previewable=True)
+
+    @app.post("/api/entities/remove")
+    def remove_entities(body: BulkRemove, rev: Revision = None) -> dict[str, Any]:
+        def action(project: Project) -> None:
+            for name in [entity_name(project, i) for i in body.ids]:
+                edit.remove_entity(project, name)
 
         return change(action, rev, prune=True, previewable=True)
 

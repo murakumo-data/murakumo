@@ -22,7 +22,9 @@ import {
   Database,
   FileCode2,
   GitBranch,
+  ImageDown,
   KeyRound,
+  LayoutGrid,
   ListTree,
   Moon,
   RectangleHorizontal,
@@ -32,6 +34,7 @@ import {
   SlidersHorizontal,
   Spline,
   SquarePlus,
+  StickyNote,
   Sun,
   SunMoon,
   TriangleAlert,
@@ -49,11 +52,14 @@ import {
   type ReactNode,
 } from 'react'
 
-import { api, ApiError, type Entity, type Generated, type Layer, type LineageResult, type Position, type State } from './api'
+import { api, ApiError, type Entity, type Generated, type Layer, type LineageResult, type Note, type Position, type State } from './api'
 import { CIPanel } from './CI'
 import { GitPanel } from './Git'
 import { ChangesPanel } from './Code'
 import { DomainArea, DomainsPanel, type DomainAreaType } from './Domains'
+import { arrange, exportImage, type Direction } from './arrange'
+import { BulkBar } from './BulkBar'
+import { DiagramTabs } from './Diagrams'
 import { EntityNode, tableHandle, type EntityNodeType } from './EntityNode'
 import { Explorer } from './Explorer'
 import { EntityPanel, RelationshipPanel } from './Inspector'
@@ -70,12 +76,15 @@ import {
 } from './layout'
 import { LineageBar, LineageEdge, type LineageEdgeType } from './Lineage'
 import { NewRelationship } from './NewRelationship'
+import { NoteNode, type NoteNodeType } from './Notes'
 import { SchedulesPanel } from './Schedules'
 import { Search } from './Search'
 import { SourcesPanel } from './Sources'
 import { Legend, Markers, RelationshipEdge, type RelationshipEdgeType } from './Relationship'
 
-const nodeTypes = { entity: EntityNode, domain: DomainArea }
+const nodeTypes = { entity: EntityNode, domain: DomainArea, note: NoteNode }
+type AppNode = EntityNodeType | NoteNodeType
+const isTable = (n: AppNode): n is EntityNodeType => n.type === 'entity'
 const edgeTypes = { relationship: RelationshipEdge, lineage: LineageEdge }
 const NODE_WIDTH = 280 // until React Flow has measured a node
 const PANEL_WIDTH = { min: 320, default: 400 }
@@ -178,6 +187,7 @@ function Canvas() {
   const shownSchedule = side === 'schedules' ? scheduleShown : null // only while its panel is open
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
   const [domainFilter, setDomainFilter] = useState<string | null>(null)
+  const [layoutUndo, setLayoutUndo] = useState<Record<string, Position> | null>(null)
   const [lineageOf, setLineageOf] = useState<{ entity: string; column: string | null } | null>(null)
   const [lineage, setLineage] = useState<LineageResult | null>(null)
   const [generated, setGenerated] = useState<Generated | null>(null)
@@ -187,7 +197,13 @@ function Canvas() {
   const [hovered, setHovered] = useState<string | null>(null)
   const [legend, setLegend] = useState(false)
   const [panelWidth, setPanelWidth] = useState(savedPanelWidth)
-  const [nodes, setNodes, onNodesChange] = useNodesState<EntityNodeType>([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([])
+  const tableNodes = useMemo(() => nodes.filter(isTable), [nodes])
+  const [diagram, setDiagram] = useState<string | null>(() => recall('murakumo.diagram') || null)
+  const [labelFilter, setLabelFilter] = useState<string | null>(null)
+  const [menu, setMenu] = useState<'arrange' | 'export' | null>(null)
+  const canvasRef = useRef<State['canvas']>({})
+  const addNoteRef = useRef<() => void>(() => {})
   const busy = useRef(0)
   const editable = useRef(false)
   const showMessage = useCallback((text: string, tone: 'info' | 'error') => setMessage({ text, tone }), [])
@@ -296,6 +312,9 @@ function Canvas() {
         } else if (key === 'r') {
           event.preventDefault()
           setRelating(true)
+        } else if (key === 'n') {
+          event.preventDefault()
+          addNoteRef.current()
         }
         return
       }
@@ -360,6 +379,9 @@ function Canvas() {
       diagnostics.filter((d) => d.entity_id === id && d.level === level).length
     const domainNames = state.domains.map((d) => d.name)
     const canvas = state.canvas ?? {}
+    canvasRef.current = canvas
+    const shownDiagram = canvas.diagrams?.find((d) => d.id === diagram)
+    const inDiagram = shownDiagram ? new Set(shownDiagram.entities) : null
     const labels = new Map((canvas.labels ?? []).map((l) => [l.name, l.colour]))
     const toggleCollapsed = (entity: Entity) => {
       const collapsed = isCollapsed(entity, canvas)
@@ -374,9 +396,22 @@ function Canvas() {
       // Keep measured sizes, so React Flow does not have to measure every node again, and which
       // nodes are selected: several can be, to move them together.
       const before = new Map(previous.map((n) => [n.id, n]))
-      return entities
+      const notes: NoteNodeType[] = (canvas.notes ?? [])
+        .filter((note) => (note.diagram ?? null) === (shownDiagram ? shownDiagram.id : null))
+        .map((note) => ({
+          id: `note:${note.id}`,
+          type: 'note' as const,
+          position: { x: note.x, y: note.y },
+          measured: before.get(`note:${note.id}`)?.measured,
+          selected: before.get(`note:${note.id}`)?.selected ?? false,
+          zIndex: -1,
+          data: { note, editable: state.editable, onChange: saveNote, onRemove: removeNote },
+        }))
+      const tables: EntityNodeType[] = entities
         .filter((e) => !hidden.has(e.layer))
+        .filter((e) => !inDiagram || inDiagram.has(e.id))
         .filter((e) => !domainFilter || (e.domain ?? '').toLowerCase() === domainFilter.toLowerCase())
+        .filter((e) => !labelFilter || canvas.colours?.[e.id] === labelFilter)
         .map((entity) => ({
           id: entity.id,
           type: 'entity' as const,
@@ -400,11 +435,13 @@ function Canvas() {
             domainColour: showDomains ? domainColour(domainNames, entity.domain) : undefined,
           },
         }))
+      return [...notes, ...tables]
     })
-  }, [state, entities, relationships, diagnostics, hidden, domainFilter, showDomains, setNodes, view, run])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- saveNote and removeNote read canvasRef
+  }, [state, entities, relationships, diagnostics, hidden, domainFilter, labelFilter, diagram, showDomains, setNodes, view, run])
 
   const edges = useMemo<(RelationshipEdgeType | LineageEdgeType)[]>(() => {
-    const shown = new Map(nodes.map((n) => [n.id, n]))
+    const shown = new Map(tableNodes.map((n) => [n.id, n]))
     const box = (id: string) => {
       const node = shown.get(id)!
       const width = node.measured?.width ?? NODE_WIDTH
@@ -412,7 +449,7 @@ function Canvas() {
     }
     // A column that is not shown (collapsed table, keys only) is joined at the table's header.
     const visible = new Map(
-      nodes.map((n) => [n.id, new Set(visibleColumns(n.data.entity, n.data.view, n.data.collapsed, n.data.foreignKeys).map((a) => a.id))]),
+      tableNodes.map((n) => [n.id, new Set(visibleColumns(n.data.entity, n.data.view, n.data.collapsed, n.data.foreignKeys).map((a) => a.id))]),
     )
     const handle = (entityId: string, columnId: string, side: 'in' | 'out') =>
       visible.get(entityId)?.has(columnId) ? handleId(columnId, side) : tableHandle(entityId, side)
@@ -474,7 +511,7 @@ function Canvas() {
       ]
     })
     return [...relationshipEdges, ...lineageEdges]
-  }, [nodes, entities, relationships, selection, hovered, lineage])
+  }, [tableNodes, entities, relationships, selection, hovered, lineage])
 
   // While lineage is shown: which columns are in it (and how), and which tables fade.
   const lineageNodes = useMemo(() => {
@@ -498,18 +535,18 @@ function Canvas() {
     const to = r && byName(entities, r.to)
     if (shownSchedule && !lineageNodes) {
       const names = new Set(shownSchedule.entities.map((n) => n.toLowerCase()))
-      return nodes.map((n) => ({
+      return tableNodes.map((n) => ({
         ...n,
         data: { ...n.data, faded: !names.has(n.data.entity.name.toLowerCase()) },
       }))
     }
     if (lineageNodes) {
-      return nodes.map((n) => ({
+      return tableNodes.map((n) => ({
         ...n,
         data: { ...n.data, lineage: lineageNodes.get(n.id), faded: !lineageNodes.has(n.id) },
       }))
     }
-    if (!r || !from || !to) return nodes
+    if (!r || !from || !to) return tableNodes
     const ids = (entity: Entity, names: string[]) =>
       new Set(names.map((n) => column(entity, n)?.id).filter((c): c is string => Boolean(c)))
     const linked = new Map<string, Set<string>>([
@@ -517,15 +554,15 @@ function Canvas() {
       [to.id, ids(to, r.keys.map((k) => k.to))],
     ])
     if (from.id === to.id) linked.set(from.id, new Set([...ids(from, r.keys.map((k) => k.from)), ...ids(to, r.keys.map((k) => k.to))]))
-    return nodes.map((n) => (linked.has(n.id) ? { ...n, data: { ...n.data, linked: linked.get(n.id) } } : n))
-  }, [nodes, relationships, entities, selection, hovered, lineageNodes, shownSchedule])
+    return tableNodes.map((n) => (linked.has(n.id) ? { ...n, data: { ...n.data, linked: linked.get(n.id) } } : n))
+  }, [tableNodes, relationships, entities, selection, hovered, lineageNodes, shownSchedule])
 
   // A shaded area behind each domain's tables, drawn from where the tables are now.
   const domainAreas = useMemo<DomainAreaType[]>(() => {
     if (!showDomains || !state) return []
     const names = state.domains.map((d) => d.name)
     const boxes = new Map<string, { left: number; top: number; right: number; bottom: number }>()
-    for (const node of nodes) {
+    for (const node of tableNodes) {
       const domain = node.data.entity.domain
       if (!domain || !domainColour(names, domain)) continue
       const width = node.measured?.width ?? NODE_WIDTH
@@ -561,7 +598,7 @@ function Canvas() {
         zIndex: -1,
       }
     })
-  }, [showDomains, state, nodes])
+  }, [showDomains, state, tableNodes])
 
   const connect = useCallback(
     (connection: Connection) => {
@@ -581,14 +618,87 @@ function Canvas() {
     [entities, run],
   )
 
-  const savePositions = useCallback((_: unknown, __: unknown, moved: EntityNodeType[]) => {
-    const changed: Record<string, Position> = {}
-    for (const node of moved) {
-      changed[node.id] = { x: Math.round(node.position.x), y: Math.round(node.position.y) }
+  const savePositions = useCallback(
+    (_: unknown, __: unknown, moved: AppNode[]) => {
+      const changed: Record<string, Position> = {}
+      const notes = new Map<string, Position>()
+      for (const node of moved) {
+        const at = { x: Math.round(node.position.x), y: Math.round(node.position.y) }
+        if (isTable(node)) changed[node.id] = at
+        else notes.set(node.data.note.id, at)
+      }
+      if (Object.keys(changed).length) {
+        positions.current = { ...positions.current, ...changed }
+        api.saveLayout(changed).catch((e) => setMessage({ text: e.message, tone: 'error' }))
+      }
+      if (notes.size) {
+        const all = (canvasRef.current.notes ?? []).map((n) => (notes.has(n.id) ? { ...n, ...notes.get(n.id)! } : n))
+        run(() => api.saveCanvas({ notes: all, label: 'move a note' }))
+      }
+    },
+    [run],
+  )
+
+  // Notes: added in the middle of what shows, on the diagram being shown.
+  const saveNote = (note: Note) => {
+    const all = (canvasRef.current.notes ?? []).map((n) => (n.id === note.id ? note : n))
+    run(() => api.saveCanvas({ notes: all, label: 'edit a note' }))
+  }
+  const removeNote = (id: string) => {
+    run(() => api.saveCanvas({ notes: (canvasRef.current.notes ?? []).filter((n) => n.id !== id), label: 'remove a note' }))
+  }
+  const addNote = () => {
+    const stage = document.querySelector('.stage')?.getBoundingClientRect()
+    const centre = flow.screenToFlowPosition({
+      x: stage ? stage.left + stage.width / 2 - 110 : window.innerWidth / 2,
+      y: stage ? stage.top + stage.height / 3 : window.innerHeight / 3,
+    })
+    const note: Note = {
+      id: Math.random().toString(36).slice(2, 10),
+      text: '',
+      x: Math.round(centre.x),
+      y: Math.round(centre.y),
+      width: 220,
+      diagram,
     }
-    positions.current = { ...positions.current, ...changed }
-    api.saveLayout(changed).catch((e) => setMessage({ text: e.message, tone: 'error' }))
-  }, [])
+    run(() => api.saveCanvas({ notes: [...(canvasRef.current.notes ?? []), note], label: 'add a note' }))
+  }
+
+  useEffect(() => {
+    addNoteRef.current = addNote
+  })
+
+  // Diagrams: saved views of some tables, as tabs above the canvas.
+  const pickDiagram = (id: string | null) => {
+    remember('murakumo.diagram', id ?? '')
+    setDiagram(id)
+    setSelection(null)
+    window.setTimeout(() => flow.fitView({ maxZoom: 1, duration: 300 }), 50)
+  }
+  const saveDiagrams = (diagrams: NonNullable<State['canvas']['diagrams']>, label: string) =>
+    run(() => api.saveCanvas({ diagrams, label }))
+
+  // Arrange: lay tables out again (the selected ones, or all shown), with a way back.
+  const arrangeTables = async (direction: Direction, only?: EntityNodeType[]) => {
+    const chosen = only ?? tableNodes
+    if (chosen.length < 2) return
+    const nameOf = (id: string) => entities.find((e) => e.id === id)?.name ?? id
+    const placed = await arrange(chosen, relationships, nameOf, direction)
+    setLayoutUndo(Object.fromEntries(chosen.map((n) => [n.id, { x: Math.round(n.position.x), y: Math.round(n.position.y) }])))
+    positions.current = { ...positions.current, ...placed }
+    setNodes((all) => all.map((n) => (placed[n.id] ? { ...n, position: placed[n.id] } : n)))
+    await api.saveLayout(placed)
+    setMessage({ text: `Arranged ${chosen.length} tables.`, tone: 'info' })
+    if (!only) window.setTimeout(() => flow.fitView({ maxZoom: 1, duration: 300 }), 50)
+  }
+  const undoArrange = async () => {
+    if (!layoutUndo) return
+    positions.current = { ...positions.current, ...layoutUndo }
+    setNodes((all) => all.map((n) => (layoutUndo[n.id] ? { ...n, position: layoutUndo[n.id] } : n)))
+    await api.saveLayout(layoutUndo)
+    setLayoutUndo(null)
+    setMessage(null)
+  }
 
   const addEntity = async () => {
     if (!adding || !adding.name.trim()) return
@@ -616,6 +726,8 @@ function Canvas() {
   const focus = (entity: Entity) => {
     setSelection({ kind: 'entity', id: entity.id })
     setNodes((all) => all.map((n) => ({ ...n, selected: n.id === entity.id })))
+    const inDiagram = state?.canvas?.diagrams?.find((d) => d.id === diagram)
+    if (inDiagram && !inDiagram.entities.includes(entity.id)) pickDiagram(null)
     const position = positions.current[entity.id]
     if (!position) return
     if (hidden.has(entity.layer)) {
@@ -771,6 +883,11 @@ function Canvas() {
               only {domainFilter} ×
             </button>
           )}
+          {labelFilter && (
+            <button className="chip chip--pending" onClick={() => setLabelFilter(null)} title="Show every colour">
+              only {labelFilter} ×
+            </button>
+          )}
         </div>
         <button className="topbar__search" onClick={() => setSearching(true)} title="Find a table or column (⌘K)">
           <SearchIcon size={14} />
@@ -854,8 +971,22 @@ function Canvas() {
       )}
       {message && (
         <div className={`banner banner--${message.tone}`} role="alert">
-          {message.text}
-          <button className="icon-button" aria-label="Dismiss" onClick={() => setMessage(null)}>
+          <span>
+            {message.text}
+            {layoutUndo && message.text.startsWith('Arranged') && (
+              <button className="button button--small banner__action" onClick={undoArrange}>
+                Put them back
+              </button>
+            )}
+          </span>
+          <button
+            className="icon-button"
+            aria-label="Dismiss"
+            onClick={() => {
+              setMessage(null)
+              setLayoutUndo(null)
+            }}
+          >
             ×
           </button>
         </div>
@@ -870,6 +1001,50 @@ function Canvas() {
             <RailButton label="Add relationship (R)" disabled={!state.editable || entities.length < 2} onClick={() => setRelating(true)}>
               <Spline size={18} />
             </RailButton>
+            <RailButton label="Add note (N)" disabled={!state.editable} onClick={addNote}>
+              <StickyNote size={18} />
+            </RailButton>
+            <span className="popover-anchor">
+              <RailButton label="Arrange tables" active={menu === 'arrange'} disabled={tableNodes.length < 2} onClick={() => setMenu(menu === 'arrange' ? null : 'arrange')}>
+                <LayoutGrid size={18} />
+              </RailButton>
+              {menu === 'arrange' && (
+                <div className="popover popover--side" role="menu">
+                  <strong className="small">Arrange the {tableNodes.length} tables shown</strong>
+                  <button className="menu-item" role="menuitem" onClick={() => { setMenu(null); arrangeTables('RIGHT') }}>
+                    Left to right
+                  </button>
+                  <button className="menu-item" role="menuitem" onClick={() => { setMenu(null); arrangeTables('DOWN') }}>
+                    Top to bottom
+                  </button>
+                  <p className="muted small">To arrange some tables only, select them and use Arrange in the bar above the canvas.</p>
+                </div>
+              )}
+            </span>
+            <span className="popover-anchor">
+              <RailButton label="Export as an image" active={menu === 'export'} disabled={tableNodes.length === 0} onClick={() => setMenu(menu === 'export' ? null : 'export')}>
+                <ImageDown size={18} />
+              </RailButton>
+              {menu === 'export' && (
+                <div className="popover popover--side" role="menu">
+                  <strong className="small">Export what shows</strong>
+                  {(['png', 'svg'] as const).map((format) => (
+                    <button
+                      key={format}
+                      className="menu-item"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenu(null)
+                        const name = state.canvas?.diagrams?.find((d) => d.id === diagram)?.name
+                        exportImage(nodes, format, [state.project, name].filter(Boolean).join('-').replace(/\s+/g, '_'))
+                      }}
+                    >
+                      {format.toUpperCase()} image
+                    </button>
+                  ))}
+                </div>
+              )}
+            </span>
           </div>
           <div className="rail__group">
             {panels.map((p) => (
@@ -924,6 +1099,8 @@ function Canvas() {
                     setShowDomains(!showDomains)
                   }}
                   onFocus={focus}
+                  run={run}
+                  onLabelFilter={(label) => setLabelFilter(labelFilter === label ? null : label)}
                   onManageDomains={() => setSide('domains')}
                   selected={selection?.kind === 'entity' ? selection.id : null}
                 />
@@ -982,9 +1159,31 @@ function Canvas() {
         )}
 
         <main className="stage">
+          {(state.canvas?.diagrams?.length || state.editable) && (
+            <DiagramTabs
+              diagrams={state.canvas?.diagrams ?? []}
+              active={diagram}
+              editable={state.editable}
+              selectedCount={tableNodes.filter((n) => n.selected).length}
+              onPick={pickDiagram}
+              onAdd={async (name) => {
+                const id = Math.random().toString(36).slice(2, 10)
+                const chosen = tableNodes.filter((n) => n.selected).map((n) => n.id)
+                if (await saveDiagrams([...(state.canvas?.diagrams ?? []), { id, name, entities: chosen }], `new diagram ${name}`)) pickDiagram(id)
+              }}
+              onRename={(id, name) =>
+                saveDiagrams((state.canvas?.diagrams ?? []).map((d) => (d.id === id ? { ...d, name } : d)), `rename diagram ${name}`)
+              }
+              onRemove={async (id) => {
+                const removed = state.canvas?.diagrams?.find((d) => d.id === id)
+                if (await saveDiagrams((state.canvas?.diagrams ?? []).filter((d) => d.id !== id), `remove diagram ${removed?.name}`))
+                  if (diagram === id) pickDiagram(null)
+              }}
+            />
+          )}
           <Markers />
           <ReactFlow
-            nodes={[...domainAreas, ...linkedNodes] as EntityNodeType[]}
+            nodes={[...domainAreas, ...nodes.filter((n) => n.type === 'note'), ...linkedNodes] as AppNode[]}
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
@@ -1028,6 +1227,23 @@ function Canvas() {
                     if (entity) focus(entity)
                   }}
                 />
+              </Panel>
+            )}
+            {tableNodes.filter((n) => n.selected).length > 1 && (
+              <Panel position="top-center">
+                <BulkBar
+                  state={state}
+                  run={run}
+                  selected={tableNodes.filter((n) => n.selected).map((n) => n.data.entity)}
+                  onArrange={() => arrangeTables('RIGHT', tableNodes.filter((n) => n.selected))}
+                  onClear={() => setNodes((all) => all.map((n) => (n.selected ? { ...n, selected: false } : n)))}
+                />
+              </Panel>
+            )}
+            {diagram && tableNodes.length === 0 && entities.length > 0 && (
+              <Panel position="top-center" className="empty">
+                This diagram has no tables yet. Open a table and tick this diagram under <strong>Diagrams</strong>, or
+                select tables on <strong>All tables</strong> and start a new diagram with them.
               </Panel>
             )}
             {entities.length === 0 && (

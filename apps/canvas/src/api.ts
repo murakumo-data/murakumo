@@ -110,7 +110,7 @@ export type Orchestration = {
 }
 
 export type ColourLabel = { name: string; colour: string; description?: string | null }
-export type Note = { id: string; text: string; x: number; y: number; width: number; colour?: string | null }
+export type Note = { id: string; text: string; x: number; y: number; width: number; colour?: string | null; diagram?: string | null }
 export type Diagram = { id: string; name: string; entities: string[] }
 
 // What the canvas draws besides the model, kept in model/layout.yaml with the positions.
@@ -321,6 +321,8 @@ export const api = {
     request<State>('POST', '/entities', body),
   updateEntity: (id: string, changes: Record<string, unknown>) => request<State>('PATCH', `/entities/${id}`, changes),
   removeEntity: (id: string) => request<State>('DELETE', `/entities/${id}`),
+  updateEntities: (ids: string[], changes: Record<string, unknown>) => request<State>('PATCH', '/entities', { ids, changes }),
+  removeEntities: (ids: string[]) => request<State>('POST', '/entities/remove', { ids }),
 
   addColumn: (entityId: string, body: { name: string; type: string; primary_key?: boolean }) =>
     request<State>('POST', `/entities/${entityId}/columns`, body),

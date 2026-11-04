@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight, Eye, EyeOff, Search, Settings2 } from 'lucid
 import { useMemo, useState, type ReactNode } from 'react'
 
 import type { Diagnostic, Entity, Layer, State } from './api'
+import { LabelsSection } from './Labels'
 import { domainColour } from './layout'
 
 // The model as a tree, like a database browser: domains, layers and sources, each opening to its
@@ -19,6 +20,8 @@ type Props = {
   onManageDomains: () => void
   showDomains: boolean
   onShowDomains: () => void
+  run: (action: () => Promise<State>) => Promise<boolean>
+  onLabelFilter: (label: string) => void
   selected: string | null
 }
 
@@ -174,6 +177,10 @@ export function Explorer(props: Props) {
             </div>
           )
         })}
+      </Section>
+
+      <Section title="Colour labels" open={isOpen('section:labels')} onToggle={() => toggle('section:labels')}>
+        <LabelsSection state={state} run={props.run} onShowOnly={props.onLabelFilter} />
       </Section>
 
       <Section title="Sources" open={isOpen('section:sources')} onToggle={() => toggle('section:sources')}>

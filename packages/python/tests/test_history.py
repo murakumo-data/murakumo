@@ -116,3 +116,20 @@ def test_canvas_settings_are_saved_pruned_and_undoable(client, project):
     state = client.post("/api/undo").json()
     assert state["canvas"]["labels"][0]["name"] == "Finance"
     assert client.put("/api/canvas", json={"labels": [{"name": "x", "colour": "blue"}]}).status_code == 422
+
+
+def test_bulk_changes_are_one_undo(client):
+    state = client.get("/api/state").json()
+    client.post("/api/domains", json={"name": "finance"})
+    ids = [entity_id(state, "fct_trip"), entity_id(state, "dim_taxi_zone")]
+    state = client.patch("/api/entities", json={"ids": ids, "changes": {"domain": "finance"}}).json()
+    assert {e["domain"] for e in state["model"]["entities"] if e["id"] in ids} == {"finance"}
+    assert state["history"]["undo"].endswith("(+1 more)")
+    state = client.post("/api/undo").json()
+    assert {e["domain"] for e in state["model"]["entities"] if e["id"] in ids} != {"finance"}
+
+    state = client.post("/api/entities/remove", json={"ids": ids}).json()
+    assert {"fct_trip", "dim_taxi_zone"}.isdisjoint(names(state))
+    state = client.post("/api/undo").json()
+    assert {"fct_trip", "dim_taxi_zone"} <= names(state)
+    assert client.patch("/api/entities", json={"ids": ids, "changes": {"name": "x"}}).status_code == 400
