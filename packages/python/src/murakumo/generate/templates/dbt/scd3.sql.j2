@@ -1,0 +1,68 @@
+{%- set x = model.extra -%}
+{{ header }}
+{{ '{{' }} config({{ config }}) {{ '}}' }}
+-- SCD type 3: one row per {{ x['keys'] | join(', ') }}, with the previous value of
+-- {{ x['previous'] | map(attribute='sql') | join(', ') }} beside the current one. Each run compares what
+-- arrives with the row it replaces: a changed value moves to its previous_ column.
+
+with {{ model.alias }} as (
+
+    select * from {{ model.relation }}
+
+){% for join in model.joins %},
+
+{{ join.alias }} as (
+
+    select * from {{ join.relation }}
+
+){% endfor %},
+
+incoming as (
+
+    select
+{%- for column in x['base'] %}
+        {{ column.sql }} as {{ quote(column.name) }}{{ "," if not loop.last }}
+{%- endfor %}
+    from {{ model.alias }}
+{%- for join in model.joins %}
+    left join {{ join.alias }}
+        on {{ join.on }}
+{%- endfor %}
+{%- if model.incremental_filter %}
+{{ '{%' }} if is_incremental() {{ '%}' }}
+    where {{ model.incremental_filter }}
+{{ '{%' }} endif {{ '%}' }}
+{%- endif %}
+
+)
+
+select
+{%- for column in x['base'] %}
+    incoming.{{ quote(column.name) }},
+{%- endfor %}
+{%- for column in x['previous'] %}
+{{ '{%' }} if is_incremental() {{ '%}' }}
+    case
+        when existing.{{ quote(x['keys'][0]) }} is null then cast(null as {{ column.data_type }})
+        when incoming.{{ quote(column.sql) }} is distinct from existing.{{ quote(column.sql) }} then existing.{{ quote(column.sql) }}
+        else existing.{{ quote(column.name) }}
+    end as {{ quote(column.name) }}{{ "," if not loop.last }}
+{{ '{%' }} else {{ '%}' }}
+    cast(null as {{ column.data_type }}) as {{ quote(column.name) }}{{ "," if not loop.last }}
+{{ '{%' }} endif {{ '%}' }}
+{%- endfor %}
+from incoming
+{{ '{%' }} if is_incremental() {{ '%}' }}
+left join {{ '{{' }} this {{ '}}' }} as existing
+    on {% for key in x['keys'] %}{% if not loop.first %} and {% endif %}existing.{{ quote(key) }} = incoming.{{ quote(key) }}{% endfor %}
+{{ '{%' }} endif {{ '%}' }}
+{%- if x['unknown'] %}
+
+union all
+
+-- The unknown member: the row facts point at when their key to it is missing.
+select
+{%- for value in x['unknown'] %}
+    {{ value }}{{ "," if not loop.last }}
+{%- endfor %}
+{%- endif %}

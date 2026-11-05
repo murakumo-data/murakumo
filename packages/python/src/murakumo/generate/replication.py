@@ -973,10 +973,30 @@ class Writer:
             )
         elif entity.kind is EntityKind.CUMULATIVE:
             parts.append("A cumulative table: one row per key per day, carrying its whole history in arrays.")
+        elif model.extra.get("history"):
+            parts.append(
+                f"Every version of {entity.name} (its SCD4 history): `valid_from`, `valid_to`, and `is_current` "
+                "for the latest."
+            )
+        elif entity.history is History.SCD4:
+            parts.append(
+                f"The current version of each row (SCD4): `valid_from` says since when. Every version is in "
+                f"`{entity.name}_history`."
+            )
         elif entity.history in (History.SCD2, History.SCD6):
             parts.append(
                 "A dimension with every version of each row (SCD2): `valid_from`, `valid_to`, and `is_current` "
                 "for the latest."
+            )
+            if entity.history is History.SCD6:
+                current = [c.name for c in model.columns if c.name.startswith("current_")]
+                parts.append("SCD6: every version also has the value as it is now, in " + ", ".join(current) + ".")
+        elif entity.history is History.SCD3:
+            previous = [c.name for c in model.extra.get("previous", [])]
+            parts.append(
+                "SCD3: one row per key, with the value before its latest change beside the current one ("
+                + ", ".join(previous)
+                + "). Incremental, so each run compares what arrives with the row it replaces."
             )
         if model.materialized == "incremental" and entity.kind not in (EntityKind.CUMULATIVE,):
             parts.append(

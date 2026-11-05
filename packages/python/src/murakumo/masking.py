@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from murakumo.ir.model import Entity, Layer
+from murakumo.ir.model import Entity, History, Layer
 from murakumo.project import Project
 
 RULES = {
@@ -103,10 +103,12 @@ def policy_sql(project: Project, database: str | None = None) -> str:
         ]
     lines.append("-- Set on the marts' columns (the dbt build does this after each table is built):")
     for c in columns:
+        lines.append(f"-- {c.entity.name}.{c.column}: {c.reason}")
+        tables = [c.entity.name] + ([f"{c.entity.name}_history"] if c.entity.history is History.SCD4 else [])
         lines += [
-            f"-- {c.entity.name}.{c.column}: {c.reason}",
-            f"alter table if exists marts.{c.entity.name} modify column {c.column} "
-            f"set masking policy {schema}.murakumo_mask_{c.rule} force;",
+            f"alter table if exists marts.{table} modify column {c.column} "
+            f"set masking policy {schema}.murakumo_mask_{c.rule} force;"
+            for table in tables
         ]
     return "\n".join(lines) + "\n"
 

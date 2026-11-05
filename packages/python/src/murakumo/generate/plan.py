@@ -9,7 +9,10 @@ Layers:
   audit columns ``_source_system`` and ``_record_hash``;
 - an entity in a modelled layer is built from its mappings. Its first source entity drives the
   query and the others are joined through the model's relationships;
-- SCD2 dimensions go through an intermediate view and a dbt snapshot;
+- SCD2 dimensions go through an intermediate view and a dbt snapshot; SCD4 splits the snapshot
+  into a current table and a history table, and SCD6 adds each tracked column's current value to
+  every version;
+- SCD3 dimensions keep each tracked column's previous value beside it;
 - incremental entities with a watermark only process new rows.
 """
 
@@ -46,6 +49,9 @@ SNAPSHOT = "snp_{name}"
 # and translated to each warehouse's dialect by SQLGlot.
 EXPRESSION_DIALECT = "duckdb"
 SCD2_PREP = "int_{name}__versions"
+SCD4_HISTORY = "{name}_history"
+# The history types that keep every version, through a snapshot.
+VERSIONED = (History.SCD2, History.SCD4, History.SCD6)
 
 
 def snake(name: str) -> str:
@@ -174,6 +180,10 @@ class Planner:
             names = {a.name.lower(): snake(a.name) for a in entity.attributes}
             return f"{{{{ ref('{self.staging_name(entity)}') }}}}", names
         names = {a.name.lower(): a.name for a in entity.attributes}
+        if entity.kind is EntityKind.SATELLITE:  # other tables read its latest row per key
+            from murakumo.generate.vault import CURRENT
+
+            return f"{{{{ ref('{CURRENT.format(name=entity.name)}') }}}}", names
         return f"{{{{ ref('{entity.name}') }}}}", names
 
     def file(self, entity: Entity):
@@ -184,7 +194,7 @@ class Planner:
         modelled table as _loaded_at, so incremental tables can pick up what arrived since."""
         if base.layer is Layer.RAW:
             source = f"{alias}._ingested_at"
-        elif base.history in (History.SCD2, History.SCD6) or base.kind is EntityKind.CUMULATIVE:
+        elif base.history in VERSIONED or base.kind is EntityKind.CUMULATIVE:
             return None
         else:
             source = f"{alias}._loaded_at"
@@ -332,7 +342,7 @@ class Planner:
 
         columns: list[Column] = []
         mapped = {m.target.lower(): m for m in entity.mappings}
-        history = entity.history in (History.SCD2, History.SCD6)
+        history = entity.history in VERSIONED
         for attribute in entity.attributes:
             data_type = self.physical(attribute)
             mapping = mapped.get(attribute.name.lower())
@@ -378,7 +388,11 @@ class Planner:
         if len(unique_columns) > 1 and not history:
             tests.append(Test("murakumo_unique_combination", None, {"columns": unique_columns}))
 
-        incremental = (entity.load is LoadPattern.INCREMENTAL or entity.kind is EntityKind.ACCUMULATING) and not history
+        incremental = (
+            entity.load is LoadPattern.INCREMENTAL
+            or entity.kind is EntityKind.ACCUMULATING
+            or entity.history is History.SCD3  # it needs the previous run's values
+        ) and not history
         model = DbtModel(
             name=entity.name,
             layer=entity.layer.value,
@@ -414,6 +428,12 @@ class Planner:
                 )
         if entity.kind is EntityKind.ACCUMULATING:
             return [self.accumulating(entity, model)]
+        if entity.kind in (EntityKind.HUB, EntityKind.LINK, EntityKind.SATELLITE):
+            from murakumo.generate import vault
+
+            return vault.plan(self, entity, model)
+        if entity.history is History.SCD3:
+            return [self.scd3(entity, model)]
         if not history:
             model.extra["unknown"] = self.unknown_row(entity, model.columns)
             return [model]
@@ -498,8 +518,54 @@ class Planner:
             },
         )
 
+    def tracked(self, entity: Entity, keys: list[str]) -> list[Attribute]:
+        """The columns whose changes SCD3 and SCD6 keep: ``tracked``, else every column but the keys."""
+        if entity.tracked:
+            return [a for a in (entity.attribute(n) for n in entity.tracked) if a is not None]
+        lowered = {k.lower() for k in keys}
+        return [a for a in entity.attributes if a.name.lower() not in lowered and a.key is None]
+
+    def scd3(self, entity: Entity, model: DbtModel) -> DbtModel:
+        """SCD3: one row per key, with each tracked column's previous value beside it. Incremental,
+        so each run compares what arrives with the row it replaces."""
+        keys = list(entity.grain) or self.keys_of(entity)
+        if not keys:
+            self.plan.diagnostics.append(
+                error("MK505", f"{entity.name} keeps scd3 history but has no primary or natural key", self.file(entity))
+            )
+            raise _Skip
+        base = list(model.columns)
+        previous = []
+        for attribute in self.tracked(entity, keys):
+            data_type = self.physical(attribute)
+            previous.append(
+                Column(
+                    f"previous_{attribute.name}",
+                    attribute.name,
+                    data_type,
+                    f"{attribute.name} before its latest change; null if it has not changed.",
+                    meta=_meta(attribute),
+                )
+            )
+        model.columns = base + previous
+        model.materialized = "incremental"
+        model.unique_key = keys
+        model.template = "scd3.sql.j2"
+        unknown = self.unknown_row(entity, base)
+        model.extra = {
+            "base": base,
+            "previous": previous,
+            "keys": keys,
+            "unknown": unknown + [self.cast("null", c.data_type) for c in previous] if unknown else [],
+        }
+        return model
+
     def scd2(self, entity: Entity, versions: DbtModel) -> list[DbtModel]:
-        """SCD2: the mapped rows as a view, a snapshot that keeps every version, and the dimension on top."""
+        """SCD2: the mapped rows as a view, a snapshot that keeps every version, and the dimension on top.
+
+        SCD6 adds each tracked column's current value to every version. SCD4 splits it in two: the
+        dimension holds only the current version of each key, and ``<name>_history`` every version.
+        """
         keys = [a.name for a in entity.primary_key if a.key is KeyRole.PRIMARY] or [
             a.name for a in entity.attributes if a.key is KeyRole.NATURAL
         ]
@@ -550,6 +616,22 @@ class Planner:
             ),
             self.updated_at(),
         ]
+        if entity.history is History.SCD6:
+            order = ", ".join(f"versions.{self.quote(k)}" for k in keys)
+            current = [
+                Column(
+                    f"current_{a.name}",
+                    f"first_value(versions.{self.quote(a.name)}) over "
+                    f"(partition by {order} order by versions.dbt_valid_from desc)",
+                    self.physical(a),
+                    f"{a.name} as it is now, on every version.",
+                    meta=_meta(a),
+                )
+                for a in self.tracked(entity, keys)
+            ]
+            columns = columns[:-1] + current + columns[-1:]
+        if entity.history is History.SCD4:
+            return [versions, *self.scd4(entity, snapshot, columns, keys)]
         timestamps = {"valid_from": self.cast("'1900-01-01'", timestamp), "is_current": "true"}
         unknown = self.unknown_row(entity, columns, timestamps)
         dimension = DbtModel(
@@ -568,6 +650,51 @@ class Planner:
             extra={"unknown": unknown},
         )
         return [versions, dimension]
+
+    def scd4(self, entity: Entity, snapshot: Snapshot, columns: list[Column], keys: list[str]) -> list[DbtModel]:
+        """SCD4: the current version of each key in the dimension, every version in its history table."""
+        folder = f"{entity.layer.value}/{snake(entity.domain or 'core')}"
+        relation = f"{{{{ ref('{snapshot.name}') }}}}"
+        current_columns = [c for c in columns if c.name not in ("valid_to", "is_current")]
+        for column, attribute in zip(current_columns, entity.attributes, strict=False):
+            column.tests = self.column_tests(entity, attribute, column.name)
+        since = next(c for c in current_columns if c.name == "valid_from")
+        since.description = "Since when this version has been current."
+        timestamp = self.target.physical_name("timestamp")
+        unknown = self.unknown_row(entity, current_columns, {"valid_from": self.cast("'1900-01-01'", timestamp)})
+        current = DbtModel(
+            name=entity.name,
+            layer=entity.layer.value,
+            folder=folder,
+            entity=entity,
+            relation=relation,
+            alias="versions",
+            columns=current_columns,
+            materialized="table",
+            where="versions.dbt_valid_to is null",
+            tests=[Test("murakumo_unique_combination", None, {"columns": keys})] if len(keys) > 1 else [],
+            contract=self.contracts and entity.layer is Layer.MARTS,
+            description=entity.description,
+            config=self.warehouse_config(entity),
+            extra={"unknown": unknown},
+        )
+        history_columns = [Column(c.name, c.sql, c.data_type, c.description, meta=dict(c.meta)) for c in columns]
+        history = DbtModel(
+            name=SCD4_HISTORY.format(name=entity.name),
+            layer=entity.layer.value,
+            folder=folder,
+            entity=entity,
+            relation=relation,
+            alias="versions",
+            columns=history_columns,
+            materialized="table",
+            tests=[Test("murakumo_unique_combination", None, {"columns": [*keys, "valid_from"]})],
+            contract=self.contracts and entity.layer is Layer.MARTS,
+            description=f"Every version of {entity.name}, with when each was current.",
+            config=self.warehouse_config(entity),
+            extra={"history": True},
+        )
+        return [current, history]
 
     # unknown members --------------------------------------------------------------------------
 
@@ -615,7 +742,7 @@ class Planner:
 
     def unknown_keys(self) -> None:
         """Facts point at a dimension's unknown member when their key to it is missing."""
-        built = {m.entity.name.lower(): m for m in self.plan.models if m.layer != "intermediate"}
+        built = {m.entity.name.lower(): m for m in self.plan.models if m.layer != "intermediate" and not is_history(m)}
         for rel in self.model.relationships:
             child, parent = built.get(rel.from_.lower()), built.get(rel.to.lower())
             if child is None or parent is None or len(rel.keys) != 1 or not self.has_unknown(parent.entity):
@@ -794,7 +921,7 @@ class Planner:
 
     def relationship_tests(self) -> None:
         """A dbt relationships test for each single-column relationship between generated models."""
-        built = {m.entity.name.lower(): m for m in self.plan.models if m.layer != "intermediate"}
+        built = {m.entity.name.lower(): m for m in self.plan.models if m.layer != "intermediate" and not is_history(m)}
         for rel in self.model.relationships:
             child, parent = built.get(rel.from_.lower()), built.get(rel.to.lower())
             if child is None or parent is None or len(rel.keys) != 1:
@@ -877,6 +1004,11 @@ def quote_identifier(name: str, dialect: str) -> str:
     if re.fullmatch(r"[a-z_][a-z0-9_]*", name):
         return name
     return exp.to_identifier(name, quoted=True).sql(dialect=dialect)
+
+
+def is_history(model: DbtModel) -> bool:
+    """An SCD4 dimension's history table: the same entity as the dimension, a table of its own."""
+    return bool(model.extra.get("history"))
 
 
 def build_plan(project: Project, target: Target) -> Plan:

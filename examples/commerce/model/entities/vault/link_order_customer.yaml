@@ -1,0 +1,24 @@
+id: c66668a8-75b7-435a-abbe-55b45696fa72
+name: link_order_customer
+description: Which customer placed each order.
+layer: intermediate
+kind: link
+domain: sales
+attributes:
+  - id: 5778907e-6191-4e1b-a6b0-488a5003770c
+    name: order_number
+    type: bigint
+    nullable: false
+    key: natural
+  - id: 79804a62-59e2-4e80-9956-69d7832f2b05
+    name: customer_number
+    type: bigint
+    nullable: false
+    key: natural
+mappings:
+  - target: order_number
+    sources:
+      - orders.o_orderkey
+  - target: customer_number
+    sources:
+      - orders.o_custkey

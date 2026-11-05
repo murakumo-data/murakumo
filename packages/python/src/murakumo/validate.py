@@ -7,6 +7,7 @@ look it up and, later, silence it per object.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections import Counter
 from collections.abc import Iterable
@@ -237,6 +238,13 @@ def validate_project(project: Project) -> list[Diagnostic]:
                 warning(code, message, file_of(entity.id) if entity else None, f"attributes[{where.split('.')[1]}]")
             )
 
+    # Metrics: the semantic layer ----------------------------------------------------------------
+
+    from murakumo.generate.semantic import problems as semantic_problems
+
+    for diagnostic in semantic_problems(project):
+        out.append(dataclasses.replace(diagnostic, file=diagnostic.file or root / METRICS_FILE))
+
     # Exposures ----------------------------------------------------------------------------------
 
     for name in _duplicates(x.name for x in model.exposures):
@@ -339,6 +347,12 @@ def _check_entity(
                     )
         if not entity.grain and not entity.primary_key:
             out.append(error("MK314", "an accumulating snapshot needs a grain: the key of each row", file, "grain"))
+    if entity.kind in (EntityKind.HUB, EntityKind.LINK, EntityKind.SATELLITE) and not any(
+        a.key in (KeyRole.NATURAL, KeyRole.PRIMARY) for a in entity.attributes
+    ):
+        out.append(
+            error("MK320", f"a {entity.kind.value} needs a business key: mark its key columns key: natural", file)
+        )
     if entity.access == "private" and not entity.domain:
         out.append(
             warning("MK706", "private access needs a domain: only models in its domain's group may use it", file)
@@ -353,10 +367,15 @@ def _check_entity(
                 "MK313", "incremental_by: watermark needs a watermark column; it will rebuild in full", file, "load"
             )
         )
-    if entity.history in (History.SCD2, History.SCD6) and not any(
+    if entity.history in (History.SCD2, History.SCD3, History.SCD4, History.SCD6) and not any(
         a.key in (KeyRole.PRIMARY, KeyRole.NATURAL) for a in entity.attributes
     ):
         out.append(warning("MK309", f"{entity.history} history needs a primary or natural key to track", file))
+    for name in entity.tracked:
+        if entity.attribute(name) is None:
+            out.append(error("MK318", f"tracked column {name!r} is not a column of {entity.name}", file, "tracked"))
+    if entity.tracked and entity.history not in (History.SCD3, History.SCD6):
+        out.append(warning("MK319", f"tracked is used by scd3 and scd6 history, not {entity.history}", file, "tracked"))
     if case == "snake" and entity.layer is not Layer.RAW and not SNAKE_CASE.match(entity.name):
         out.append(warning("MK307", f"entity name {entity.name!r} is not snake_case", file, "name"))
 

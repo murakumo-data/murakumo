@@ -65,6 +65,10 @@ def render(plan: Plan) -> dict[str, str]:
     if exposures:
         files["models/_exposures.yml"] = _yaml({"version": 2, "exposures": exposures})
 
+    from murakumo.generate import semantic
+
+    files.update(semantic.render(plan))  # metrics: MetricFlow's semantic models, and its time spine
+
     groups = _groups(plan)
     if groups:
         files["models/_groups.yml"] = _yaml({"version": 2, "groups": groups})

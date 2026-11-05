@@ -19,9 +19,9 @@ Work through the chapters in order: each builds on the one before. Every script 
 | --- | --- |
 | Sources | 3 |
 | Raw tables | 12 |
-| Models (staging, intermediate, marts) | 18 |
+| Models (staging, intermediate, marts) | 23 |
 | Snapshots (history) | 1 |
-| Tests | 96 |
+| Tests | 113 |
 | Exposures (dashboards, apps) | 1 |
 
 ## 0.1 Read the architecture

@@ -193,6 +193,7 @@ ENTITY_FIELDS = {
     "domain",
     "owner",
     "history",
+    "tracked",
     "load",
     "watermark",
     "incremental_by",

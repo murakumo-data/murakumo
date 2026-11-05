@@ -108,3 +108,25 @@ relationships:
     keys:
       - from: customer_id
         to: customer_id
+  - id: cb908cc2-6b1f-426c-8f7a-9674b7c78615
+    name: link_order_customer__order
+    from: link_order_customer
+    to: hub_order
+    keys:
+      - from: order_number
+        to: order_number
+  - id: 6fe0daa2-afa1-4e4b-91ea-4304e1f2f566
+    name: link_order_customer__customer
+    from: link_order_customer
+    to: hub_customer
+    keys:
+      - from: customer_number
+        to: customer_number
+  - id: 82be1c56-ddf4-4386-8305-8bbb0e7e86c5
+    name: sat_customer__hub
+    from: sat_customer
+    to: hub_customer
+    cardinality: one_to_one
+    keys:
+      - from: customer_number
+        to: customer_number

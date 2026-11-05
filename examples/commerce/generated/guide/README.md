@@ -75,13 +75,18 @@ result with a Murakumo build.
 - [ ] 5.10 Build stg_tpch_erp__partsupp
 - [ ] 5.11 Build stg_tpch_erp__region
 - [ ] 5.12 Build stg_tpch_erp__supplier
-- [ ] 5.13 Build int_dim_customer__versions
-- [ ] 5.14 Build snp_dim_customer
-- [ ] 5.15 Build dim_customer
-- [ ] 5.16 Build dim_part
-- [ ] 5.17 Build fct_order_fulfilment
-- [ ] 5.18 Build fct_order_line
-- [ ] 5.19 Build customer_order_activity
+- [ ] 5.13 Build hub_customer
+- [ ] 5.14 Build hub_order
+- [ ] 5.15 Build int_dim_customer__versions
+- [ ] 5.16 Build link_order_customer
+- [ ] 5.17 Build sat_customer
+- [ ] 5.18 Build sat_customer_current
+- [ ] 5.19 Build snp_dim_customer
+- [ ] 5.20 Build dim_customer
+- [ ] 5.21 Build dim_part
+- [ ] 5.22 Build fct_order_fulfilment
+- [ ] 5.23 Build fct_order_line
+- [ ] 5.24 Build customer_order_activity
 
 **6. Running it**
 

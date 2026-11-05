@@ -278,6 +278,9 @@ class Entity(Node):
     owner: str | None = None
     grain: list[Name] = Field(default_factory=list)
     history: History = History.NONE
+    # The columns whose changes it keeps: their previous value (scd3), or their current value on
+    # every version (scd6). Empty: every column that is not a key.
+    tracked: list[Name] = Field(default_factory=list)
     load: LoadPattern = LoadPattern.FULL
     watermark: Name | None = None
     # An incremental table picks up what was loaded since its last run (load_time, the default:
@@ -348,10 +351,20 @@ class SourceSystem(Node):
 
 
 class Metric(Node):
+    """A number defined once: an aggregate over a table, by time and by its dimensions' columns.
+
+    ``expression`` is one or more aggregates (``sum(net_amount)``, ``sum(a) / count(*)``);
+    ``time`` is the date or timestamp column it is counted by (the table's first one when left
+    out); ``dimensions`` are the columns it can be broken down by (``dim_customer.market_segment``);
+    ``filters`` are conditions on the table's own columns that a row must meet to count.
+    """
+
     name: Name
+    label: str | None = None
     entity: Name
     expression: str
-    grain: str | None = None
+    time: Name | None = None
+    grain: str | None = Field(default=None, pattern="^(hour|day|week|month|quarter|year)$")
     dimensions: list[str] = Field(default_factory=list)
     filters: list[str] = Field(default_factory=list)
 
