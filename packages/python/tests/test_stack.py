@@ -47,6 +47,7 @@ def test_stack_shows_every_part_and_changes_record_why(project):
         "python": "none",
         "orchestrator": "airflow",
         "ci": "github",
+        "iac": "none",
     }
     changed = stack.set_parts(
         project, {"warehouse": "snowflake", "load": "snowpipe", "landing": "s3://lake/taxi"}, "on Snowflake"
@@ -227,7 +228,8 @@ def test_canvas_endpoints(project, monkeypatch):
     assert changed["changed"] == ["orchestrator: airflow → prefect"]
     assert changed["decisions"][-1]["why"] == "we run Prefect"
     assert client.post("/api/undo").status_code == 200
-    assert client.get("/api/stack").json()["parts"][-2]["value"] == "airflow"
+    parts = {p["key"]: p["value"] for p in client.get("/api/stack").json()["parts"]}
+    assert parts["orchestrator"] == "airflow"
 
     bad = client.put("/api/sources/nyc_tlc/connection", json={"connection": {"kind": "rest", "base_url": "x"}})
     assert bad.status_code == 400 and "https://" in bad.json()["message"]

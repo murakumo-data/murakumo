@@ -126,6 +126,13 @@ PARTS = [
         ("stack", "ci"),
         {"github": "GitHub Actions", "gitlab": "GitLab CI", "none": "None"},
     ),
+    Part(
+        "iac",
+        "Infrastructure as code",
+        "Also write the platform (warehouse, roles and grants, buckets, functions) as code.",
+        ("stack", "iac"),
+        {"none": "No: the SQL and scripts only", "terraform": "Terraform, a module per cloud"},
+    ),
 ]
 PART = {p.key: p for p in PARTS}
 

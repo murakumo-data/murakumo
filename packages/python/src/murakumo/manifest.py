@@ -428,6 +428,7 @@ class Stack(Section):
     landing: str = "landing"  # where fetched files land: a folder in the project, or s3://bucket/prefix
     region: str | None = None  # the cloud region, for Glue, Lambda and S3 (default: AWS_REGION)
     ci: str = Field(default="github", pattern="^(github|gitlab|none)$")
+    iac: str = Field(default="none", pattern="^(none|terraform)$")  # the platform as code, beside the SQL
 
 
 class Quality(Section):

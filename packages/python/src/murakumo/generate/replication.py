@@ -558,6 +558,31 @@ class Writer:
                         "AWS role's trust policy.",
                     )
                 )
+        from murakumo.generate import terraform
+
+        modules = terraform.modules(self.project)
+        if modules:
+            blocks = [
+                Block("hcl", self.files.get(f"terraform/{m}/main.tf", ""), f"generated/terraform/{m}/main.tf")
+                for m in modules
+            ]
+            commands = "\n".join(
+                f"terraform -chdir=generated/terraform/{m} init && terraform -chdir=generated/terraform/{m} apply"
+                for m in modules
+            )
+            steps.append(
+                Step(
+                    "accounts-terraform",
+                    "Or create it all with Terraform",
+                    "The same platform as code (`stack.iac: terraform`): "
+                    + ", ".join(modules)
+                    + ". Access roles (`<DB>_READ`, `<DB>_WRITE`) hold the privileges on each database, and the "
+                    "functional roles people and CI use are made of them, as in the SQL above: run one or the "
+                    "other. The providers read credentials from the environment.",
+                    [*blocks, Block("bash", commands)],
+                    "`Apply complete!` for each module, with the resources it added.",
+                )
+            )
         return Chapter(
             1,
             "accounts",
