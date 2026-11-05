@@ -151,6 +151,15 @@ def test(project: Project, source: str) -> list[str]:
 
                 messages = parse((project.root / c.proto).read_text(encoding="utf-8"))
                 lines.append(f"{c.proto}: {len(messages)} message type(s)")
+        elif c.kind == "kafka":
+            consumer = extract.kafka_consumer(c.model_dump(exclude_none=True), f"murakumo-{declaration.name}-test")
+            try:
+                topics = consumer.topics()
+            finally:
+                consumer.close()
+            for item in c.topics:
+                found = "found" if item.topic in topics else "not found"
+                lines.append(f"{item.table}: topic {item.topic} {found} on {c.bootstrap_servers}")
         elif c.kind == "database":
             try:
                 import sqlalchemy

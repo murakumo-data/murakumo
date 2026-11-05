@@ -35,6 +35,8 @@ export type Entity = {
   accumulating: { milestones: string[]; unit: 'day' | 'hour' | 'minute' } | null
   unknown_member: boolean | null // null: as the project's modelling.unknown_members says
   conformed: boolean
+  history: string // none | scd1 | scd2 | scd3 | scd4 | scd6 | snapshot
+  tracked: string[] // the columns scd3 keeps a previous value of, or scd6 a current value of
   access: 'private' | 'protected' | 'public' | null
 }
 
@@ -48,6 +50,19 @@ export type Exposure = {
   maturity: 'high' | 'medium' | 'low' | null
   description: string | null
   depends_on: string[]
+}
+
+export type Metric = {
+  id?: string
+  name: string
+  label: string | null
+  entity: string
+  expression: string
+  time: string | null
+  grain: 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year' | null
+  dimensions: string[]
+  filters: string[]
+  description: string | null
 }
 
 export type BusMatrix = {
@@ -211,9 +226,20 @@ export type Settings = {
   guide: boolean
   masking: Record<string, string>
   unmasked_roles: string[]
+  lakehouse: Lakehouse | null // which layers are written as open tables, and where
   choices: { warehouses: string[]; orchestrators: string[]; patterns: string[]; python_engines: string[] }
   changed?: string[]
   state?: State
+}
+
+export type Lakehouse = {
+  table_format: 'iceberg' | 'delta' | 'hudi' | 'native'
+  catalog: 'polaris' | 'unity' | 'glue' | 'nessie' | 'none'
+  layers: string[]
+  storage: string | null
+  catalog_uri: string | null
+  warehouse: string | null
+  external_volume: string | null
 }
 
 // One thing `murakumo setup` checks on this machine, and how to put it right.
@@ -301,7 +327,7 @@ export type State = {
   revision: string
   project: string
   editable: boolean
-  model: { entities: Entity[]; relationships: Relationship[]; exposures?: Exposure[] } | null
+  model: { entities: Entity[]; relationships: Relationship[]; exposures?: Exposure[]; metrics?: Metric[] } | null
   layout: Record<string, Position>
   canvas: CanvasSettings
   domains: Domain[]
@@ -315,6 +341,7 @@ export type State = {
     sources: string[]
     layers: Layer[]
     kinds: string[]
+    histories: string[]
     cardinalities: string[]
     classifications: string[]
     types: string[]
@@ -651,6 +678,7 @@ export const api = {
   guide: () => request<{ chapters: GuideChapter[]; folder: string }>('GET', '/guide', undefined, false),
   bus: () => request<BusMatrix>('GET', '/bus', undefined, false),
   saveExposures: (exposures: Exposure[]) => request<State>('PUT', '/exposures', { exposures }),
+  saveMetrics: (metrics: Metric[]) => request<State>('PUT', '/metrics', { metrics }),
 }
 
 /** What an edit would reach, without making it: the edit is sent as a preview. */

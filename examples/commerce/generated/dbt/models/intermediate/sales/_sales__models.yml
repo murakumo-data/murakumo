@@ -40,3 +40,184 @@ models:
         meta:
           lineage:
             - customer.c_acctbal
+  - name: hub_customer
+    description: Every customer we have heard of, once, by their customer number.
+    config:
+      group: sales
+      meta:
+        domain: sales
+      tags:
+        - schedule_hourly_sales
+    columns:
+      - name: hub_customer_hk
+        description: Hash of the business key (customer_number).
+        data_tests:
+          - not_null
+      - name: customer_number
+        meta:
+          lineage:
+            - customer.c_custkey
+        data_tests:
+          - not_null
+      - name: load_date
+        description: When it was first loaded.
+      - name: record_source
+        description: The source system it was loaded from.
+    data_tests:
+      - murakumo_unique_combination:
+          arguments:
+            columns:
+              - hub_customer_hk
+  - name: hub_order
+    description: Every order, once, by its order number.
+    config:
+      group: sales
+      meta:
+        domain: sales
+      tags:
+        - schedule_hourly_sales
+    columns:
+      - name: hub_order_hk
+        description: Hash of the business key (order_number).
+        data_tests:
+          - not_null
+      - name: order_number
+        meta:
+          lineage:
+            - orders.o_orderkey
+        data_tests:
+          - not_null
+      - name: load_date
+        description: When it was first loaded.
+      - name: record_source
+        description: The source system it was loaded from.
+    data_tests:
+      - murakumo_unique_combination:
+          arguments:
+            columns:
+              - hub_order_hk
+  - name: link_order_customer
+    description: Which customer placed each order.
+    config:
+      group: sales
+      meta:
+        domain: sales
+      tags:
+        - schedule_hourly_sales
+    columns:
+      - name: link_order_customer_hk
+        description: Hash of the business keys it links.
+        data_tests:
+          - not_null
+      - name: hub_customer_hk
+        description: The hub_customer it links.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('hub_customer')
+                field: hub_customer_hk
+      - name: hub_order_hk
+        description: The hub_order it links.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('hub_order')
+                field: hub_order_hk
+      - name: order_number
+        meta:
+          lineage:
+            - orders.o_orderkey
+        data_tests:
+          - not_null
+      - name: customer_number
+        meta:
+          lineage:
+            - orders.o_custkey
+        data_tests:
+          - not_null
+      - name: load_date
+        description: When it was first loaded.
+      - name: record_source
+        description: The source system it was loaded from.
+    data_tests:
+      - murakumo_unique_combination:
+          arguments:
+            columns:
+              - link_order_customer_hk
+  - name: sat_customer
+    description: What we know about each customer, as it changes.
+    config:
+      group: sales
+      meta:
+        domain: sales
+      tags:
+        - schedule_hourly_sales
+    columns:
+      - name: hub_customer_hk
+        description: The hub_customer it describes.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_customer')
+                field: hub_customer_hk
+      - name: customer_number
+        meta: &id001
+          lineage:
+            - customer.c_custkey
+        data_tests:
+          - not_null
+      - name: customer_name
+        meta: &id002
+          lineage:
+            - customer.c_name
+      - name: market_segment
+        meta: &id003
+          lineage:
+            - customer.c_mktsegment
+      - name: account_balance
+        meta: &id004
+          lineage:
+            - customer.c_acctbal
+      - name: hashdiff
+        description: 'Hash of the descriptive columns: a new row is added when it changes.'
+      - name: load_date
+        description: When it was first loaded.
+      - name: record_source
+        description: The source system it was loaded from.
+    data_tests:
+      - murakumo_unique_combination:
+          arguments:
+            columns:
+              - hub_customer_hk
+              - load_date
+  - name: sat_customer_current
+    description: 'The latest row of sat_customer for each hub_customer: what other tables read.'
+    config:
+      group: sales
+      meta:
+        domain: sales
+      tags:
+        - schedule_hourly_sales
+    columns:
+      - name: hub_customer_hk
+        description: The hub_customer it describes.
+      - name: customer_number
+        meta: *id001
+      - name: customer_name
+        meta: *id002
+      - name: market_segment
+        meta: *id003
+      - name: account_balance
+        meta: *id004
+      - name: hashdiff
+        description: 'Hash of the descriptive columns: a new row is added when it changes.'
+      - name: load_date
+        description: When it was first loaded.
+      - name: record_source
+        description: The source system it was loaded from.
+    data_tests:
+      - murakumo_unique_combination:
+          arguments:
+            columns:
+              - hub_customer_hk

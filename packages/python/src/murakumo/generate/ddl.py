@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from murakumo.generate.plan import LANDING_COLUMNS, Plan, quote_identifier
+from murakumo.generate.plan import LANDING_COLUMNS, Plan, is_history, quote_identifier
 from murakumo.ir.model import Entity, Layer
 from murakumo.ir.types import parse_type
 from murakumo.manifest import Warehouse
@@ -126,7 +126,7 @@ class DDL:
             for m in self.plan.models
             if m.layer not in ("staging", "intermediate") and m.entity.layer is not Layer.RAW
         ]
-        by_name = {m.entity.name.lower(): m for m in modelled}
+        by_name = {m.entity.name.lower(): m for m in modelled if not is_history(m)}
         schemas = sorted({m.layer for m in modelled})
         for schema in schemas:
             out.append(self.schema(schema))
@@ -136,7 +136,7 @@ class DDL:
             columns = [(c.name, c.data_type, _nullable(entity, c.name), c.description) for c in model.columns]
             constraints = []
             keys = [a.name for a in entity.primary_key]
-            if model.entity.history.value in ("scd2", "scd6") and keys:
+            if any(c.name == "valid_to" for c in model.columns) and keys:  # every version: by when
                 keys = [*keys, "valid_from"]
             if keys and self.warehouse is not Warehouse.DUCKDB:
                 constraints.append(f"PRIMARY KEY ({', '.join(self.q(k) for k in keys)}){suffix}")

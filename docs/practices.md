@@ -16,7 +16,7 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Declare each fact table's grain before its columns | `grain:` on an entity; tested as a unique combination; the canvas shows it | Done |
 | Surrogate keys for dimensions | Hash keys (`modelling.surrogate_keys: hash`), computed from the natural key | Done |
 | Slowly changing dimensions (type 1, 2) | `history: scd1 | scd2` per entity; SCD2 by dbt snapshot, with `valid_from`, `valid_to`, `is_current` | Done |
-| Types 3, 4 and 6 | Accepted (`history: scd3 | scd4 | scd6`); 3 and 4 are built as type 1 (overwritten), 6 as type 2 without its current-value columns | Partly |
+| Types 3, 4 and 6 | Type 3 keeps each tracked column's previous value beside it; type 4 puts the current version in the dimension and every version in `<name>_history`; type 6 is type 2 with each tracked column's current value on every version (1.0) | Done |
 | Role-playing dimensions (pickup and drop-off zone) | Relationships carry a `role`; one dimension joined twice | Done |
 | Conformed dimensions shared across facts and domains | `conformed: true` on a dimension; a fact using another domain's dimension that is not conformed is reported (MK316), and so is a copy of a conformed one (MK317) (0.9) | Done |
 | Bus matrix (which facts use which dimensions) | Drawn from the relationships, in the replication guide and the canvas's **Bus matrix** panel (0.9) | Done |
@@ -26,7 +26,7 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Degenerate dimensions (an order number on the fact) | A fact column with no dimension behind it | Done |
 | Junk dimensions (flags gathered into one small dimension) | Not generated | Not yet |
 | An audit dimension: which load and run each row came from | `_ingested_at`, `_batch_id` on raw rows; `_loaded_at`, `_updated_at` on modelled ones; the run log | Done (as columns rather than a dimension) |
-| Data Vault (hubs, links, satellites) | Entity kinds exist (`hub`, `link`, `satellite`); generation treats them as tables | Partly |
+| Data Vault (hubs, links, satellites) | Hubs, links and satellites, insert-only, with hash keys of the trimmed, upper-cased business keys, `load_date` and `record_source`; a satellite adds a row when its `hashdiff` changes, and `<satellite>_current` has the latest per key (1.0) | Done |
 
 ## dbt
 
@@ -40,7 +40,7 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Incremental models that are idempotent | `delete+insert` by unique key; load-time increments re-run safely | Done |
 | Snapshots for history | Generated for SCD2 entities | Done |
 | Exposures (dashboards and apps that read the marts) | `model/exposures.yaml`, written into dbt, lineage and the guide; edited in the canvas (0.9) | Done |
-| Semantic layer (metrics defined once) | Metrics in `model/metrics.yaml`; dbt semantic models not generated | Partly |
+| Semantic layer (metrics defined once) | dbt semantic models and metrics (MetricFlow) from `model/metrics.yaml`: simple, derived and filtered metrics, SCD2 dimensions joined by validity, and the time spine (1.0) | Done |
 | Slim CI: build only what changed (`state:modified+ --defer`) | CI verifies everything on DuckDB; previews build the whole project | Not yet: worthwhile once projects are large |
 | Documentation that stays current | `murakumo docs` and the pipeline docs, from the model | Done |
 | One project, one source of truth, no hand edits to generated code | `generated/` written from the model; `custom/` for hand-written code; `generate --check` in CI | Done |
@@ -51,7 +51,7 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | --- | --- | --- |
 | A database per environment | Since 0.7: `TAXI_DEV`, `TAXI_STAGE`, `TAXI_PROD`, and `MURAKUMO` for people's own schemas | Done |
 | Role-based access: a role per job, granted to people and services | `murakumo env provision`: a deployer role per environment, a developer role | Done |
-| Functional and access roles kept apart | One role per job, not split into access roles | Partly |
+| Functional and access roles kept apart | Access roles per database (`<DB>_READ`, `<DB>_WRITE`) hold the privileges; the developer, deployer and unmasked roles are made of them, in the provisioning SQL and in Terraform (1.0) | Done |
 | Key-pair authentication for services | The profiles and CI use key pairs; keys stay in files and secrets | Done |
 | Warehouses that suspend themselves | Provisioning creates an x-small warehouse that suspends after 60 seconds | Done |
 | Resource monitors to cap spend | `targets.warehouse.monthly_credits`: provisioning creates a monitor that notifies at 75% and 90% and suspends at 100% (0.8) | Done |
@@ -74,7 +74,7 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Exactly-once results without distributed transactions | Through idempotence (above), not transactions | Done |
 | Lineage: know where every value comes from | Column lineage in the model, the canvas and the docs | Done |
 | Validate at the edges: reject or quarantine bad input | Rejected rows counted with the reason; raw columns can be kept as text and converted in staging | Done |
-| Backpressure and streaming | Batch only; streaming is declared in the model but not generated | Not yet |
+| Backpressure and streaming | Kafka sources, read by the extract script on each schedule, or continuously by Flink, Spark Structured Streaming or Snowpipe Streaming (1.0). Backpressure is the engine's own | Partly: no exactly-once into the warehouse |
 | Observability: know what ran, what it did, and when it failed | The run log: runs, models, tests, rows in and rejected, by schedule | Done |
 
 ## What this says about the roadmap

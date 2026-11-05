@@ -156,6 +156,7 @@ _WHEN = {
     "_batch_id",
     "_updated_at",
     "_loaded_at",
+    "load_date",
     "valid_from",
     "valid_to",
     "is_current",

@@ -306,6 +306,7 @@ folder has nothing to check, so migrations are opt-in: the first `murakumo migra
 | MK506 | error | No mapping names a source column, so there is no table to select from |
 | MK507 | error | A mapping expression is not valid SQL |
 | MK508 | error | A cumulative table's grain column has no column or mapping |
+| MK509 | error | A Data Vault table cannot be built: a link with fewer than two hubs, a satellite without its hub or link, a relationship that does not map the business key, or no raw table to read |
 | MK701 | error | Two choices in the stack do not go together (Snowpipe on DuckDB, Lambda landing in a folder) |
 | MK702 | warning | A source's connection fills a table that is not a raw table in the model |
 | MK703 | warning | A transient layer asks for more than 1 day of time travel, which Snowflake refuses |

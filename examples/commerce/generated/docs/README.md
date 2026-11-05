@@ -5,4 +5,6 @@ how to set it up by hand, and why it is built so. One file per table:
 
 **raw:** [customer](customer.md), [lineitem](lineitem.md), [nation](nation.md), [orders](orders.md), [part](part.md), [partsupp](partsupp.md), [region](region.md), [supplier](supplier.md), [taxi_zone_lookup](taxi_zone_lookup.md), [weather_daily](weather_daily.md), [weather_hourly](weather_hourly.md), [yellow_tripdata](yellow_tripdata.md)
 
+**intermediate:** [hub_customer](hub_customer.md), [hub_order](hub_order.md), [link_order_customer](link_order_customer.md), [sat_customer](sat_customer.md)
+
 **marts:** [customer_order_activity](customer_order_activity.md), [dim_customer](dim_customer.md), [dim_part](dim_part.md), [fct_order_fulfilment](fct_order_fulfilment.md), [fct_order_line](fct_order_line.md)

@@ -68,4 +68,4 @@ def test_verify_on_snowflake(tmp_path, monkeypatch):
     monkeypatch.setenv("SNOWFLAKE_DATABASE", DATABASE)
     result = verify(init_project(tmp_path / "taxi"), rows=30, warehouse="snowflake")
     assert result.ok, [(n.name, n.status, n.message) for n in result.nodes if n.status not in ("success", "pass")]
-    assert result.rerun is True and result.count("model") == 4
+    assert result.rerun is True and result.count("model") == 5

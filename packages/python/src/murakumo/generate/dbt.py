@@ -65,6 +65,10 @@ def render(plan: Plan) -> dict[str, str]:
     if exposures:
         files["models/_exposures.yml"] = _yaml({"version": 2, "exposures": exposures})
 
+    from murakumo.generate import semantic
+
+    files.update(semantic.render(plan))  # metrics: MetricFlow's semantic models, and its time spine
+
     groups = _groups(plan)
     if groups:
         files["models/_groups.yml"] = _yaml({"version": 2, "groups": groups})
@@ -277,7 +281,7 @@ def _dbt_project(plan: Plan) -> dict:
             if layer in warehouse.time_travel_days:
                 settings["+post-hook"] = [f"{{{{ murakumo_retention({warehouse.time_travel_days[layer]}) }}}}"]
         snapshots = {"snapshots": {name: {"+transient": False}}}
-    return {
+    project = {
         "name": name,
         "version": "1.0.0",
         "config-version": 2,
@@ -299,6 +303,12 @@ def _dbt_project(plan: Plan) -> dict:
         "models": {name: layers},
         **snapshots,
     }
+    from murakumo.generate import lakehouse
+
+    namespaces = lakehouse.run_start(plan.project, plan.target.warehouse)
+    if namespaces:  # the catalog's namespaces, once, before models run side by side
+        project["on-run-start"] = [*project.get("on-run-start", []), namespaces]
+    return project
 
 
 def profiles(plan: Plan) -> dict:
@@ -324,11 +334,14 @@ def profiles(plan: Plan) -> dict:
             path = own if own and environment != personal else configured if is_file else f"{name}.duckdb"
             if not path.endswith((".duckdb", ".db")):
                 path = f"{path}.duckdb"
+            from murakumo.generate.lakehouse import duckdb_profile
+
             outputs[environment] = {
                 "type": "duckdb",
                 "path": f"{{{{ env_var('MURAKUMO_DUCKDB_PATH', '{path}') }}}}",
                 "schema": schema,
                 "threads": 4,
+                **duckdb_profile(plan.project),  # the Iceberg catalog, when the lakehouse is on
             }
         elif warehouse is Warehouse.SNOWFLAKE:
             outputs[environment] = {

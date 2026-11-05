@@ -23,9 +23,12 @@ from {{ model.alias }}
 left join {{ join.alias }}
     on {{ join.on }}
 {%- endfor %}
+{%- if model.where %}
+where {{ model.where }}
+{%- endif %}
 {%- if model.incremental_filter %}
 {{ '{%' }} if is_incremental() {{ '%}' }}
-where {{ model.incremental_filter }}
+{{ 'and' if model.where else 'where' }} {{ model.incremental_filter }}
 {{ '{%' }} endif {{ '%}' }}
 {%- endif %}
 {%- if model.extra.get('unknown') %}

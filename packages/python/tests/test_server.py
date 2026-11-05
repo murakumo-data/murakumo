@@ -387,3 +387,16 @@ def test_guide_bus_matrix_and_exposures(client, project):
     settings = client.put("/api/settings", json={"unknown_members": True, "masking": {"pii": "hash"}}).json()
     assert settings["unknown_members"] is True and settings["masking"] == {"pii": "hash"}
     assert load_project(project.root).project.manifest.governance.masking == {"pii": "hash"}
+
+
+def test_metrics_lakehouse_and_history_from_the_canvas(client):
+    state = client.get("/api/state").json()
+    assert "scd6" in state["choices"]["histories"]
+    metrics = [{"name": "trips", "entity": "fct_trip", "expression": "count(*)"}]
+    saved = client.put("/api/metrics", json={"metrics": metrics})
+    assert saved.status_code == 200 and saved.json()["model"]["metrics"][0]["name"] == "trips"
+    bad = client.put("/api/metrics", json={"metrics": [{"name": "x", "entity": "nope", "expression": "count(*)"}]})
+    assert bad.status_code == 400 and "does not exist" in bad.json()["message"]
+    lake = {"table_format": "iceberg", "catalog": "polaris", "layers": ["marts"]}
+    assert client.put("/api/settings", json={"lakehouse": lake}).status_code == 200
+    assert client.get("/api/settings").json()["lakehouse"]["catalog"] == "polaris"

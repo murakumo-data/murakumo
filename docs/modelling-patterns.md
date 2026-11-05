@@ -7,7 +7,10 @@ Patterns from dimensional modelling and from dbt's own guidance that Murakumo wr
 - conformed dimensions and the bus matrix;
 - access levels;
 - exposures;
-- masking policies.
+- masking policies;
+- slowly changing dimensions of types 3, 4 and 6;
+- the Data Vault pack: hubs, links and satellites;
+- the semantic layer: metrics defined once.
 
 Each one is set in the model, and is in the generated dbt project, the plain SQL and the
 [replication guide](guide.md).
@@ -168,3 +171,93 @@ governance:
 - In the canvas: **Settings** → **Personal data**.
 
 Row-access policies, which hide whole rows from some roles, are not generated yet.
+
+## Slowly changing dimensions: types 3, 4 and 6
+
+Type 1 overwrites and type 2 keeps every version. Three more are built:
+
+```yaml
+name: dim_part
+kind: dimension
+history: scd3                   # scd1 | scd2 | scd3 | scd4 | scd6
+tracked: [brand, retail_price]  # scd3 and scd6; left out: every column that is not a key
+```
+
+| History | What is built |
+| --- | --- |
+| `scd3` | One row per key, with `previous_<column>` beside each tracked column: its value before its latest change. The table is incremental, so each run compares what arrives with the row it replaces |
+| `scd4` | The dimension holds only the current version of each key (`valid_from` says since when), and `<name>_history` every version, with `valid_from`, `valid_to` and `is_current` |
+| `scd6` | Type 2, with `current_<column>` for each tracked column on every version: the value as it is now, so old facts can be reported by today's values |
+
+- **MK318:** a tracked column does not exist. **MK319:** `tracked` is set but the history is not
+  `scd3` or `scd6`.
+- In the canvas, a dimension's inspector has **History**, and **Tracked** for types 3 and 6.
+
+## The Data Vault pack
+
+Hubs, links and satellites, insert-only, so nothing loaded is ever lost.
+
+```yaml
+name: hub_customer
+layer: intermediate
+kind: hub                        # hub | link | satellite
+attributes:
+  - {name: customer_number, type: bigint, nullable: false, key: natural}   # the business key
+mappings:
+  - {target: customer_number, sources: [customer.c_custkey]}
+```
+
+| Kind | What it holds |
+| --- | --- |
+| `hub` | Each business key once: `<hub>_hk` (its hash), the key's columns, `load_date` (when it was first loaded), `record_source` |
+| `link` | Each combination of business keys once: `<link>_hk`, a `<hub>_hk` for each hub it connects, the keys' columns, `load_date`, `record_source` |
+| `satellite` | The descriptive columns of a hub or link, a row each time they change: `<parent>_hk`, `hashdiff`, `load_date`, `record_source` |
+
+- A link connects its hubs through relationships to them; a satellite has one relationship, to
+  its hub or link. The relationships map the business key's columns.
+- Hash keys are md5 of the trimmed, upper-cased key values joined by `||`, so `abc ` and `ABC` are
+  one key, and a hub's key hashes the same wherever it is computed.
+- Each run adds what was loaded since the last one (by `load_date`). Within a run, a hub or link
+  keeps a key's first row, a satellite its latest.
+- `<satellite>_current` is a view of each key's latest row: other tables that read a satellite
+  read it.
+- **MK320:** a hub, link or satellite has no business key. **MK509:** a link with fewer than two
+  hubs, a satellite without its parent, or a vault table that does not read a raw table.
+- The commerce example has `hub_customer`, `hub_order`, `link_order_customer` and `sat_customer`.
+
+## The semantic layer
+
+Metrics are defined once, in `model/metrics.yaml`, and written as dbt semantic models and
+metrics (MetricFlow), so every tool asks for "revenue" and gets the same number.
+
+```yaml
+metrics:
+  - name: revenue
+    label: Revenue
+    entity: fct_order_line                 # the table it is counted on
+    expression: sum(net_amount)            # one or more aggregates
+    time: ordered_on                       # left out: the table's first date column
+    grain: day
+    dimensions: [order_status, dim_customer.market_segment]
+  - name: average_order_value
+    entity: fct_order_line
+    expression: sum(net_amount) / count(distinct order_id)
+  - name: open_order_lines
+    entity: fct_order_line
+    expression: count(*)
+    filters: ["order_status = 'O'"]        # only rows that meet them count
+```
+
+- `generated/dbt/models/semantic/_semantic.yml` has a semantic model per table a metric is
+  counted on: its key as the primary entity, its relationships to dimensions as foreign entities,
+  its time column, the columns metrics break it down by, and a measure per aggregate.
+- Each dimension those metrics use gets a semantic model too. An SCD2 dimension joins by its
+  validity (`valid_from`, `valid_to`), so each fact row finds the version current at its time.
+- One aggregate is a simple metric; several (`sum(a) / count(*)`) are a derived metric over a
+  hidden simple metric per aggregate (`<metric>_part_1`, ...).
+- `metricflow_time_spine` is the table of days MetricFlow needs.
+- Query it with MetricFlow: `pip install "dbt-metricflow[dbt-duckdb]"`, then
+  `mf query --metrics revenue --group-by metric_time__month`.
+- **MK210:** a metric's table has no date column. **MK211:** its expression has no aggregate.
+  **MK212:** a dimension it names does not exist.
+- In the canvas: **Bus matrix** → **Metrics** adds and edits them.

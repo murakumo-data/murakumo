@@ -558,6 +558,31 @@ class Writer:
                         "AWS role's trust policy.",
                     )
                 )
+        from murakumo.generate import terraform
+
+        modules = terraform.modules(self.project)
+        if modules:
+            blocks = [
+                Block("hcl", self.files.get(f"terraform/{m}/main.tf", ""), f"generated/terraform/{m}/main.tf")
+                for m in modules
+            ]
+            commands = "\n".join(
+                f"terraform -chdir=generated/terraform/{m} init && terraform -chdir=generated/terraform/{m} apply"
+                for m in modules
+            )
+            steps.append(
+                Step(
+                    "accounts-terraform",
+                    "Or create it all with Terraform",
+                    "The same platform as code (`stack.iac: terraform`): "
+                    + ", ".join(modules)
+                    + ". Access roles (`<DB>_READ`, `<DB>_WRITE`) hold the privileges on each database, and the "
+                    "functional roles people and CI use are made of them, as in the SQL above: run one or the "
+                    "other. The providers read credentials from the environment.",
+                    [*blocks, Block("bash", commands)],
+                    "`Apply complete!` for each module, with the resources it added.",
+                )
+            )
         return Chapter(
             1,
             "accounts",
@@ -722,6 +747,45 @@ class Writer:
                     ],
                 )
             )
+        stream = {p: t for p, t in self.files.items() if p.startswith("streaming/") and not p.endswith(".md")}
+        if stream:
+            engine = self.manifest.generation.streaming.engine
+            steps.append(
+                Step(
+                    "sources-streaming",
+                    f"Stream the Kafka topics ({engine})",
+                    "The Kafka sources are read continuously, not on a schedule. "
+                    + (
+                        "Flink and Spark land each topic's messages as files where the loads look for them, so "
+                        "loading stays the same."
+                        if engine in ("flink", "spark")
+                        else "The Snowflake Kafka connector writes each topic into its raw table through Snowpipe "
+                        "Streaming, within seconds."
+                    ),
+                    [
+                        *(
+                            Block(
+                                "bash"
+                                if p.endswith(".sh")
+                                else "sql"
+                                if p.endswith(".sql")
+                                else "yaml"
+                                if p.endswith(".yml")
+                                else "python"
+                                if p.endswith(".py")
+                                else "json",
+                                t,
+                                f"generated/{p}",
+                            )
+                            for p, t in sorted(stream.items())
+                        ),
+                        Block("markdown", self.files.get("streaming/README.md", ""), "generated/streaming/README.md"),
+                    ],
+                    "The job running (Flink's dashboard at http://localhost:8081 lists it), then new files in the "
+                    "landing folder a minute after messages arrive, or rows in the raw tables.",
+                    files=sorted(stream),
+                )
+            )
         return Chapter(
             3,
             "sources",
@@ -773,6 +837,13 @@ class Writer:
                 "pip install sqlalchemy\n"
                 f"python3 -c \"import os, sqlalchemy as sa; e = sa.create_engine(os.environ['{connection.url_env}']); "
                 f"print(e.connect().execute(sa.text('{query} limit 5')).fetchall())\""
+            )
+        if kind == "kafka":
+            first = connection.topics[0].topic if connection.topics else "<topic>"
+            return (
+                "# With kcat (or Redpanda's rpk): the topics, then the first messages of one\n"
+                f"kcat -b {connection.bootstrap_servers} -L | head -20\n"
+                f"kcat -b {connection.bootstrap_servers} -C -t {first} -o beginning -c 5 -e"
             )
         location = connection.location
         if "://" in location:
@@ -847,6 +918,25 @@ class Writer:
         for step in self.ingestion_steps():
             if step.key == "pipes" or (step.sql and step.key != "integration"):
                 steps.append(Step(f"raw-{step.key}", step.title, step.why, [Block("sql", step.sql or "")]))
+        lake = {p: t for p, t in self.files.items() if p.startswith("lakehouse/")}
+        if lake:
+            blocks = [
+                Block("bash" if p.endswith(".sh") else "sql" if p.endswith(".sql") else "yaml", t, f"generated/{p}")
+                for p, t in sorted(lake.items())
+                if not p.endswith(".md")
+            ]
+            steps.append(
+                Step(
+                    "raw-lakehouse",
+                    "Set up the open tables' catalog",
+                    "The lakehouse layers are written as open tables in a catalog, so any engine can read them: "
+                    + lake.get("lakehouse/README.md", "").split("\n", 3)[2],
+                    blocks,
+                    "The catalog answers (setup.sh says it is ready, or `show external volumes` lists the volume), "
+                    "and after a build the tables are listed in it.",
+                    files=sorted(lake),
+                )
+            )
         return Chapter(
             4,
             "raw",
@@ -953,6 +1043,31 @@ class Writer:
             "the same model as plain SQL, and its tests. Staging models clean and type the raw tables; "
             "intermediate models and snapshots prepare history; the marts are the facts and dimensions people use."
         )
+        semantic = self.files.get("dbt/models/semantic/_semantic.yml")
+        if semantic:
+            steps.append(
+                Step(
+                    "transform-semantic",
+                    "The semantic layer: metrics defined once",
+                    "Each metric in model/metrics.yaml is a MetricFlow measure and metric, on a semantic model per "
+                    "table it is counted on, joined to its dimensions by their keys (an SCD2 dimension by the "
+                    "version current at the time). MetricFlow also needs a time spine: a table of days.",
+                    [
+                        Block("yaml", semantic, "generated/dbt/models/semantic/_semantic.yml"),
+                        Block(
+                            "bash",
+                            'pip install "dbt-metricflow[dbt-duckdb]"   # or the adapter for your warehouse\n'
+                            "cd generated/dbt && dbt parse\n"
+                            "mf list metrics\n"
+                            "mf query --metrics "
+                            + ",".join(m.name for m in self.project.model.metrics[:2])
+                            + " --group-by metric_time__month",
+                        ),
+                    ],
+                    "Each metric listed, and a table of months with a value per metric.",
+                    files=["dbt/models/semantic/_semantic.yml", "dbt/models/semantic/metricflow_time_spine.sql"],
+                )
+            )
         return Chapter(5, "transformations", "Transformations", intro, steps)
 
     def model_why(self, model) -> str:
@@ -973,10 +1088,30 @@ class Writer:
             )
         elif entity.kind is EntityKind.CUMULATIVE:
             parts.append("A cumulative table: one row per key per day, carrying its whole history in arrays.")
+        elif model.extra.get("history"):
+            parts.append(
+                f"Every version of {entity.name} (its SCD4 history): `valid_from`, `valid_to`, and `is_current` "
+                "for the latest."
+            )
+        elif entity.history is History.SCD4:
+            parts.append(
+                f"The current version of each row (SCD4): `valid_from` says since when. Every version is in "
+                f"`{entity.name}_history`."
+            )
         elif entity.history in (History.SCD2, History.SCD6):
             parts.append(
                 "A dimension with every version of each row (SCD2): `valid_from`, `valid_to`, and `is_current` "
                 "for the latest."
+            )
+            if entity.history is History.SCD6:
+                current = [c.name for c in model.columns if c.name.startswith("current_")]
+                parts.append("SCD6: every version also has the value as it is now, in " + ", ".join(current) + ".")
+        elif entity.history is History.SCD3:
+            previous = [c.name for c in model.extra.get("previous", [])]
+            parts.append(
+                "SCD3: one row per key, with the value before its latest change beside the current one ("
+                + ", ".join(previous)
+                + "). Incremental, so each run compares what arrives with the row it replaces."
             )
         if model.materialized == "incremental" and entity.kind not in (EntityKind.CUMULATIVE,):
             parts.append(

@@ -1,164 +1,119 @@
+"""SCD types 3, 4 and 6, built twice on DuckDB from the plain SQL (which `murakumo guide --check`
+proves builds the same as dbt), with the tracked columns changed in between."""
+
+from pathlib import Path
+
+import duckdb
 import pytest
+import yaml
 
-pytest.importorskip("fastapi")
+from murakumo.generate import generate
+from murakumo.generate.rebuild import _statements
+from murakumo.ir.model import History
+from murakumo.project import load_project
+from murakumo.validate import validate_project
 
-from fastapi.testclient import TestClient  # noqa: E402
-
-from murakumo.project import load_project  # noqa: E402
-from murakumo.scaffold import init_project  # noqa: E402
-from murakumo.server import create_app  # noqa: E402
-
-
-@pytest.fixture
-def project(tmp_path):
-    return init_project(tmp_path / "proj")
+COMMERCE = Path(__file__).resolve().parents[3] / "examples" / "commerce"
 
 
 @pytest.fixture
-def client(project):
-    return TestClient(create_app(project.root), base_url="http://localhost")
+def commerce():
+    return load_project(COMMERCE).project
 
 
-def entity_id(state, name):
-    return next(e["id"] for e in state["model"]["entities"] if e["name"] == name)
+def setting(project, name, history, tracked=()):
+    entity = project.model.entity(name)
+    entity.history = History(history)
+    entity.tracked = list(tracked)
 
 
-def names(state):
-    return {e["name"] for e in state["model"]["entities"]}
+def build(project, runs):
+    """Build the project once per run, after replacing the raw rows with that run's."""
+    files = generate(project).files
+    scripts = sorted(p for p in files if p.startswith("guide/sql/build/") and p.endswith(".sql"))
+    db = duckdb.connect()
+    for run, (parts, customers) in enumerate(runs, start=1):
+        loaded = f"2026-01-0{run} 00:00:00+00"
+        for index, script in enumerate(scripts):
+            for statement in _statements(files[script]):
+                db.execute(statement)
+            if index == 0:  # the raw tables now exist: land this run's rows
+                db.execute("delete from raw_tpch_erp.part; delete from raw_tpch_erp.customer")
+                db.execute("delete from raw_tpch_erp.nation")
+                db.execute(
+                    "insert into raw_tpch_erp.nation (n_nationkey, n_name, _ingested_at) "
+                    f"values (1, 'KENYA', '{loaded}')"
+                )
+                for key, brand, price in parts:
+                    db.execute(
+                        "insert into raw_tpch_erp.part (p_partkey, p_name, p_brand, p_retailprice, _ingested_at) "
+                        f"values ({key}, 'part {key}', '{brand}', {price}, '{loaded}')"
+                    )
+                for key, segment in customers:
+                    db.execute(
+                        "insert into raw_tpch_erp.customer (c_custkey, c_name, c_nationkey, c_mktsegment, c_acctbal, "
+                        f"_ingested_at) values ({key}, 'customer {key}', 1, '{segment}', 0, '{loaded}')"
+                    )
+    return files, db
 
 
-def test_undo_and_redo_a_removed_table(client, project):
-    state = client.get("/api/state").json()
-    assert state["history"] == {"undo": None, "redo": None}
-    zone = entity_id(state, "dim_taxi_zone")
-    position = {"x": 40, "y": 80}
-    state = {**state, **client.put("/api/layout", json={"positions": {zone: position}}).json()}
-    relationships = len(state["model"]["relationships"])
-    files = sorted(p.name for p in (project.root / "model").rglob("*.yaml"))
-
-    state = client.delete(f"/api/entities/{zone}").json()
-    assert "dim_taxi_zone" not in names(state)
-    assert "dim_taxi_zone" in state["history"]["undo"]
-
-    state = client.post("/api/undo").json()
-    assert state["message"].startswith("Undid: table dim_taxi_zone removed")
-    assert "dim_taxi_zone" in names(state)
-    assert len(state["model"]["relationships"]) == relationships
-    assert state["layout"][zone] == position  # it comes back where it was
-    assert sorted(p.name for p in (project.root / "model").rglob("*.yaml")) == files
-    assert state["history"]["undo"] is None and "dim_taxi_zone" in state["history"]["redo"]
-
-    state = client.post("/api/redo").json()
-    assert "dim_taxi_zone" not in names(state)
-    assert client.post("/api/redo").status_code == 409  # nothing left to redo
+RUNS = [
+    ([(1, "Brand#1", 10), (2, "Brand#2", 20)], [(1, "BUILDING"), (2, "MACHINERY")]),
+    ([(1, "Brand#9", 10), (2, "Brand#2", 25)], [(1, "AUTOMOBILE"), (2, "MACHINERY")]),
+]
 
 
-def test_undo_keeps_moves_and_labels_manifest_changes(client, project):
-    state = client.post("/api/domains", json={"name": "finance"}).json()
-    assert state["history"]["undo"] == "new domain finance"
-    trip = entity_id(state, "fct_trip")
-    client.put("/api/layout", json={"positions": {trip: {"x": 999, "y": 111}}})
-    state = client.post("/api/undo").json()
-    assert "finance" not in {d["name"] for d in state["domains"]}
-    assert state["layout"][trip] == {"x": 999, "y": 111}  # moving tables is not undone
+def test_scd3_keeps_the_previous_value_of_tracked_columns(commerce):
+    setting(commerce, "dim_part", "scd3", ["brand", "retail_price"])
+    files, db = build(commerce, RUNS)
+    assert "previous_brand" in files["dbt/models/marts/product/dim_part.sql"]
+    rows = db.execute(
+        "select part_id, brand, previous_brand, retail_price, previous_retail_price "
+        "from marts.dim_part where part_id > 0 order by 1"
+    ).fetchall()
+    assert [(r[0], r[1], r[2], float(r[3]), r[4] and float(r[4])) for r in rows] == [
+        (1, "Brand#9", "Brand#1", 10.0, None),
+        (2, "Brand#2", None, 25.0, 20.0),
+    ]
 
 
-def test_undo_refuses_after_an_edit_outside_the_canvas(client, project):
-    state = client.get("/api/state").json()
-    trip = entity_id(state, "fct_trip")
-    client.post(f"/api/entities/{trip}/columns", json={"name": "note", "type": "string"})
-    path = project.root / "murakumo.yaml"
-    path.write_text(path.read_text() + "\n# edited by hand\n")
-    response = client.post("/api/undo")
-    assert response.status_code == 409
-    assert "changed outside the canvas" in response.json()["message"]
-    assert "# edited by hand" in path.read_text()
-    assert response.json()["state"]["history"]["undo"] is None
-    assert "note" in {a.name for a in load_project(project.root).project.model.entity("fct_trip").attributes}
+def test_scd4_keeps_the_current_version_and_a_history_table(commerce):
+    setting(commerce, "dim_customer", "scd4")
+    files, db = build(commerce, RUNS)
+    assert "dbt/models/marts/sales/dim_customer_history.sql" in files
+    current = db.execute("select customer_id, market_segment from marts.dim_customer where customer_id > 0 order by 1")
+    assert current.fetchall() == [(1, "AUTOMOBILE"), (2, "MACHINERY")]
+    history = db.execute(
+        "select customer_id, market_segment, valid_to is null from marts.dim_customer_history order by 1, valid_from"
+    ).fetchall()
+    assert history == [(1, "BUILDING", False), (1, "AUTOMOBILE", True), (2, "MACHINERY", True)]
+    columns = {r[0] for r in db.execute("describe marts.dim_customer").fetchall()}
+    assert "valid_to" not in columns and "valid_from" in columns
 
 
-def test_a_new_change_clears_redo(client):
-    state = client.get("/api/state").json()
-    trip = entity_id(state, "fct_trip")
-    client.post(f"/api/entities/{trip}/columns", json={"name": "a", "type": "string"})
-    client.post("/api/undo")
-    state = client.post(f"/api/entities/{trip}/columns", json={"name": "b", "type": "string"}).json()
-    assert state["history"]["redo"] is None
+def test_scd6_puts_the_current_value_on_every_version(commerce):
+    setting(commerce, "dim_customer", "scd6", ["market_segment"])
+    _, db = build(commerce, RUNS)
+    rows = db.execute(
+        "select customer_id, market_segment, current_market_segment, is_current "
+        "from marts.dim_customer where customer_id > 0 order by 1, valid_from"
+    ).fetchall()
+    assert rows == [
+        (1, "BUILDING", "AUTOMOBILE", False),
+        (1, "AUTOMOBILE", "AUTOMOBILE", True),
+        (2, "MACHINERY", "MACHINERY", True),
+    ]
 
 
-def test_canvas_settings_are_saved_pruned_and_undoable(client, project):
-    state = client.get("/api/state").json()
-    trip = entity_id(state, "fct_trip")
-    zone = entity_id(state, "dim_taxi_zone")
-    state = client.put(
-        "/api/canvas",
-        json={
-            "label": "colour fct_trip",
-            "labels": [{"name": "Finance", "colour": "#2457d6"}],
-            "colours": {trip: "Finance", zone: "Finance"},
-            "collapsed": {trip: True},
-            "notes": [{"id": "n1", "text": "Trips land hourly", "x": 10, "y": 20}],
-            "diagrams": [{"id": "d1", "name": "Trips", "entities": [trip, zone]}],
-        },
-    ).json()
-    assert state["canvas"]["colours"] == {trip: "Finance", zone: "Finance"}
-    assert state["history"]["undo"] == "colour fct_trip"
-    assert state["canvas"]["notes"][0]["width"] == 220
-
-    # Removing a table drops what pointed at it; removing a label uncolours its tables.
-    state = client.delete(f"/api/entities/{zone}").json()
-    assert state["canvas"]["colours"] == {trip: "Finance"}
-    assert state["canvas"]["diagrams"][0]["entities"] == [trip]
-    state = client.put("/api/canvas", json={"labels": []}).json()
-    assert "colours" not in state["canvas"] and "labels" not in state["canvas"]
-    assert state["canvas"]["collapsed"] == {trip: True}
-
-    state = client.post("/api/undo").json()
-    assert state["canvas"]["labels"][0]["name"] == "Finance"
-    assert client.put("/api/canvas", json={"labels": [{"name": "x", "colour": "blue"}]}).status_code == 422
+def test_tracked_columns_are_checked(commerce):
+    setting(commerce, "dim_part", "scd3", ["colour"])
+    setting(commerce, "dim_customer", "scd2", ["market_segment"])
+    found = {d.code for d in validate_project(commerce)}
+    assert {"MK318", "MK319"} <= found
 
 
-def test_bulk_changes_are_one_undo(client):
-    state = client.get("/api/state").json()
-    client.post("/api/domains", json={"name": "finance"})
-    ids = [entity_id(state, "fct_trip"), entity_id(state, "dim_taxi_zone")]
-    state = client.patch("/api/entities", json={"ids": ids, "changes": {"domain": "finance"}}).json()
-    assert {e["domain"] for e in state["model"]["entities"] if e["id"] in ids} == {"finance"}
-    assert state["history"]["undo"].endswith("(+1 more)")
-    state = client.post("/api/undo").json()
-    assert {e["domain"] for e in state["model"]["entities"] if e["id"] in ids} != {"finance"}
-
-    state = client.post("/api/entities/remove", json={"ids": ids}).json()
-    assert {"fct_trip", "dim_taxi_zone"}.isdisjoint(names(state))
-    state = client.post("/api/undo").json()
-    assert {"fct_trip", "dim_taxi_zone"} <= names(state)
-    assert client.patch("/api/entities", json={"ids": ids, "changes": {"name": "x"}}).status_code == 400
-
-
-def test_problems_name_their_column(client, project):
-    state = client.get("/api/state").json()
-    trip = entity_id(state, "fct_trip")
-    state = client.post(f"/api/entities/{trip}/columns", json={"name": "BadName", "type": "string"}).json()
-    columns = next(e["attributes"] for e in state["model"]["entities"] if e["id"] == trip)
-    column = next(a["id"] for a in columns if a["name"] == "BadName")
-    found = [d for d in state["diagnostics"] if d["code"] == "MK307"]
-    assert found and found[0]["entity_id"] == trip and found[0]["column_id"] == column
-
-
-def test_copy_columns_from_a_source_in_one_change(client):
-    state = client.post("/api/entities", json={"name": "stg_zone", "layer": "staging"}).json()
-    stg = entity_id(state, "stg_zone")
-    state = client.post(
-        f"/api/entities/{stg}/columns/copy",
-        json={"columns": ["taxi_zone_lookup.LocationID", "taxi_zone_lookup.Zone", "taxi_zone_lookup.Zone"]},
-    ).json()
-    entity = next(e for e in state["model"]["entities"] if e["id"] == stg)
-    assert [(a["name"], a["type"]) for a in entity["attributes"]] == [("LocationID", "integer"), ("Zone", "string")]
-    assert {m["target"]: m["sources"] for m in entity["mappings"]} == {
-        "LocationID": ["taxi_zone_lookup.LocationID"],
-        "Zone": ["taxi_zone_lookup.Zone"],
-    }
-    state = client.post("/api/undo").json()
-    assert next(e for e in state["model"]["entities"] if e["id"] == stg)["attributes"] == []
-    response = client.post(f"/api/entities/{stg}/columns/copy", json={"columns": ["nope.x"]})
-    assert response.status_code == 400
+def test_scd4_history_is_its_own_model_in_dbt(commerce):
+    setting(commerce, "dim_customer", "scd4")
+    models = yaml.safe_load(generate(commerce).files["dbt/models/marts/sales/_sales__models.yml"])["models"]
+    names = {m["name"] for m in models}
+    assert {"dim_customer", "dim_customer_history"} <= names

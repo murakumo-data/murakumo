@@ -6,7 +6,7 @@ Customer orders (order header).
 
 **Layer:** raw · **Kind:** table · **Source:** tpch_erp · **Refreshed:** hourly_sales: every hour, on the hour
 
-sources → **orders** → [fct_order_fulfilment](fct_order_fulfilment.md), [fct_order_line](fct_order_line.md)
+sources → **orders** → [fct_order_fulfilment](fct_order_fulfilment.md), [fct_order_line](fct_order_line.md), [hub_order](hub_order.md), [link_order_customer](link_order_customer.md)
 
 | Column | Type | About | Comes from |
 | --- | --- | --- | --- |
