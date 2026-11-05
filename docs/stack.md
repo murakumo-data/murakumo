@@ -26,6 +26,8 @@ In the canvas, the **Stack** panel (the layers icon on the rail) does the same.
 | Python | `none`, `polars`, `pyspark` (the pipeline written as Python too) | `generation.python_engine` |
 | Orchestrator | airflow, dagster, prefect, databricks_workflows, snowflake_tasks, and others as a starting script | `generation.orchestrator` |
 | CI | `github`, `gitlab`, `none` | `stack.ci` |
+| Streaming: what reads Kafka sources | `consumer`, `flink`, `spark`, `snowpipe_streaming` | `generation.streaming.engine` |
+| Infrastructure as code | `none`, `terraform` | `stack.iac` |
 
 ```yaml
 stack:
@@ -42,6 +44,9 @@ says so:
 - Auto Loader runs on Databricks, from cloud storage.
 - Lambda and Glue land files in S3.
 - Snowflake tasks run in Snowflake.
+- Snowpipe Streaming writes into Snowflake.
+- A table read from a Kafka topic should load by `append` (or `streaming`), not `full`.
+- Open tables are Iceberg on Snowflake and DuckDB; Databricks writes Iceberg, Delta or Hudi.
 
 ## The decisions log
 
@@ -229,6 +234,76 @@ The orchestrator's pipelines fetch and load before each schedule's build:
 
 When something else fetches the data (Lambda, Glue), the pipelines only load. When it is loaded
 continuously (Snowpipe, Auto Loader), they only build.
+
+## Streaming: Kafka sources
+
+A source can be Kafka, or anything that speaks its protocol (Redpanda, Amazon MSK, Confluent
+Cloud). Each topic of JSON messages becomes a raw table.
+
+```yaml
+sources:
+  - name: shop_events
+    connection:
+      kind: kafka
+      bootstrap_servers: localhost:19092
+      security_protocol: SASL_SSL          # PLAINTEXT (the default), SSL, SASL_PLAINTEXT, SASL_SSL
+      sasl_mechanism: PLAIN                # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+      username_env: KAFKA_USER
+      password_env: KAFKA_PASSWORD
+      topics:
+        - {table: orders, topic: orders}
+generation:
+  streaming:
+    engine: consumer                       # consumer | flink | spark | snowpipe_streaming
+```
+
+| Engine | How the topics reach the raw tables |
+| --- | --- |
+| `consumer` | The extract script, on each schedule (`murakumo ingest`): it reads each topic since the consumer group's last commit, lands the messages as files, then commits, so none is lost |
+| `flink` | A Flink SQL job per source (`generated/streaming/flink/<source>.sql`) reads each topic continuously and writes JSON files into the landing area, a file a minute. `generated/streaming/docker-compose.yml` starts Redpanda and Flink locally |
+| `spark` | A Spark Structured Streaming job per source, into the landing area, or with `--sink table` straight into the raw Delta tables on Databricks |
+| `snowpipe_streaming` | The Snowflake Kafka connector (in Kafka Connect) writes each topic into its raw table through Snowpipe Streaming, within seconds |
+
+Flink and Spark land files where the loads look, so loading stays the stack's choice. Their part
+files (`part-...`) are read as JSON lines; in-progress files are skipped.
+
+## Open tables: Iceberg and catalogs
+
+```yaml
+targets:
+  lakehouse:
+    table_format: iceberg     # iceberg | delta | hudi | native
+    catalog: polaris          # polaris | nessie | glue | unity | none
+    layers: [marts]           # the layers written as open tables
+    warehouse: commerce       # the catalog's warehouse (Polaris)
+    catalog_uri: http://localhost:8181/api/catalog
+    external_volume: COMMERCE_LAKE   # Snowflake
+```
+
+- **Snowflake:** Snowflake-managed Iceberg tables on an external volume (`table_format`,
+  `external_volume` in each model's config). `generated/lakehouse/snowflake.sql` creates the
+  volume, and with `catalog: polaris` the sync to Snowflake Open Catalog.
+- **Databricks:** Unity Catalog's managed tables, as Iceberg, Delta or Hudi.
+- **DuckDB:** the dbt project attaches the Iceberg REST catalog (Polaris or Nessie), and each table
+  is copied into it after it is built. `generated/lakehouse/` starts S3 (LocalStack) and Polaris on
+  this computer: `docker compose -f generated/lakehouse/docker-compose.yml up -d`, then
+  `bash generated/lakehouse/setup.sh`.
+
+In the canvas: **Settings** → **Open tables**.
+
+## Terraform
+
+With `stack.iac: terraform`, `generated/terraform/` has a module per cloud the stack uses:
+
+| Module | What it creates |
+| --- | --- |
+| `snowflake/` | The compute warehouse and its spending cap, a database per environment, access roles per database (`<DB>_READ`, `<DB>_WRITE`), and the functional roles made of them: the developer role, each environment's deployer, and the roles that see personal data |
+| `aws/` | The landing bucket; the extract Lambda functions and their schedules, or the Glue jobs and triggers; the role Snowflake assumes for Snowpipe, and the bucket's notification to the pipes |
+| `databricks/` | A catalog per environment, the groups and their grants, and a serverless SQL warehouse |
+
+The providers read credentials from the environment. Try the AWS module without an account on
+LocalStack: `terraform -chdir=generated/terraform/aws apply -var endpoint=http://localhost:4566`.
+`murakumo stack deploy` lists a step per module, which you run.
 
 ## Snowflake platform settings
 

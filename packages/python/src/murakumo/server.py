@@ -39,7 +39,7 @@ from murakumo import sources as sources_module
 from murakumo.diagnostics import Diagnostic, Level
 from murakumo.expressions import check_expression, preview_expression
 from murakumo.generate import GENERATED_DIR, INDEX_FILE, compare, generate, write
-from murakumo.ir.model import Cardinality, Classification, EntityKind, Layer
+from murakumo.ir.model import Cardinality, Classification, EntityKind, History, Layer
 from murakumo.ir.types import TypeName
 from murakumo.lineage import resolve_ref, trace
 from murakumo.manifest import MANIFEST_FILE, Warehouse
@@ -107,6 +107,16 @@ class Layout(BaseModel):
     positions: dict[UUID, Position]
 
 
+class LakehouseBody(BaseModel):
+    table_format: str = Field(pattern="^(iceberg|delta|hudi|native)$")
+    catalog: str = Field(default="none", pattern="^(polaris|unity|glue|nessie|none)$")
+    layers: list[str] = Field(default_factory=lambda: ["marts"])
+    storage: str | None = None
+    catalog_uri: str | None = None
+    warehouse: str | None = None
+    external_volume: str | None = None
+
+
 class SettingsBody(BaseModel):
     """What `murakumo config` and murakumo.yaml's switches set; only the fields given change."""
 
@@ -125,10 +135,15 @@ class SettingsBody(BaseModel):
     guide: bool | None = None
     masking: dict[str, str] | None = None
     unmasked_roles: list[str] | None = None
+    lakehouse: LakehouseBody | None = None
 
 
 class ExposuresBody(BaseModel):
     exposures: list[dict[str, Any]]
+
+
+class MetricsBody(BaseModel):
+    metrics: list[dict[str, Any]]
 
 
 class EnvironmentBody(BaseModel):
@@ -380,6 +395,7 @@ def state(root: Path) -> dict[str, Any]:
             "sources": sources,
             "layers": [v.value for v in Layer],
             "kinds": [v.value for v in EntityKind],
+            "histories": [v.value for v in History],
             "cardinalities": [v.value for v in Cardinality],
             "classifications": [v.value for v in Classification],
             "types": [v.value for v in TypeName],
@@ -806,6 +822,22 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             "guide": m.generation.guide,
             "masking": m.governance.masking,
             "unmasked_roles": m.governance.unmasked_roles,
+            "lakehouse": (
+                m.targets.lakehouse.model_dump(
+                    mode="json",
+                    include={
+                        "table_format",
+                        "catalog",
+                        "layers",
+                        "storage",
+                        "catalog_uri",
+                        "warehouse",
+                        "external_volume",
+                    },
+                )
+                if m.targets.lakehouse
+                else None
+            ),
             "choices": {
                 "warehouses": [w.value for w in Warehouse],
                 "orchestrators": [o.value for o in Orchestrator],
@@ -859,6 +891,11 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                         except ManifestEditError:  # no such section yet: add it, with just this key
                             write_section(root, path[:1], {path[1]: given[key]})
                         changed.append(f"{key.replace('_', ' ')}: {current[key]} → {given[key]}")
+                if body.lakehouse is not None:
+                    wanted = {k: v for k, v in body.lakehouse.model_dump().items() if v not in (None, "")}
+                    if wanted != {k: v for k, v in (current["lakehouse"] or {}).items() if v not in (None, "")}:
+                        write_section(root, ("targets", "lakehouse"), wanted)
+                        changed.append(f"lakehouse: {wanted['table_format']} ({', '.join(wanted['layers'])})")
                 if body.environments is not None:
                     wanted = [
                         {k: v for k, v in e.model_dump().items() if v not in (None, "")} for e in body.environments
@@ -1061,6 +1098,32 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 if missing:
                     raise edit.EditError(f"{exposure.name} reads {', '.join(missing)}, which do not exist")
             project.model.exposures = exposures
+
+        return change(action, rev)
+
+    @app.put("/api/metrics")
+    def put_metrics(body: MetricsBody, rev: Revision = None) -> dict[str, Any]:
+        """The metrics (model/metrics.yaml), all at once: dbt's semantic layer is written from them."""
+        from pydantic import ValidationError
+
+        from murakumo.generate.semantic import problems as semantic_problems
+        from murakumo.ir.model import Metric
+
+        def action(project: Project) -> None:
+            try:
+                metrics = [Metric.model_validate(x) for x in body.metrics]
+            except ValidationError as exc:
+                raise edit.EditError(str(exc.errors()[0].get("msg"))) from None
+            names = [m.name.lower() for m in metrics]
+            if len(names) != len(set(names)):
+                raise edit.EditError("each metric needs a name of its own")
+            for metric in metrics:
+                if project.model.entity(metric.entity) is None:
+                    raise edit.EditError(f"{metric.name} is counted on {metric.entity}, which does not exist")
+            project.model.metrics = metrics
+            wrong = [d for d in semantic_problems(project) if d.level.value == "error"]
+            if wrong:
+                raise edit.EditError(wrong[0].message)
 
         return change(action, rev)
 

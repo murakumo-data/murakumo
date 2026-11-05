@@ -87,6 +87,7 @@ result with a Murakumo build.
 - [ ] 5.22 Build fct_order_fulfilment
 - [ ] 5.23 Build fct_order_line
 - [ ] 5.24 Build customer_order_activity
+- [ ] 5.25 The semantic layer: metrics defined once
 
 **6. Running it**
 

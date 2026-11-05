@@ -331,6 +331,26 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
         )}
         {entity.kind === 'dimension' && entity.layer !== 'raw' && (
           <>
+            <Row label="History">
+              <SelectField
+                label="History: scd1 overwrites; scd2 keeps every version; scd3 the previous value; scd4 a history table; scd6 scd2 with current values"
+                value={entity.history}
+                options={choices.histories}
+                disabled={disabled}
+                onSave={(history) => history && save({ history })}
+              />
+            </Row>
+            {(entity.history === 'scd3' || entity.history === 'scd6') && (
+              <Row label="Tracked">
+                <TextField
+                  label={entity.history === 'scd3' ? 'Columns that keep their previous value' : 'Columns with their current value on every version'}
+                  value={entity.tracked.join(', ') || null}
+                  placeholder="every column but the keys"
+                  disabled={disabled}
+                  onSave={(text) => save({ tracked: (text ?? '').split(',').map((c) => c.trim()).filter(Boolean) })}
+                />
+              </Row>
+            )}
             <Row label="Unknown row">
               <SelectField
                 label="Unknown member"

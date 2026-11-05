@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.0.0 (unreleased)
+
+The rest of the original plan's Evolution and Breadth phases: more ways to keep history, the Data
+Vault, a semantic layer, the platform as Terraform, open tables in a catalog, and streaming. Each
+has a canvas path, a step in the replication guide, and a part in the end-to-end test.
+
+- **Slowly changing dimensions of types 3, 4 and 6**, built as themselves (not as 1 and 2):
+  - `scd3`: `previous_<column>` beside each tracked column, compared on each incremental run;
+  - `scd4`: the current version in the dimension, every version in `<name>_history`;
+  - `scd6`: type 2 with `current_<column>` on every version.
+  - `tracked:` picks the columns (MK318, MK319). In the canvas: the inspector's **History** and
+    **Tracked**.
+- **The Data Vault pack**: hubs, links and satellites, insert-only, with hash keys of the trimmed,
+  upper-cased business keys, `load_date` and `record_source`. A satellite adds a row when its
+  `hashdiff` changes; `<satellite>_current` has each key's latest row (MK320, MK509). The commerce
+  example has a small vault.
+- **The semantic layer**: dbt semantic models and metrics (MetricFlow) from `model/metrics.yaml`.
+  Simple, derived (`sum(a) / count(*)`) and filtered metrics; SCD2 dimensions joined by validity;
+  the time spine. Metrics gain `label` and `time` (MK210 to MK212). In the canvas: **Bus matrix**
+  → **Metrics**.
+- **Terraform** (`stack.iac: terraform`): a module each for Snowflake, AWS and Databricks.
+  - Snowflake's access roles (`<DB>_READ`, `<DB>_WRITE`) are now kept apart from the functional
+    roles made of them, in Terraform and in the provisioning SQL alike.
+  - The AWS module (bucket, Lambda or Glue, Snowpipe's role) takes an `endpoint`, to try it on
+    LocalStack.
+  - `murakumo stack deploy` lists a step per module.
+- **Open tables** (`targets.lakehouse`): the chosen layers as Iceberg tables in a catalog.
+  Snowflake-managed Iceberg on an external volume (with sync to Open Catalog); Iceberg, Delta or
+  Hudi on Databricks; and from DuckDB into an Iceberg REST catalog, with `generated/lakehouse/`
+  starting S3 (LocalStack) and Polaris locally. In the canvas: **Settings** → **Open tables**.
+- **Kafka sources and streaming**: a `kafka` connection kind, read by the extract script on each
+  schedule (committing only after the files are written), or continuously by a Flink SQL job, a
+  Spark Structured Streaming job, or the Snowflake Kafka connector through Snowpipe Streaming
+  (`generation.streaming.engine`). `generated/streaming/` starts Redpanda and Flink locally.
+  Streaming engines' part files load like any other landed file. The `kafka` extra installs
+  kafka-python.
+- **Fixed:** the guide's rebuild check now leaves out `load_date`, which differs between builds.
+- Docs: modelling patterns, the stack, model and generating codes, practices; end-to-end Part 19
+  (Clean up is now Part 20). Version 1.0.0.
+
 ## 0.9.0 (2026-11-04)
 
 The replication guide: everything it takes to rebuild the platform by hand, without Murakumo. And

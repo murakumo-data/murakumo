@@ -129,7 +129,8 @@ murakumo canvas path/to/project --port 9000 --no-open
   Other sources have **Re-import**, with the same preview. Connection errors are shown with any
   password removed.
 - **Say how a source's data is fetched.** **Connect…** on a source opens its connection:
-  - **Kinds:** a REST API, SFTP, a database, a folder or S3 prefix, or protobuf files.
+  - **Kinds:** a REST API, SFTP, a database, a folder or S3 prefix, protobuf files, or Kafka (its
+    brokers, security, and a topic per raw table).
   - **A REST API is a request builder.** Set the auth and paging once, add a request for each raw
     table, and **Send** it. You see the status, the time it took and the records, as a table or
     the raw response. **Make … from these records** creates the raw table from them.
@@ -182,7 +183,7 @@ runs at a time; **Stop** stops it. The last twenty are kept with their output.
 
 - **Stack** (the layers icon) is `murakumo stack`, in three tabs:
   - **Stack:** each part of the platform (warehouse, extract, landing, load, transform, Python,
-    orchestrator, CI), with what each choice means. It shows any choices that do not go together.
+    orchestrator, CI, streaming, infrastructure as code), with what each choice means. It shows any choices that do not go together.
     Saving asks **Why?** and records the answer in the decisions log. **Fetch now** and **Load what
     landed** run `murakumo ingest` and `murakumo load`.
   - **Deploy:** the steps to stand the platform up in an environment, each with its SQL or
@@ -193,17 +194,21 @@ runs at a time; **Stop** stops it. The last twenty are kept with their output.
   platform by hand, chapter by chapter, each with why, its SQL or commands (with a copy button) and
   what you should see. Tick the steps you have done; the ticks stay in this browser. **Check it
   rebuilds the project** runs `murakumo guide --check`.
-- **Bus matrix** (the grid) has two tabs, from the [modelling patterns](modelling-patterns.md):
+- **Bus matrix** (the grid) has three tabs, from the [modelling patterns](modelling-patterns.md):
   - **Bus matrix:** a row per fact, a column per dimension, a tick where the fact uses it, which
     dimensions are conformed, and the problems (MK316, MK317). Click a name to go to its table.
   - **Exposures:** the dashboards, notebooks and apps that read the marts, with their owner, link,
     maturity and the tables they read. **Save exposures** writes `model/exposures.yaml`.
-- **Modelling patterns** (in the inspector): a dimension's **Unknown row** (as the project, yes or
-  no) and **Conformed**; a modelled table's **Access** (private, protected, public); and a table
+  - **Metrics:** each metric's table, expression, date, grain, the columns it breaks down by and
+    the rows it counts. **Save metrics** writes `model/metrics.yaml`; the semantic layer is
+    written from it.
+- **Modelling patterns** (in the inspector): a dimension's **History** (scd1 to scd6) and, for
+  types 3 and 6, **Tracked**; its **Unknown row** (as the project, yes or no) and **Conformed**; a modelled table's **Access** (private, protected, public); and a table
   of kind *accumulating*'s grain, **Milestones** and **Time in**.
 - **Settings** (the gear): **Project** sets the warehouse, orchestrator and modelling pattern (as
   `murakumo config`), the Python pipeline, plain-SQL output, the run log, the parent branch and
-  personal schemas, unknown rows in dimensions, the replication guide, and **Personal data**: what
+  personal schemas, unknown rows in dimensions, the replication guide, **Open tables** (the table
+  format, catalog, layers and where they go), and **Personal data**: what
   PII, confidential and restricted columns show on Snowflake, and the roles that see them as they
   are. Each is saved to `murakumo.yaml` at once with its comments kept, and undoable.
   **This machine** is `murakumo setup`: what the project needs here (drivers, variables, key

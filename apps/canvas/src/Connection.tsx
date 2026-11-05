@@ -18,6 +18,11 @@ const KINDS: { value: string; label: string; help: string }[] = [
   { value: 'database', label: 'Database', help: 'Tables or queries in a source database, copied by an incremental column.' },
   { value: 'files', label: 'Folder or S3', help: 'Files in a folder or an S3 prefix, copied as they appear.' },
   { value: 'protobuf', label: 'Protobuf', help: 'Files of length-delimited protobuf messages, decoded with the .proto file.' },
+  {
+    value: 'kafka',
+    label: 'Kafka',
+    help: 'Topics of JSON messages (Kafka, Redpanda, MSK, Confluent): each topic becomes a raw table. Stack → Streaming says what reads them.',
+  },
 ]
 
 const LISTS: Record<string, { key: string; noun: string; fields: Field[] }> = {
@@ -48,6 +53,14 @@ const LISTS: Record<string, { key: string; noun: string; fields: Field[] }> = {
       { key: 'incremental_column', label: 'New rows by', placeholder: 'updated_at (default: the table’s watermark)' },
     ],
   },
+  kafka: {
+    key: 'topics',
+    noun: 'topic',
+    fields: [
+      { key: 'table', label: 'Raw table' },
+      { key: 'topic', label: 'Topic', placeholder: 'orders' },
+    ],
+  },
   protobuf: {
     key: 'messages',
     noun: 'message type',
@@ -70,6 +83,14 @@ const TOP: Record<string, Field[]> = {
   ],
   database: [{ key: 'url_env', label: 'URL from', placeholder: 'CRM_DB_URL', help: 'The variable holding the SQLAlchemy URL.' }],
   files: [{ key: 'location', label: 'Location', placeholder: 'incoming/ or s3://bucket/prefix' }],
+  kafka: [
+    { key: 'bootstrap_servers', label: 'Brokers', placeholder: 'localhost:19092', help: 'host:port, comma-separated.' },
+    { key: 'security_protocol', label: 'Security', placeholder: 'PLAINTEXT, SSL, SASL_SSL or SASL_PLAINTEXT' },
+    { key: 'sasl_mechanism', label: 'SASL mechanism', placeholder: 'PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512' },
+    { key: 'username_env', label: 'User from', placeholder: 'KAFKA_USER', help: 'An environment variable.' },
+    { key: 'password_env', label: 'Password from', placeholder: 'KAFKA_PASSWORD' },
+    { key: 'group', label: 'Consumer group', placeholder: 'murakumo-<source> (the default)' },
+  ],
   protobuf: [
     { key: 'proto', label: '.proto file', placeholder: 'protos/orders.proto' },
     { key: 'location', label: 'Messages arrive in', placeholder: 'events/ or s3://bucket/events' },

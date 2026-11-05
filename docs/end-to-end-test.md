@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.9.0
+# End-to-end test: Murakumo 1.0.0
 
-A step-by-step test of Murakumo 0.9.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 1.0.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -16,7 +16,8 @@ should see.
 | 16 | Optional: the same project on Snowflake: environments, your own schema, production, a pull request's clone | 35 min |
 | 17 | Choosing the stack: connecting an API in the canvas, fetching and loading, the code for another stack, the decisions log | 25 min |
 | 18 | The replication guide: reading it, proving it, loading by hand; unknown rows, the bus matrix, exposures, access and masking | 20 min |
-| 19 | Cleaning up | 2 min |
+| 19 | SCD types 3, 4 and 6, a Data Vault, a metric, Terraform on LocalStack, Iceberg in Polaris, Kafka through the consumer and Flink | 40 min |
+| 20 | Cleaning up | 2 min |
 
 ## How to use this script
 
@@ -121,10 +122,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.9.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 1.0.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.9.0.
+☐ Version 1.0.0.
 
 ---
 
@@ -1894,11 +1895,184 @@ their ticks in different places. Click **Check it rebuilds the project**: **Acti
 
 ---
 
-## Part 19: Clean up
+## Part 19: History types, the Data Vault, metrics, Terraform, open tables and streaming
 
-**19.1** In the canvas tab, press **Ctrl+C** to stop it.
+The rest of the platform: three more ways to keep a dimension's history, a Data Vault, metrics
+defined once, the platform as Terraform, tables any engine can read, and Kafka. Work in
+`~/murakumo-e2e/taxi_platform`, with the canvas running. Steps 19.4 to 19.6 need Docker
+(Docker Desktop, free for personal use): nothing in the cloud, nothing to pay for.
+[modelling-patterns.md](modelling-patterns.md) and [stack.md](stack.md) describe everything here.
 
-**19.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
+**19.1** SCD type 3. In the canvas, select **dim_taxi_zone**. In the inspector, set **History** to
+`scd3`, and **Tracked** to `zone_name`. Then:
+
+```bash
+murakumo generate
+grep -n "previous_zone_name" generated/dbt/models/marts/*/dim_taxi_zone.sql | head -3
+murakumo verify
+```
+
+You should see `previous_zone_name` in the model, and `verified: ... passed`. Try `scd6` (a
+`current_zone_name` on every version) and `scd4` (a `dim_taxi_zone_history` table beside it) the
+same way, then set it back to `scd1`.
+
+☐ The history types generate and verify.
+
+**19.2** A Data Vault. Create `model/entities/vault/hub_zone.yaml`:
+
+```yaml
+name: hub_zone
+layer: intermediate
+kind: hub
+attributes:
+  - {name: zone_number, type: bigint, nullable: false, key: natural}
+mappings:
+  - {target: zone_number, sources: [taxi_zone_lookup.LocationID]}
+```
+
+and `model/entities/vault/sat_zone.yaml`:
+
+```yaml
+name: sat_zone
+layer: intermediate
+kind: satellite
+attributes:
+  - {name: zone_number, type: bigint, nullable: false, key: natural}
+  - {name: borough, type: string}
+  - {name: zone_name, type: string}
+mappings:
+  - {target: zone_number, sources: [taxi_zone_lookup.LocationID]}
+  - {target: borough, sources: [taxi_zone_lookup.Borough]}
+  - {target: zone_name, sources: [taxi_zone_lookup.Zone]}
+```
+
+In the canvas, draw a relationship from **sat_zone** to **hub_zone** on `zone_number`. Then:
+
+```bash
+murakumo validate --fix
+murakumo verify
+```
+
+You should see `valid: 0 error(s)`, then `verified`, with tests on `hub_zone_hk`. Open
+`generated/dbt/models/intermediate/core/hub_zone.sql`: the hash key is md5 of the trimmed,
+upper-cased key, and each run adds only keys not seen before.
+
+☐ The hub and satellite build and test.
+
+**19.3** A metric. In the canvas, open **Bus matrix** (the grid icon) → **Metrics** → **Add a
+metric**: name `trips`, counted on `fct_trip`, expression `count(*)`, by date `pickup_at`, grain
+`day`. **Save metrics**. Then:
+
+```bash
+murakumo generate
+sed -n '1,40p' generated/dbt/models/semantic/_semantic.yml
+murakumo verify
+```
+
+You should see a semantic model `fct_trip` with a measure `trips`, the metric `trips`, and
+`metricflow_time_spine`. `verify` passes (dbt checks the semantic layer when it reads the
+project). Optionally, query it:
+
+```bash
+pip install "dbt-metricflow[dbt-duckdb]"
+murakumo build --sample 200
+cd generated/dbt && DBT_PROFILES_DIR=. mf query --metrics trips --group-by metric_time__month; cd ../..
+```
+
+☐ The metric is in the semantic layer.
+
+**19.4** Terraform, tried on LocalStack. In **Stack**, set **Infrastructure as code** to
+Terraform, **Extract** to `lambda` and **Landing** to `s3://taxi-landing/raw`. Then:
+
+```bash
+murakumo generate
+ls generated/terraform
+docker run -d --rm --name e2e-localstack -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock localstack/localstack:4.0
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+terraform -chdir=generated/terraform/aws init
+terraform -chdir=generated/terraform/aws apply -var endpoint=http://localhost:4566
+```
+
+Type `yes` when it asks. You should see `Apply complete! Resources: ... added`: the bucket, the
+extract function and its schedule, on LocalStack. Remove them, then put the stack back:
+
+```bash
+terraform -chdir=generated/terraform/aws destroy -var endpoint=http://localhost:4566
+docker stop e2e-localstack
+murakumo stack set extract=python landing=landing iac=none --why "end-to-end test"
+```
+
+☐ Terraform applies and destroys on LocalStack.
+
+**19.5** Open tables: Iceberg in a local catalog. In **Settings** → **Open tables**, set **Table
+format** to Apache Iceberg, **Catalog** to Apache Polaris, and **Catalog warehouse** to `taxi`.
+Then:
+
+```bash
+murakumo generate
+docker compose -f generated/lakehouse/docker-compose.yml up -d
+bash generated/lakehouse/setup.sh
+murakumo build --sample 50
+```
+
+You should see *The catalog taxi is ready*, then `built: ... passed`. The marts are Iceberg tables
+now, in Polaris, with their files in LocalStack's S3:
+
+```bash
+curl -s http://localhost:4566/taxi?list-type=2 | grep -o '<Key>marts/[^/]*' | sort -u
+```
+
+You should see `marts/dim_taxi_zone` and `marts/fct_trip`. Stop it, and set **Table format** back
+to the warehouse's own tables:
+
+```bash
+docker compose -f generated/lakehouse/docker-compose.yml down
+```
+
+☐ The marts are written as Iceberg tables.
+
+**19.6** Streaming from Kafka. In **Sources**, give `nyc_tlc` a connection of kind **Kafka**:
+brokers `localhost:19092`, a topic `zones` for the table `taxi_zone_lookup`. Set that table's
+**New rows** to `append` in the inspector. In **Stack**, set **Streaming** to Flink. Then:
+
+```bash
+murakumo generate
+docker compose -f generated/streaming/docker-compose.yml up -d
+docker compose -f generated/streaming/docker-compose.yml exec redpanda rpk topic create zones
+echo '{"LocationID": 501, "Borough": "Queens", "Zone": "Test zone", "service_zone": "Boro Zone"}' | \
+  docker compose -f generated/streaming/docker-compose.yml exec -T redpanda rpk topic produce zones
+murakumo ingest
+murakumo load
+```
+
+You should see `nyc_tlc.taxi_zone_lookup: 1 new` (the consumer reads what is new since its last
+run), then the load. Now continuously, with Flink: the job reads the topic from inside Docker, so
+set the connection's brokers to `redpanda:9092`, then:
+
+```bash
+murakumo generate
+bash generated/streaming/flink-jars.sh
+docker compose -f generated/streaming/docker-compose.yml exec jobmanager ./bin/sql-client.sh \
+  -j /opt/flink/usrlib/flink-sql-connector-kafka.jar -f /project/generated/streaming/flink/nyc_tlc.sql
+```
+
+You should see `Job ID: ...`, and <http://localhost:8081> lists the running job. Produce another
+message as above; within two minutes a `part-...` file appears in
+`landing/nyc_tlc/taxi_zone_lookup/`, and `murakumo load` loads it. Stop it all:
+
+```bash
+docker compose -f generated/streaming/docker-compose.yml down
+```
+
+Then remove the Kafka connection and set **Streaming** back to the consumer.
+
+☐ Messages reach the raw table, by the consumer and by Flink.
+
+## Part 20: Clean up
+
+**20.1** In the canvas tab, press **Ctrl+C** to stop it.
+
+**20.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
 
 ```bash
 rm -rf ~/murakumo-e2e
@@ -1954,7 +2128,8 @@ output or a screenshot.
 | 16 Snowflake (optional): environments, own schema, pull-request clone | | |
 | 17 Stack: connect an API, fetch, load, another stack's code, decisions | | |
 | 18 Replication guide: read, check, load by hand; unknown rows, bus matrix, exposures, access, masking | | |
-| 19 Clean up | | |
+| 19 History types, vault, metrics, Terraform, Iceberg, Kafka and Flink | | |
+| 20 Clean up | | |
 
 Also note anything that was confusing, slow or surprising, even if it worked. That is as useful
 as a failure.

@@ -874,6 +874,15 @@ wheels = [
 ]
 
 [[package]]
+name = "kafka-python"
+version = "3.0.12"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/a9/e8b96f7f71aacd94faf1db0feb9750bf557b17bd22b0595023c88c1f0eb2/kafka_python-3.0.12.tar.gz", hash = "sha256:4ccda3616b9aa5c353d74a97f2770d6cd1b950890d77ab0e8890e09a48eeed65", size = 512543, upload-time = "2026-10-26T18:45:58.883Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/41/ff/7b151e958d98cd6db252b1908f028e049744d26ec9373b1d01959e3bfb47/kafka_python-3.0.12-py3-none-any.whl", hash = "sha256:67add72052e3ad0c37ed9963ebe2b1696adc7f063c64eaf19862c21b69a64a18", size = 614268, upload-time = "2026-10-26T18:46:07.367Z" },
+]
+
+[[package]]
 name = "keyring"
 version = "25.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1188,7 +1197,7 @@ wheels = [
 
 [[package]]
 name = "murakumo"
-version = "0.9.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
@@ -1207,6 +1216,9 @@ canvas = [
 ]
 duckdb = [
     { name = "duckdb" },
+]
+kafka = [
+    { name = "kafka-python" },
 ]
 polars = [
     { name = "duckdb" },
@@ -1254,6 +1266,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'canvas'", specifier = ">=0.115" },
     { name = "jdk4py", marker = "extra == 'pyspark'", specifier = ">=21,<22" },
     { name = "jinja2", specifier = ">=3.1" },
+    { name = "kafka-python", marker = "extra == 'kafka'", specifier = ">=2.0" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.0" },
     { name = "polars", marker = "extra == 'pyspark'", specifier = ">=1.0" },
@@ -1269,7 +1282,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.15" },
     { name = "uvicorn", marker = "extra == 'canvas'", specifier = ">=0.32" },
 ]
-provides-extras = ["duckdb", "postgres", "verify", "snowflake", "canvas", "polars", "pyspark"]
+provides-extras = ["duckdb", "postgres", "verify", "snowflake", "kafka", "canvas", "polars", "pyspark"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "murakumo"
-version = "0.9.0"
+version = "1.0.0"
 description = "Model-first data engineering: design the logical model, generate the platform."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,6 +36,8 @@ postgres = ["psycopg[binary]>=3.2"]
 verify = ["dbt-duckdb>=1.9"]
 # Introspect Snowflake, and load raw tables for `murakumo verify --warehouse snowflake`.
 snowflake = ["snowflake-connector-python>=3.12"]
+# Fetch Kafka sources with `murakumo ingest` (the consumer streaming engine).
+kafka = ["kafka-python>=2.0"]
 # Run `murakumo canvas`: the visual editor and the API it reads and writes the model through.
 canvas = ["fastapi>=0.115", "uvicorn>=0.32"]
 # Run the pipeline as Polars jobs: `murakumo run --engine polars`.
