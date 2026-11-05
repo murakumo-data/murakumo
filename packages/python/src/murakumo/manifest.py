@@ -126,6 +126,10 @@ class LakehouseTarget(Section):
     table_format: TableFormat = TableFormat.ICEBERG
     catalog: Catalog = Catalog.NONE
     storage: str | None = None
+    layers: list[str] = Field(default_factory=lambda: ["marts"])  # the layers written as open tables
+    catalog_uri: str | None = None  # an Iceberg REST catalog's address (Polaris, Nessie)
+    warehouse: str | None = None  # the catalog's warehouse (its name in Polaris)
+    external_volume: str | None = None  # Snowflake: where its Iceberg tables' files go
     system_of_record: str = Field(default="lakehouse", pattern="^(lakehouse|warehouse)$")
     zones: list[str] = Field(default_factory=lambda: ["landing", "bronze", "silver", "gold"])
     path_template: str = "{zone}/{domain}/{entity}/"
@@ -292,8 +296,28 @@ class ProtobufConnection(Section):
     messages: list[Message] = Field(default_factory=list)
 
 
+class Topic(Section):
+    """A Kafka topic whose messages (JSON objects) become one raw table."""
+
+    table: Name
+    topic: str
+
+
+class KafkaConnection(Section):
+    """Kafka, or anything that speaks its protocol (Redpanda, Amazon MSK, Confluent Cloud)."""
+
+    kind: Literal["kafka"] = "kafka"
+    bootstrap_servers: str  # host:port, comma-separated
+    security_protocol: str = Field(default="PLAINTEXT", pattern="^(PLAINTEXT|SSL|SASL_PLAINTEXT|SASL_SSL)$")
+    sasl_mechanism: str | None = Field(default=None, pattern="^(PLAIN|SCRAM-SHA-256|SCRAM-SHA-512)$")
+    username_env: str | None = None
+    password_env: str | None = None
+    group: str | None = None  # the consumer group; default murakumo-<source>
+    topics: list[Topic] = Field(default_factory=list)
+
+
 Connection = Annotated[
-    RestConnection | SftpConnection | DatabaseConnection | FilesConnection | ProtobufConnection,
+    RestConnection | SftpConnection | DatabaseConnection | FilesConnection | ProtobufConnection | KafkaConnection,
     Field(discriminator="kind"),
 ]
 
@@ -319,6 +343,7 @@ class SourceDeclaration(Section):
             "database": lambda: c.tables,
             "files": lambda: c.files,
             "protobuf": lambda: c.messages,
+            "kafka": lambda: c.topics,
         }[c.kind]()
         return [i.table for i in items]
 
@@ -352,7 +377,9 @@ class Conventions(Section):
 
 
 class Streaming(Section):
-    engine: str = "flink"
+    # What reads the Kafka sources: the extract script on each schedule (consumer), or continuously
+    # (Flink, Spark Structured Streaming, or Snowflake's Kafka connector through Snowpipe Streaming).
+    engine: str = Field(default="consumer", pattern="^(consumer|flink|spark|snowpipe_streaming)$")
     registry_compatibility: str = "backward"
 
 
@@ -414,7 +441,7 @@ class Generation(Section):
     orchestrator: Orchestrator = Orchestrator.AIRFLOW
     plain_sql: bool = False  # also write the project as plain SQL scripts, under generated/sql/
     guide: bool = True  # the replication guide, under generated/guide/: how to rebuild it all by hand
-    streaming: Streaming | None = None
+    streaming: Streaming = Field(default_factory=Streaming)
     infrastructure: str | None = None
     semantic_layer: str | None = None
 

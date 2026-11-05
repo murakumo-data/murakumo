@@ -127,6 +127,18 @@ PARTS = [
         {"github": "GitHub Actions", "gitlab": "GitLab CI", "none": "None"},
     ),
     Part(
+        "stream",
+        "Streaming",
+        "What reads the Kafka sources' topics into the raw tables.",
+        ("generation", "streaming", "engine"),
+        {
+            "consumer": "The extract script, on each schedule: reads what is new since the last run",
+            "flink": "Apache Flink: a SQL job per source, landing files continuously",
+            "spark": "Spark Structured Streaming: a job per source, into the landing area or the raw tables",
+            "snowpipe_streaming": "Snowpipe Streaming: Snowflake's Kafka connector writes into the raw tables",
+        },
+    ),
+    Part(
         "iac",
         "Infrastructure as code",
         "Also write the platform (warehouse, roles and grants, buckets, functions) as code.",
@@ -186,6 +198,24 @@ def check(project: Project) -> list[tuple[str, str, str]]:
         say("error", "orchestrator", "Snowflake tasks run in Snowflake")
     if s["orchestrator"] == "databricks_workflows" and s["warehouse"] != "databricks":
         say("warning", "orchestrator", "Databricks Workflows run dbt against Databricks most simply")
+    kafka = [d for d in project.manifest.sources if d.connection is not None and d.connection.kind == "kafka"]
+    if s["stream"] == "snowpipe_streaming" and s["warehouse"] != "snowflake":
+        say("error", "stream", f"Snowpipe Streaming writes into Snowflake; the warehouse is {s['warehouse']}")
+    if s["stream"] != "consumer" and not kafka:
+        say("warning", "stream", "no source reads Kafka yet, so there is nothing to stream")
+    lakehouse = project.manifest.targets.lakehouse
+    if lakehouse is not None and lakehouse.table_format.value != "native":
+        fmt = lakehouse.table_format.value
+        if s["warehouse"] == "snowflake" and fmt != "iceberg":
+            say("error", "warehouse", f"Snowflake writes open tables as Iceberg, not {fmt}")
+        if s["warehouse"] == "duckdb" and fmt != "iceberg":
+            say("error", "warehouse", f"DuckDB writes open tables to an Iceberg catalog, not {fmt}")
+        if s["warehouse"] not in ("snowflake", "databricks", "duckdb"):
+            say(
+                "warning",
+                "warehouse",
+                f"open tables are written on Snowflake, Databricks and DuckDB, not {s['warehouse']}",
+            )
     connected = [d for d in project.manifest.sources if d.connection is not None]
     if s["extract"] != "none" and not connected:
         say("warning", "extract", "no source has a connection yet, so there is nothing to fetch: add one to a source")
@@ -194,6 +224,14 @@ def check(project: Project) -> list[tuple[str, str, str]]:
         for table in declaration.tables():
             if table not in raw:
                 say("warning", "extract", f"{declaration.name} fills {table}, which is not a raw table in the model")
+            entity = project.model.entity(table)
+            if declaration.connection.kind == "kafka" and entity is not None and entity.load.value == "full":
+                say(
+                    "warning",
+                    "stream",
+                    f"{table} is read from a Kafka topic, so each fetch brings new messages, not the whole table: "
+                    "set its load to append (or streaming)",
+                )
     return problems
 
 

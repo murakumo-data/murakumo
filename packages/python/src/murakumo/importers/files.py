@@ -36,7 +36,14 @@ _EXTENSIONS = {
 _DATE_SUFFIX = re.compile(r"[_-]\d{4}(?:[-_]?\d{2}){0,2}$")
 
 
+# Streaming engines' part files (Flink: part-<id>-<n>, compacted-part-...): JSON lines, no extension.
+STREAM_PARTS = ("part-", "compacted-part-")
+
+
 def file_format(location: str) -> str:
+    name = PurePosixPath(location.split("?", 1)[0]).name
+    if name.startswith(STREAM_PARTS) and "." not in name:
+        return "json"
     suffix = PurePosixPath(location.split("?", 1)[0]).suffix.lower()
     if suffix == ".gz":
         suffix = PurePosixPath(location.split("?", 1)[0][: -len(".gz")]).suffix.lower()

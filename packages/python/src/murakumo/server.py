@@ -939,7 +939,7 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                 SourceDeclaration.model_validate({"name": name, "connection": body.connection})
             except ValueError as exc:
                 errors = exc.errors() if hasattr(exc, "errors") else [{"loc": (), "msg": str(exc)}]
-                kinds = {"rest", "sftp", "database", "files", "protobuf"}
+                kinds = {"rest", "sftp", "database", "files", "protobuf", "kafka"}
                 where = ".".join(str(x) for x in errors[0]["loc"][1:] if str(x) not in kinds)
                 message = errors[0]["msg"].removeprefix("Value error, ")
                 raise HTTPException(400, {"message": f"{where}: {message}" if where else message}) from None

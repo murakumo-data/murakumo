@@ -799,6 +799,13 @@ class Writer:
                 f"python3 -c \"import os, sqlalchemy as sa; e = sa.create_engine(os.environ['{connection.url_env}']); "
                 f"print(e.connect().execute(sa.text('{query} limit 5')).fetchall())\""
             )
+        if kind == "kafka":
+            first = connection.topics[0].topic if connection.topics else "<topic>"
+            return (
+                "# With kcat (or Redpanda's rpk): the topics, then the first messages of one\n"
+                f"kcat -b {connection.bootstrap_servers} -L | head -20\n"
+                f"kcat -b {connection.bootstrap_servers} -C -t {first} -o beginning -c 5 -e"
+            )
         location = connection.location
         if "://" in location:
             return f"aws s3 ls {location.rstrip('/')}/"

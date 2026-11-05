@@ -15,7 +15,7 @@ from uuid import UUID
 
 from murakumo import __version__
 from murakumo.diagnostics import Diagnostic
-from murakumo.generate import dbt, ddl, docs, ingestion, orchestration, terraform
+from murakumo.generate import dbt, ddl, docs, ingestion, lakehouse, orchestration, streaming, terraform
 from murakumo.generate.plan import Plan, build_plan
 from murakumo.generate.targets import Target, target_for
 from murakumo.ir.model import Entity, Layer
@@ -49,6 +49,8 @@ def generate(project: Project, warehouse: Warehouse | str | None = None) -> Outp
         output.files[path] = content
     output.files.update(ingestion.render(project, plan))
     output.files.update(terraform.render(project, plan))
+    output.files.update(lakehouse.render(project, plan))
+    output.files.update(streaming.render(project, plan))
     engine = project.manifest.generation.python_engine
     if engine != "none":
         from murakumo.generate import python

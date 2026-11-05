@@ -41,6 +41,7 @@ REQUIREMENTS = {
     "sftp": ["paramiko>=3.4"],
     "database": ["sqlalchemy>=2.0"],
     "protobuf": ["protobuf>=5.27", "grpcio-tools>=1.64"],
+    "kafka": ["kafka-python>=2.0"],
 }
 
 

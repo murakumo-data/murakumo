@@ -915,6 +915,12 @@ class Planner:
             config["partition_by"] = entity.partition_by
         if entity.cluster_by and self.target.dialect in ("snowflake", "databricks", "bigquery"):
             config["cluster_by"] = entity.cluster_by
+        from murakumo.generate import lakehouse
+
+        for key, value in lakehouse.model_config(
+            self.project, self.target.warehouse, entity.layer.value, entity.name
+        ).items():
+            config[key] = config.get(key, []) + value if key == "post_hook" else value
         return config
 
     # relationships ----------------------------------------------------------------------------

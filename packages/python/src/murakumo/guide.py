@@ -731,13 +731,14 @@ def project_checks(project: Project) -> list[Check]:
             )
         )
     lakehouse = project.manifest.targets.lakehouse
-    if lakehouse is not None:
+    if lakehouse is not None and lakehouse.table_format.value != "native":
         checks.append(
             Check(
                 area,
-                f"Lakehouse ({lakehouse.table_format.value}) settings are not used yet",
+                f"{', '.join(lakehouse.layers)} written as {lakehouse.table_format.value} tables",
                 Status.INFO,
-                "Murakumo generates for the warehouse only in this release.",
+                "generated/lakehouse/README.md says what to set up for the catalog"
+                + (f" ({lakehouse.catalog.value})." if lakehouse.catalog.value != "none" else "."),
             )
         )
     return checks

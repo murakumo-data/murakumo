@@ -47,6 +47,7 @@ def test_stack_shows_every_part_and_changes_record_why(project):
         "python": "none",
         "orchestrator": "airflow",
         "ci": "github",
+        "stream": "consumer",
         "iac": "none",
     }
     changed = stack.set_parts(

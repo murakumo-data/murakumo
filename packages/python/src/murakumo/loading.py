@@ -19,7 +19,7 @@ import glob
 import hashlib
 from pathlib import Path
 
-from murakumo.importers.files import READERS
+from murakumo.importers.files import READERS, STREAM_PARTS
 from murakumo.ir.model import Entity, LoadPattern
 
 LOCAL_FORMATS = {f".{name}" for name in READERS} | {".tsv", ".jsonl", ".ndjson"}
@@ -36,7 +36,11 @@ def expand(location: str) -> list[str]:
         return [location]
     path = Path(location)
     if path.is_dir():
-        return sorted(str(p) for p in path.iterdir() if p.is_file() and p.suffix.lower() in LOCAL_FORMATS)
+        return sorted(
+            str(p)
+            for p in path.iterdir()
+            if p.is_file() and (p.suffix.lower() in LOCAL_FORMATS or (p.name.startswith(STREAM_PARTS) and not p.suffix))
+        )
     if any(c in location for c in "*?["):
         return sorted(p for p in glob.glob(location) if Path(p).is_file())
     return [location]
