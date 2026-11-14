@@ -160,6 +160,20 @@ def test_changes_need_json(client):
     assert response.status_code == 422
 
 
+def test_changes_from_another_site_are_refused(client):
+    # Changes with no body (undo, generate, run the CI) need no JSON, so a page on another site
+    # could send them with a plain form. The browser's Origin header gives it away.
+    for path in ("/api/undo", "/api/redo", "/api/generate", "/api/ci/run", "/api/git/sync", "/api/git/abort"):
+        assert client.post(path, headers={"Origin": "https://evil.example"}).status_code == 403, path
+        assert client.post(path, headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403, path
+    assert client.delete("/api/sources/x", headers={"Origin": "null"}).status_code == 403  # a sandboxed page
+    # The canvas itself, the Vite dev server, and scripts with no browser behind them still get in.
+    assert client.post("/api/undo", headers={"Origin": "http://127.0.0.1:8765"}).status_code == 409
+    assert client.post("/api/undo", headers={"Origin": "http://localhost:5173"}).status_code == 409
+    assert client.post("/api/undo").status_code == 409
+    assert client.get("/api/state", headers={"Origin": "https://evil.example"}).status_code == 200
+
+
 # generated code ---------------------------------------------------------------------------------
 
 
@@ -400,3 +414,55 @@ def test_metrics_lakehouse_and_history_from_the_canvas(client):
     lake = {"table_format": "iceberg", "catalog": "polaris", "layers": ["marts"]}
     assert client.put("/api/settings", json={"lakehouse": lake}).status_code == 200
     assert client.get("/api/settings").json()["lakehouse"]["catalog"] == "polaris"
+
+
+# monitor, cost, the assistant, importing dbt, the catalog ---------------------------------------
+
+
+def test_monitor_cost_and_catalog(client):
+    monitor = client.get("/api/monitor").json()
+    assert monitor["recorded"] is False and monitor["findings"] == []  # nothing built yet
+    cost = client.get("/api/cost").json()
+    assert cost["warehouse"] == "duckdb" and cost["assumptions"]
+    graph = client.get("/api/catalog").json()
+    assert any(t["name"] == "fct_trip" for t in graph["tables"])
+    events = client.get("/api/catalog", params={"format": "openlineage"}).json()["events"]
+    assert events and events[0]["eventType"] == "COMPLETE"
+
+
+def test_assistant_is_off_then_suggests_and_applies(client, project, monkeypatch):
+    from murakumo import assistant
+
+    assert client.get("/api/assistant").json()["enabled"] is False
+    refused = client.post("/api/assistant/suggest", json={"kind": "describe"})
+    assert refused.status_code == 400 and "off for this project" in refused.json()["message"]
+    assert client.put("/api/assistant", json={"enabled": True}).json()["enabled"] is True
+
+    class Fake:
+        def complete(self, system, prompt, schema):
+            return {
+                "descriptions": [{"entity": "fct_trip", "column": "pickup_at", "description": "When.", "reason": "r"}]
+            }
+
+    monkeypatch.setattr(assistant, "provider_for", lambda project: Fake())
+    found = client.post("/api/assistant/suggest", json={"kind": "describe", "entities": ["fct_trip"]}).json()
+    assert [s["column"] for s in found["suggestions"]] == ["pickup_at"] and found["suggestions"][0]["text"]
+    state = client.get("/api/state").json()
+    applied = client.post(
+        "/api/assistant/apply",
+        json={"suggestions": found["suggestions"]},
+        headers={"X-Murakumo-Revision": state["revision"]},
+    ).json()
+    assert applied["applied"] and not applied["refused"]
+    fact = next(e for e in applied["state"]["model"]["entities"] if e["name"] == "fct_trip")
+    assert next(a for a in fact["attributes"] if a["name"] == "pickup_at")["description"] == "When."
+    assert client.post("/api/assistant/suggest", json={"kind": "nonsense"}).status_code == 422
+
+
+def test_import_dbt_from_the_canvas(client, project, tmp_path):
+    from murakumo.generate import generate, write
+
+    assert client.post("/api/import/dbt", json={"folder": str(tmp_path / "nope")}).status_code == 400
+    write(generate(project), project.root)
+    dry = client.post("/api/import/dbt", json={"folder": "generated/dbt", "dry_run": True}).json()
+    assert dry["written"] is False and "fct_trip" in dry["existing"] and dry["compiled"] is False

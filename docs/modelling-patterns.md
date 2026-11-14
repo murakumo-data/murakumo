@@ -170,7 +170,50 @@ governance:
 - Other warehouses have no masking policies here, so nothing is generated for them.
 - In the canvas: **Settings** → **Personal data**.
 
-Row-access policies, which hide whole rows from some roles, are not generated yet.
+## Row-access policies
+
+Which rows of a mart each role may see (Snowflake):
+
+```yaml
+# model/entities/marts/fct_orders.yaml
+row_access:
+  column: region          # the column that decides; a text column
+  allow:
+    SALES_EMEA: [EMEA, UK]
+    SALES_US: [US]
+```
+
+- A role sees the rows whose column has one of its values. Roles in `governance.unmasked_roles`
+  see every row. A role that is not named sees none.
+- Each table gets a policy, `governance.murakumo_rows_<table>`, set after each build by a dbt
+  post-hook (`murakumo_row_access`): re-creating a table drops its policies.
+- `generated/ddl/snowflake/row_access.sql` (and the guide's `sql/row_access.sql`) is the same as
+  SQL to run by hand, and `murakumo stack deploy` has a **row_access** step.
+- **MK707:** the column does not exist, is not text, or the table is not a mart. **MK708:** no
+  role is allowed, so nobody would see a row. **MK709:** the warehouse is not Snowflake, so nothing
+  is generated.
+- In the canvas: the inspector's **Rows by** and **Roles**.
+
+## Change feeds (CDC)
+
+A raw table that receives changes, not rows as they now are (Debezium, a database's log, AWS DMS):
+
+```yaml
+load: cdc
+cdc:
+  operation: op                  # the column that says what happened to the row
+  deletes: [d, delete, deleted]  # its values that mean deleted (the default)
+  order: changed_at              # which change is latest; default the watermark, then load time
+```
+
+- The raw table keeps every change as it arrived: nothing is replaced.
+- Staging is the table as it is now: each key's latest change, without the keys whose latest
+  change is a delete. Everything built on staging follows.
+- Without `cdc.operation`, staging is still the latest change of each key, and no row counts as
+  deleted.
+- **MK321:** no primary key. **MK322:** `operation` or `order` is not a column. **MK325:** a table
+  built incrementally from a feed that marks deletes keeps the deleted rows until a full rebuild.
+- In the canvas: the inspector's **New rows** → `cdc`, then **Operation** and **Latest by**.
 
 ## Slowly changing dimensions: types 3, 4 and 6
 

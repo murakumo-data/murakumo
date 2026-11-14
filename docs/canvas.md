@@ -18,7 +18,8 @@ murakumo canvas path/to/project --port 9000 --no-open
   **redo**, whether the generated code is up to date, and the problems.
 - **The tool rail**, on the left: add a table (T), a relationship (R) or a note (N), arrange the
   tables, export the canvas as an image; then the panels (Explorer, Sources, Stack, Schedules,
-  Bus matrix, Team, CI, Runs, Guide, Activity, Changes, Problems), settings, the pipeline docs,
+  Bus matrix, Team, CI, Runs, Health, Assistant, Guide, Activity, Changes, Problems), settings, the
+  pipeline docs,
   light or dark, and help.
   Hover an icon for its name.
 - **The Explorer** lists every table by domain, layer, colour label and source, each opening to
@@ -173,6 +174,17 @@ murakumo canvas path/to/project --port 9000 --no-open
   report, such as a column with no mapping (MK503). Click it for the list; click an item to go to
   its table and column, which is pointed out. Tables with problems carry a badge, the columns
   they are about are marked red or amber (hover for the message), and the inspector shows them.
+
+## Health and the assistant
+
+- **Health** shows what `murakumo monitor` finds (loads far from their usual size, late tables,
+  rejected rows, failed runs; click a table to go to it), what `murakumo cost` estimates with its
+  assumptions, the lineage for a catalog as OpenLineage events or plain JSON, and **Bring in a dbt
+  project**: give its folder, see what it would add, then import.
+- **Assistant** is off until you turn it on. It then suggests descriptions, personal-data marks,
+  mappings or new tables; you tick the ones to keep and apply them. See [assistant.md](assistant.md).
+- The inspector sets a raw table's change feed (**New rows** → `cdc`, **Operation**, **Latest by**)
+  and a mart's row access (**Rows by**, **Roles**).
 
 ## Running the project
 

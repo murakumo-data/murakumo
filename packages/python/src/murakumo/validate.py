@@ -118,9 +118,43 @@ def validate_project(project: Project) -> list[Diagnostic]:
 
     # Entities -----------------------------------------------------------------------------------
 
+    streamed = {
+        table.lower()
+        for declaration in manifest.sources
+        if declaration.connection is not None and declaration.connection.kind == "kafka"
+        for table in declaration.tables()
+    }
+    # Change feeds that say which rows were deleted: what reads them incrementally keeps those rows.
+    change_feeds = {
+        e.name.lower()
+        for e in model.entities
+        if e.load is LoadPattern.CDC and e.layer is Layer.RAW and e.cdc is not None and e.cdc.operation
+    }
+
     for entity in model.entities:
         file = file_of(entity.id)
+        if entity.layer is not Layer.RAW and entity.load is LoadPattern.INCREMENTAL:
+            read = {ref.split(".")[0].lower() for m in entity.mappings for ref in m.sources}
+            for feed in sorted(read & change_feeds):
+                out.append(
+                    warning(
+                        "MK325",
+                        f"built incrementally from the change feed {feed}: a row deleted at the source stays "
+                        "here until a full rebuild; build it in full to follow deletes",
+                        file,
+                        "load",
+                    )
+                )
         out.extend(_check_entity(entity, file, declared_sources, declared_domains, manifest.conventions.case))
+        if entity.load is LoadPattern.STREAMING and entity.layer is Layer.RAW and entity.name.lower() not in streamed:
+            out.append(
+                warning(
+                    "MK324",
+                    "load: streaming, but no Kafka connection fills this table: it is loaded as append",
+                    file,
+                    "load",
+                )
+            )
 
         for mapping in entity.mappings:
             where = f"mappings[{mapping.target}]"
@@ -229,6 +263,12 @@ def validate_project(project: Project) -> list[Diagnostic]:
     for code, name, message in conformed_problems(model):
         entity = model.entity(name)
         out.append(warning(code, message, file_of(entity.id) if entity else None))
+    from murakumo import row_access
+
+    for level, code, name, message in row_access.problems(project):
+        entity = model.entity(name)
+        make = error if level == "error" else warning
+        out.append(make(code, message, file_of(entity.id) if entity else None, "row_access"))
     for code, where, message in masking.problems(project):
         if code == "MK704":
             out.append(error(code, message, manifest_file, "governance.masking"))
@@ -361,6 +401,17 @@ def _check_entity(
         out.append(warning("MK304", "a dimension should have a primary key", file))
     if entity.load is LoadPattern.INCREMENTAL and not entity.watermark and entity.layer is Layer.RAW:
         out.append(warning("MK308", "an incremental load needs a watermark column to know what is new", file, "load"))
+    if entity.load is LoadPattern.CDC and entity.layer is Layer.RAW:
+        if not entity.primary_key:
+            out.append(
+                error("MK321", "a change feed (load: cdc) needs a primary key, to tell which row a change is for", file)
+            )
+        settings = entity.cdc
+        for field, column in (("operation", settings and settings.operation), ("order", settings and settings.order)):
+            if column and not entity.attribute(column):
+                out.append(error("MK322", f"cdc.{field}: {entity.name} has no column {column!r}", file, "cdc"))
+    elif entity.cdc is not None:
+        out.append(warning("MK323", "cdc settings are only used with load: cdc", file, "cdc"))
     if entity.incremental_by == "watermark" and entity.load is LoadPattern.INCREMENTAL and not entity.watermark:
         out.append(
             warning(

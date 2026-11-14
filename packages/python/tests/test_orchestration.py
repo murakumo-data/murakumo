@@ -1,4 +1,6 @@
 import ast
+import json
+import shutil
 import subprocess
 
 import pytest
@@ -76,6 +78,57 @@ def test_snowflake_tasks(project):
     assert "args = 'build --selector zones --target prod'" in sql
 
 
-def test_script_for_the_rest(project):
-    script = files_for(project, Orchestrator.AWS_GLUE)["run.sh"]
-    assert "dbt build --selector nightly" in script and "zones)" in script
+CLOUD = [
+    Orchestrator.AWS_GLUE,
+    Orchestrator.AWS_STEP_FUNCTIONS,
+    Orchestrator.GCP_WORKFLOWS,
+    Orchestrator.AZURE_DATA_FACTORY,
+]
+
+
+@pytest.mark.parametrize("orchestrator", CLOUD)
+def test_cloud_orchestrators_get_a_script_and_definitions(project, orchestrator, tmp_path):
+    files = files_for(project, orchestrator)
+    assert "dbt build --selector nightly" in files["run.sh"] and "zones)" in files["run.sh"]
+    assert "does not generate" not in files["README.md"]
+    for path, content in files.items():
+        if path.endswith(".json"):
+            json.loads(content.replace("${subnets}", "[]").replace("${security_groups}", "[]"))
+    if "main.tf" in files and shutil.which("terraform"):  # the HCL is well formed
+        for path, content in files.items():
+            (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / path).write_text(content)
+        done = subprocess.run(
+            ["terraform", "fmt", "-check", "-diff", "main.tf"], cwd=tmp_path, capture_output=True, text=True
+        )
+        assert "Error" not in done.stderr, done.stderr
+
+
+def test_aws_schedules(project):
+    files = files_for(project, Orchestrator.AWS_STEP_FUNCTIONS)
+    assert 'schedule_expression          = "cron(0 6 ? * 2-6 *)"' in files["main.tf"]
+    assert 'jsonencode({ schedule = "nightly" })' in files["main.tf"]
+    assert "States.Array($.schedule)" in files["state_machine.asl.json"]
+    assert 'schedule      = "cron(0 * * * ? *)"' in files_for(project, Orchestrator.AWS_GLUE)["main.tf"]
+
+
+def test_gcp_workflow_runs_the_job_per_schedule(project):
+    files = files_for(project, Orchestrator.GCP_WORKFLOWS)
+    assert (
+        'schedule    = "0 6 * * 1-5"' in files["main.tf"]
+        and "googleapis.run.v1.namespaces.jobs.run" in files["workflow.yaml"]
+    )
+
+
+def test_data_factory_triggers(project):
+    files = files_for(project, Orchestrator.AZURE_DATA_FACTORY)
+    nightly = json.loads(files["triggers/taxi_nightly.json"])["properties"]
+    recurrence = nightly["typeProperties"]["recurrence"]
+    assert recurrence["frequency"] == "Week" and recurrence["schedule"] == {
+        "minutes": [0],
+        "hours": [6],
+        "weekDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+    }
+    hourly = json.loads(files["triggers/taxi_zones.json"])["properties"]["typeProperties"]["recurrence"]
+    assert hourly["frequency"] == "Hour" and hourly["schedule"] == {"minutes": [0]}
+    assert nightly["pipelines"][0]["parameters"]["schedule"] == "nightly"

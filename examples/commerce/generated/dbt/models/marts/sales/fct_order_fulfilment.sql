@@ -79,7 +79,7 @@ select
     merged.received_on,
     merged._updated_at,
     merged._loaded_at,
-    {{ dbt.datediff('merged.ordered_on', 'merged.shipped_on', 'day') }} as ordered_on_to_shipped_on_days,
-    {{ dbt.datediff('merged.shipped_on', 'merged.received_on', 'day') }} as shipped_on_to_received_on_days,
+    cast({{ dbt.datediff('merged.ordered_on', 'merged.shipped_on', 'day') }} as BIGINT) as ordered_on_to_shipped_on_days,
+    cast({{ dbt.datediff('merged.shipped_on', 'merged.received_on', 'day') }} as BIGINT) as shipped_on_to_received_on_days,
     case when merged.received_on is not null then 'received_on' when merged.shipped_on is not null then 'shipped_on' when merged.ordered_on is not null then 'ordered_on' end as current_milestone
 from merged

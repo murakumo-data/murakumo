@@ -38,7 +38,7 @@ class Part:
     options: dict[str, str]  # value -> what it means; empty: free text
 
 
-GENERATED_ORCHESTRATORS = {"airflow", "gcp_composer", "dagster", "prefect", "databricks_workflows", "snowflake_tasks"}
+GENERATED_ORCHESTRATORS = {o.value for o in Orchestrator}
 
 PARTS = [
     Part(
@@ -66,7 +66,10 @@ PARTS = [
             "python": "Python scripts, one per source: run anywhere, by the orchestrator or `murakumo ingest`",
             "lambda": "AWS Lambda: the same scripts as functions, on a schedule, landing in S3",
             "glue": "AWS Glue jobs: Spark for databases, Python shell for the rest, landing in S3",
-            "none": "Something else fetches it (Fivetran, Airbyte, the source itself)",
+            "dlt": "dlt: a Python pipeline per source, loading straight into the raw tables",
+            "airbyte": "Airbyte: set up in Airbyte from what Murakumo writes, with views over what it lands",
+            "fivetran": "Fivetran: set up in Fivetran from what Murakumo writes, with views over what it lands",
+            "none": "Something else fetches it (the source itself, a tool of your own)",
         },
     ),
     Part(
@@ -113,10 +116,10 @@ PARTS = [
             "databricks_workflows": "Databricks Workflows",
             "snowflake_tasks": "Snowflake tasks",
             "gcp_composer": "Google Cloud Composer (managed Airflow)",
-            "aws_step_functions": "AWS Step Functions (a script to start from)",
-            "aws_glue": "AWS Glue workflows (a script to start from)",
-            "azure_data_factory": "Azure Data Factory (a script to start from)",
-            "gcp_workflows": "Google Cloud Workflows (a script to start from)",
+            "aws_step_functions": "AWS Step Functions: a state machine runs dbt on Fargate, on EventBridge schedules",
+            "aws_glue": "AWS Glue workflows: a Python shell job runs dbt, started by scheduled triggers",
+            "azure_data_factory": "Azure Data Factory: a pipeline starts a Container Apps job that runs dbt",
+            "gcp_workflows": "Google Cloud Workflows: a workflow runs dbt as a Cloud Run job, on Cloud Scheduler",
         },
     ),
     Part(
@@ -188,12 +191,6 @@ def check(project: Project) -> list[tuple[str, str, str]]:
         say("warning", "landing", "DuckDB reads s3:// with its httpfs extension and your AWS credentials")
     if s["transform"] != "dbt":
         say("warning", "transform", f"Murakumo writes dbt; {s['transform']} is not generated yet")
-    if s["orchestrator"] not in GENERATED_ORCHESTRATORS:
-        say(
-            "warning",
-            "orchestrator",
-            f"for {s['orchestrator']}, Murakumo writes a script to start from, not a pipeline",
-        )
     if s["orchestrator"] == "snowflake_tasks" and s["warehouse"] != "snowflake":
         say("error", "orchestrator", "Snowflake tasks run in Snowflake")
     if s["orchestrator"] == "databricks_workflows" and s["warehouse"] != "databricks":
@@ -216,6 +213,11 @@ def check(project: Project) -> list[tuple[str, str, str]]:
                 "warehouse",
                 f"open tables are written on Snowflake, Databricks and DuckDB, not {s['warehouse']}",
             )
+    if s["extract"] in ("dlt", "airbyte", "fivetran") and s["load"] != "build":
+        tool = PART["extract"].options[s["extract"]].split(":")[0]
+        say("error", "load", f"{tool} loads the raw tables itself: set load back to build")
+    if s["extract"] == "dlt" and s["warehouse"] == "fabric":
+        say("warning", "extract", "dlt reaches Fabric through its SQL Server destination: check it against yours")
     connected = [d for d in project.manifest.sources if d.connection is not None]
     if s["extract"] != "none" and not connected:
         say("warning", "extract", "no source has a connection yet, so there is nothing to fetch: add one to a source")

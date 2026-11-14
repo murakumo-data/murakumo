@@ -176,7 +176,7 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
             <SelectField
               label="How new rows are taken"
               value={entity.load}
-              options={['append', 'incremental', 'full']}
+              options={['append', 'incremental', 'full', 'cdc', 'streaming']}
               disabled={disabled}
               onSave={(load) => load && save({ load })}
             />
@@ -217,14 +217,86 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
             hours.
           </p>
         )}
+        {entity.layer === 'raw' && entity.load === 'cdc' && (
+          <>
+            <Row label="Operation">
+              <SelectField
+                label="The column that says what happened to a row"
+                value={entity.cdc?.operation ?? null}
+                options={entity.attributes.map((a) => a.name)}
+                allowEmpty
+                disabled={disabled}
+                onSave={(operation) =>
+                  save({ cdc: { deletes: ['d', 'delete', 'deleted'], order: null, ...entity.cdc, operation } })
+                }
+              />
+            </Row>
+            <Row label="Latest by">
+              <SelectField
+                label="The column that orders a key's changes"
+                value={entity.cdc?.order ?? null}
+                options={entity.attributes.map((a) => a.name)}
+                allowEmpty
+                disabled={disabled}
+                onSave={(order) =>
+                  save({ cdc: { deletes: ['d', 'delete', 'deleted'], operation: null, ...entity.cdc, order } })
+                }
+              />
+            </Row>
+          </>
+        )}
         {entity.layer === 'raw' && (
           <p className="muted small inspector__hint">
             {entity.load === 'full'
               ? 'Each load replaces the table with every file given (once any changed).'
               : entity.load === 'incremental'
                 ? `New rows replace the rows with the same key${entity.watermark ? `, the latest by ${entity.watermark} kept` : ', the latest kept'}.`
-                : 'New files are added; a file already loaded is skipped.'}
+                : entity.load === 'cdc'
+                  ? `A change feed: every change is kept here. Staging shows each key's latest change, without the rows whose operation is ${(entity.cdc?.deletes ?? ['d', 'delete', 'deleted']).join(', ')}.`
+                  : 'New files are added; a file already loaded is skipped.'}
           </p>
+        )}
+        {(entity.layer === 'marts' || entity.layer === 'semantic') && (
+          <>
+            <Row label="Rows by">
+              <SelectField
+                label="The column that decides which rows a role sees"
+                value={entity.row_access?.column ?? null}
+                options={entity.attributes.map((a) => a.name)}
+                allowEmpty
+                disabled={disabled}
+                onSave={(column) => save({ row_access: column ? { allow: {}, ...entity.row_access, column } : null })}
+              />
+            </Row>
+            {entity.row_access && (
+              <>
+                <Row label="Roles">
+                  <TextField
+                    label="Each role and the values it may see"
+                    multiline
+                    value={Object.entries(entity.row_access.allow)
+                      .map(([role, values]) => `${role}: ${values.join(', ')}`)
+                      .join('\n')}
+                    placeholder={'SALES_EMEA: EMEA, UK'}
+                    disabled={disabled}
+                    onSave={(text) => {
+                      const allow: Record<string, string[]> = {}
+                      for (const line of (text ?? '').split('\n')) {
+                        const [role, values] = line.split(':')
+                        if (role?.trim() && values !== undefined)
+                          allow[role.trim()] = values.split(',').map((v) => v.trim()).filter(Boolean)
+                      }
+                      save({ row_access: { column: entity.row_access!.column, allow } })
+                    }}
+                  />
+                </Row>
+                <p className="muted small inspector__hint">
+                  One role a line, as ROLE: value, value. A role sees the rows whose {entity.row_access.column} is one of its
+                  values; roles that see personal data unmasked see every row; any other role sees none. Snowflake only.
+                </p>
+              </>
+            )}
+          </>
         )}
         <Row label="Domain">
           <SelectField

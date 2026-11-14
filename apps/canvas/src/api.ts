@@ -30,6 +30,9 @@ export type Entity = {
   mappings: Mapping[]
   load: string // full | append | incremental | cdc | streaming: how a raw table takes new rows
   watermark: string | null
+  // load: cdc. The column that says what happened to a row, its values that mean deleted, and
+  // the column that orders a key's changes.
+  cdc: { operation: string | null; deletes: string[]; order: string | null } | null
   incremental_by: 'load_time' | 'watermark'
   lookback_hours: number
   accumulating: { milestones: string[]; unit: 'day' | 'hour' | 'minute' } | null
@@ -38,6 +41,8 @@ export type Entity = {
   history: string // none | scd1 | scd2 | scd3 | scd4 | scd6 | snapshot
   tracked: string[] // the columns scd3 keeps a previous value of, or scd6 a current value of
   access: 'private' | 'protected' | 'public' | null
+  // Which rows each role may see (Snowflake): the column that decides, and each role's values.
+  row_access: { column: string; allow: Record<string, string[]> } | null
 }
 
 export type Exposure = {
@@ -252,6 +257,47 @@ export type SetupCheck = {
   sql: string | null
   sql_where: string | null
   docs: string[]
+}
+
+// Suggestions from the assistant (`murakumo ai`): each is a change the canvas could make by hand.
+export type Suggestion = {
+  kind: 'describe_table' | 'describe_column' | 'classify' | 'mapping' | 'table'
+  entity: string
+  column: string | null
+  value: unknown
+  reason: string
+  text: string
+}
+
+export type AssistantInfo = { enabled: boolean; provider: string; model: string; key_env: string; key_set: boolean }
+
+// What is unusual in the loads and the latest run (`murakumo monitor`).
+export type Finding = { level: 'error' | 'warn'; check: 'volume' | 'late' | 'rejected' | 'failed'; subject: string; message: string }
+export type Monitor = { recorded: boolean; reason?: string; audit?: string; tables: number; loads?: number; findings: Finding[] }
+
+// Roughly what the schedules cost to run each month (`murakumo cost`).
+export type Cost = {
+  warehouse: string
+  currency: string
+  unit: string
+  total: number
+  lines: { schedule: string; cron: string; runs: number; minutes: number; measured: boolean; units: number; cost: number }[]
+  assumptions: string[]
+}
+
+export type DbtImport = {
+  name: string
+  compiled: boolean
+  written: boolean
+  added: string[]
+  added_sources: string[]
+  existing: string[]
+  skipped: string[]
+  mapped: number
+  unmapped: number
+  relationships: number
+  notes: string[]
+  state?: State
 }
 
 export type RunLog = {
@@ -558,6 +604,18 @@ export const api = {
     ),
   diff: (ref: string) =>
     request<ImpactReport & { against: string; markdown: string }>('GET', `/diff?ref=${encodeURIComponent(ref)}`, undefined, false),
+  monitor: (environment?: string) =>
+    request<Monitor>('GET', `/monitor${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`, undefined, false),
+  cost: () => request<Cost>('GET', '/cost', undefined, false),
+  catalog: (format: 'json' | 'openlineage') => request<unknown>('GET', `/catalog?format=${format}`, undefined, false),
+  assistant: () => request<AssistantInfo>('GET', '/assistant', undefined, false),
+  saveAssistant: (changes: Partial<Pick<AssistantInfo, 'enabled' | 'model' | 'key_env'>>) =>
+    request<AssistantInfo>('PUT', '/assistant', changes, false),
+  suggest: (kind: string, options: { entities?: string[]; entity?: string; request?: string }) =>
+    request<{ suggestions: Suggestion[] }>('POST', '/assistant/suggest', { kind, ...options }, false),
+  applySuggestions: (suggestions: Suggestion[]) =>
+    request<{ applied: string[]; refused: { text: string; why: string }[]; state: State }>('POST', '/assistant/apply', { suggestions }),
+  importDbt: (folder: string, dryRun: boolean) => request<DbtImport>('POST', '/import/dbt', { folder, dry_run: dryRun }),
   runs: (environment?: string) =>
     request<RunLog>('GET', `/runs${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`, undefined, false),
   startJob: (kind: string, options: Record<string, unknown> = {}) => request<Job>('POST', '/jobs', { kind, options }, false),

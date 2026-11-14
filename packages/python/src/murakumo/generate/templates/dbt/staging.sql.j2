@@ -1,9 +1,38 @@
 {{ header }}
+{%- set cdc = model.extra.get('cdc') %}
+{%- if cdc %}
+with changes as (
+
+    select * from {{ model.relation }}
+
+),
+
+-- A change feed: each key's latest change, and no key whose latest change deleted it.
+source as (
+
+    select *
+    from (
+        select
+            changes.*,
+            row_number() over (
+                partition by {{ cdc['keys'] | join(', ') }}
+                order by {% for column in cdc['order'] %}{{ column }} desc{{ ", " if not loop.last }}{% endfor %}
+            ) as _change_rank
+        from changes
+    ) as ranked
+    where _change_rank = 1
+{%- if cdc.operation %}
+      and ({{ cdc.operation }} is null or lower({{ cdc.operation }}) not in ({% for value in cdc.deletes %}'{{ value }}'{{ ", " if not loop.last }}{% endfor %}))
+{%- endif %}
+
+),
+{%- else %}
 with source as (
 
     select * from {{ model.relation }}
 
 ),
+{%- endif %}
 
 final as (
 

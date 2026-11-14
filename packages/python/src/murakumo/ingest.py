@@ -42,6 +42,17 @@ def run(project: Project, source: str | None = None, table: str | None = None) -
     """Fetch what is new from each source with a connection (or one), into the landing area."""
     if project.manifest.stack.extract == "none":
         raise IngestError("the stack's extract is none: something else fetches the data")
+    if project.manifest.stack.extract in ("airbyte", "fivetran"):
+        raise IngestError(f"{project.manifest.stack.extract.capitalize()} fetches the data: run a sync there")
+    if project.manifest.stack.extract == "dlt":
+        from murakumo.generate.managed import DLT_KINDS
+
+        chosen = [_declaration(project, source)] if source else connected(project)
+        if any(d.connection.kind in DLT_KINDS for d in chosen):
+            raise IngestError(
+                "dlt fetches these sources: run `python generated/ingestion/dlt/pipeline.py"
+                + (f" {source}`" if source else "`")
+            )
     declarations = [_declaration(project, source)] if source else connected(project)
     if not declarations:
         raise IngestError("no source has a connection yet: add one to a source in murakumo.yaml or the canvas")

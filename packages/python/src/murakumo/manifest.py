@@ -450,12 +450,30 @@ class Stack(Section):
     """The tools the data platform is built from, beyond the warehouse, transform and orchestrator
     (in targets and generation): how data is fetched from the sources, how it is loaded, and CI."""
 
-    extract: str = Field(default="python", pattern="^(python|glue|lambda|none)$")
+    extract: str = Field(default="python", pattern="^(python|glue|lambda|dlt|airbyte|fivetran|none)$")
     load: str = Field(default="build", pattern="^(build|snowpipe|autoloader)$")
     landing: str = "landing"  # where fetched files land: a folder in the project, or s3://bucket/prefix
     region: str | None = None  # the cloud region, for Glue, Lambda and S3 (default: AWS_REGION)
     ci: str = Field(default="github", pattern="^(github|gitlab|none)$")
     iac: str = Field(default="none", pattern="^(none|terraform)$")  # the platform as code, beside the SQL
+
+
+class Alert(Section):
+    """Where `murakumo monitor --notify` sends what it finds. The address is a secret: it is read
+    from an environment variable."""
+
+    kind: str = Field(default="slack", pattern="^(slack|teams|webhook)$")
+    url_env: str  # the variable holding the webhook's address
+    on: list[str] = Field(default_factory=lambda: ["error"])  # error, warn
+
+
+class Monitoring(Section):
+    """What counts as unusual. A table's loads are compared with its own recent loads."""
+
+    volume_tolerance: float = Field(default=0.5, gt=0)  # a load this far from the usual size is reported
+    rejected_tolerance: float = Field(default=0.05, ge=0, le=1)  # a load refusing more than this share
+    history: int = Field(default=30, ge=4, le=500)  # how many earlier loads "usual" is taken from
+    late_after: float = Field(default=3.0, gt=1)  # late: this many times the usual gap between loads
 
 
 class Quality(Section):
@@ -464,6 +482,8 @@ class Quality(Section):
     reconciliation: bool = False
     write_audit_publish: bool = False
     run_log: bool = True  # every run records itself, its models, tests and loads in the audit schema
+    monitoring: Monitoring = Field(default_factory=Monitoring)
+    alerts: list[Alert] = Field(default_factory=list)
 
 
 class Contracts(Section):
@@ -481,6 +501,28 @@ class Governance(Section):
     retention_days: dict[str, int] = Field(default_factory=dict)
     lineage: str | None = "openlineage"
     catalog_sync: str | None = None
+
+
+class Assistant(Section):
+    """Suggestions from a language model. Off until the project turns it on; it uses the project's
+    own key with the provider, and is sent the model (names, types, descriptions), never data."""
+
+    enabled: bool = False
+    provider: str = Field(default="anthropic", pattern="^(anthropic)$")
+    model: str = "claude-opus-5-5"
+    key_env: str = "ANTHROPIC_API_KEY"  # the variable holding the provider's key
+    effort: str | None = Field(default=None, pattern="^(low|medium|high|xhigh|max)$")
+
+
+class Costs(Section):
+    """What `murakumo cost` assumes. Leave a value out to use the warehouse's starting figure, and
+    put your own contract's numbers here: list prices differ by region, edition and discount."""
+
+    currency: str = "USD"
+    unit_price: float | None = Field(default=None, ge=0)  # what one unit costs: a credit, a DBU, an RPU-hour
+    units_per_hour: float | None = Field(default=None, ge=0)  # what the compute uses in an hour of running
+    minutes_per_run: float | None = Field(default=None, gt=0)  # when no run has been recorded to measure
+    gb_scanned_per_run: float | None = Field(default=None, ge=0)  # warehouses that bill by data read
 
 
 class ChangePropagation(Section):
@@ -506,6 +548,8 @@ class Manifest(Section):
     contracts: Contracts = Field(default_factory=Contracts)
     governance: Governance = Field(default_factory=Governance)
     change_propagation: ChangePropagation = Field(default_factory=ChangePropagation)
+    assistant: Assistant = Field(default_factory=Assistant)
+    costs: Costs = Field(default_factory=Costs)
     packs: list[str] = Field(default_factory=list)
 
     @field_validator("version")

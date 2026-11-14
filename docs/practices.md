@@ -37,11 +37,11 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Every model tested: unique and not-null keys, relationships, accepted values | Generated from keys, relationships and column rules | Done |
 | Model contracts on what others read | Enforced on marts (`contracts.enforce_on`) | Done |
 | Groups and access (private, protected, public) | A dbt group per domain, and `access:` per table (0.9) | Done |
-| Incremental models that are idempotent | `delete+insert` by unique key; load-time increments re-run safely | Done |
+| Incremental models that are idempotent | Replaced by unique key (`delete+insert`, or `merge` on BigQuery and Databricks); load-time increments re-run safely | Done |
 | Snapshots for history | Generated for SCD2 entities | Done |
 | Exposures (dashboards and apps that read the marts) | `model/exposures.yaml`, written into dbt, lineage and the guide; edited in the canvas (0.9) | Done |
 | Semantic layer (metrics defined once) | dbt semantic models and metrics (MetricFlow) from `model/metrics.yaml`: simple, derived and filtered metrics, SCD2 dimensions joined by validity, and the time spine (1.0) | Done |
-| Slim CI: build only what changed (`state:modified+ --defer`) | CI verifies everything on DuckDB; previews build the whole project | Not yet: worthwhile once projects are large |
+| Slim CI: build only what changed (`state:modified+ --defer`) | `murakumo verify --changed-since <branch>` builds what the model's changes reach, by lineage; the generated CI uses it on pull requests (1.0). Previews on a warehouse still build the whole project | Done |
 | Documentation that stays current | `murakumo docs` and the pipeline docs, from the model | Done |
 | One project, one source of truth, no hand edits to generated code | `generated/` written from the model; `custom/` for hand-written code; `generate --check` in CI | Done |
 
@@ -59,7 +59,7 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Time travel and fail-safe settings per layer | `targets.warehouse.time_travel_days` per layer, set on raw tables and by dbt after each build; MK703 when a transient layer asks for more than a day (0.8) | Done |
 | Transient tables for what can be rebuilt (staging, intermediate) | `transient_layers` (staging and intermediate by default); marts and snapshots kept permanent, where dbt alone would make every table transient (0.8) | Done |
 | Clustering keys on large tables | `cluster_by:` on an entity | Done |
-| Masking and row-access policies for personal data | Masking policies from PII and classification (`governance.masking`), set after each build, with the roles that see the real values (0.9). Row-access policies are not generated | Partly: masking done; row access not yet |
+| Masking and row-access policies for personal data | Masking policies from PII and classification (`governance.masking`), set after each build, with the roles that see the real values (0.9). Row-access policies from `row_access:` on a table: which values of a column each role sees (1.0) | Done |
 | Loading with COPY and Snowpipe | COPY for files from the build; with `stack.load: snowpipe`, a pipe per raw table from an S3 stage through a storage integration (0.8) | Done |
 
 ## Designing data-intensive applications
@@ -93,4 +93,4 @@ The gaps fell in three groups:
   - access levels
   - exposures
   - masking policies (row-access policies are still to come)
-- **Scale**, for when projects are large: Slim CI that builds only what changed.
+- **Scale**, closed in 1.0: Slim CI that builds only what a change reaches.

@@ -139,6 +139,15 @@ instead, matching columns by name, or on Snowflake from a table (`snowflake:DB.S
 
 Verify needs dbt and DuckDB: `pip install "murakumo[verify]"`, plus `dbt-snowflake` for Snowflake.
 
+On the other warehouses, `murakumo verify --warehouse postgres` (or `redshift`, `databricks`,
+`bigquery`, `fabric`, `synapse`) does the same in schemas with a unique prefix, dropped afterwards.
+Install the warehouse's extra (`pip install "murakumo[postgres]"`) and set the variables its dbt
+profile reads: `DB_HOST`, `DB_USER`, `DB_PASSWORD` (and `DB_PORT`, `DB_NAME`) for PostgreSQL and
+Redshift; `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_TOKEN`; `BIGQUERY_PROJECT`;
+`FABRIC_SERVER` or `SYNAPSE_SERVER` with `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`.
+PostgreSQL is run in CI. The others are written to the same interface and not yet run against a
+real account.
+
 ## Build
 
 `verify` leaves nothing behind. `murakumo build` builds the project where it belongs, in the
@@ -313,5 +322,8 @@ folder has nothing to check, so migrations are opt-in: the first `murakumo migra
 | MK704 | error | `governance.masking` names a rule that does not exist |
 | MK705 | warning | A column to mask is not text: masking policies here mask text columns |
 | MK706 | warning | A table with `access: private` has no domain, so no group may use it |
+| MK707 | error | `row_access.column` is not a column of the table, or is not text (a warning when the table is not a mart) |
+| MK708 | warning | `row_access` allows no role, so nobody would see a row |
+| MK709 | warning | `row_access` on a warehouse other than Snowflake: nothing is generated |
 
 An entity with an error is skipped; the rest of the project is still generated.

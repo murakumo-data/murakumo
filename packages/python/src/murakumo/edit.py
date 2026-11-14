@@ -200,11 +200,13 @@ ENTITY_FIELDS = {
     "lookback_hours",
     "tags",
     "grain",
+    "cdc",
     "cumulative",
     "accumulating",
     "unknown_member",
     "conformed",
     "access",
+    "row_access",
 }
 COLUMN_FIELDS = {"description", "type", "nullable", "key", "pii", "classification", "unit", "example", "business_term"}
 RELATIONSHIP_FIELDS = {"name", "cardinality", "optional", "role", "description", "keys"}

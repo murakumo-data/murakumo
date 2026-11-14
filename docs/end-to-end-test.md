@@ -17,7 +17,8 @@ should see.
 | 17 | Choosing the stack: connecting an API in the canvas, fetching and loading, the code for another stack, the decisions log | 25 min |
 | 18 | The replication guide: reading it, proving it, loading by hand; unknown rows, the bus matrix, exposures, access and masking | 20 min |
 | 19 | SCD types 3, 4 and 6, a Data Vault, a metric, Terraform on LocalStack, Iceberg in Polaris, Kafka through the consumer and Flink | 40 min |
-| 20 | Cleaning up | 2 min |
+| 20 | A change feed, Slim CI, cost, monitoring, lineage for a catalog, importing a dbt project, the MCP server, the assistant | 30 min |
+| 21 | Cleaning up | 2 min |
 
 ## How to use this script
 
@@ -2068,11 +2069,122 @@ Then remove the Kafka connection and set **Streaming** back to the consumer.
 
 ☐ Messages reach the raw table, by the consumer and by Flink.
 
-## Part 20: Clean up
+## Part 20: Change feeds, Slim CI, cost, monitoring, a catalog, dbt, an agent
 
-**20.1** In the canvas tab, press **Ctrl+C** to stop it.
+Run these in the project folder, in a second Terminal tab (the canvas still runs in the first).
 
-**20.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
+**20.1 A change feed.** In the canvas, click the raw table **taxi_zone_lookup**. In the inspector,
+set **New rows** to `cdc`.
+
+**You should see** two new rows in the inspector, **Operation** and **Latest by**, and the hint
+*A change feed: every change is kept here.* Set **New rows** back to what it was (`full`).
+
+☐ The change-feed settings appear and go.
+
+**20.2 Slim CI.** Commit what you have, then ask what a change reaches:
+
+```bash
+git add -A && git commit -q -m "before slim" ; murakumo verify --changed-since HEAD
+```
+
+**You should see** `verified: the model has not changed since HEAD; nothing to build.`
+
+In the canvas, click **dim_taxi_zone**, click its **borough** column, and change its type to
+`string(40)`. Then:
+
+```bash
+murakumo verify --changed-since HEAD --once
+```
+
+**You should see** `Changed since HEAD, or built from what changed: dim_taxi_zone.` and
+`verified: 2 models and snapshots built` (the dimension and the staging model it reads), not the
+whole project.
+
+☐ Only what the change reaches is built.
+
+**20.3 Cost.**
+
+```bash
+murakumo cost
+```
+
+**You should see** a row per schedule with **Runs a month** and **Minutes a run**, a total
+(`About 0.00 USD a month on duckdb`, because DuckDB runs on this computer), and the assumptions
+under it.
+
+☐ An estimate, with its assumptions.
+
+**20.4 Monitoring.**
+
+```bash
+murakumo monitor
+```
+
+**You should see** `Nothing unusual in N table(s), from M recorded load(s).` (or, if Part 12 was
+skipped, that nothing is recorded yet).
+
+In the canvas, open the **Health** panel (the heart icon on the rail).
+
+**You should see** the same under **What is unusual**, the cost table, **Lineage for a catalog**
+and **Bring in a dbt project**.
+
+☐ The command and the panel agree.
+
+**20.5 Lineage for a catalog.**
+
+```bash
+murakumo catalog export -o /tmp/lineage.jsonl && head -c 300 /tmp/lineage.jsonl
+```
+
+**You should see** `Wrote N OpenLineage event(s)`, and JSON starting `{"eventType": "COMPLETE"`.
+
+☐ One event per modelled table.
+
+**20.6 Bring in a dbt project.** The project's own generated dbt project stands in for someone
+else's:
+
+```bash
+murakumo generate && murakumo import dbt generated/dbt --dry-run
+```
+
+**You should see** `taxi_platform (dbt)`, a line per table already in the model (`= fct_trip is
+already in the model: left as it is`), how many staging models were not imported, a **to do**
+saying the dbt project is not compiled, and `Dry run: nothing was written.`
+
+☐ It reads the dbt project and changes nothing.
+
+**20.7 The MCP server.** Ask it for its tools, as an agent would:
+
+```bash
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | murakumo mcp | head -c 200
+```
+
+**You should see** JSON starting `{"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name":
+"model_summary"`.
+
+☐ The tools are listed.
+
+**20.8 The assistant is off until you turn it on.**
+
+```bash
+murakumo ai status ; murakumo ai describe
+```
+
+**You should see** `Assistant: off`, that it is sent the model and never rows of data, and then
+`the assistant is off for this project. Turn it on with murakumo ai enable`.
+
+In the canvas, open the **Assistant** panel (the sparkles icon). **You should see** the same
+three promises and **Turn the assistant on**. Leave it off, unless you have a key with the model
+provider and want to try it: then `export ANTHROPIC_API_KEY=...`, restart the canvas, turn it on,
+choose **Describe**, **Suggest**, tick a suggestion and **Apply**.
+
+☐ Off by default, and it says what it would send.
+
+## Part 21: Clean up
+
+**21.1** In the canvas tab, press **Ctrl+C** to stop it.
+
+**21.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
 
 ```bash
 rm -rf ~/murakumo-e2e
@@ -2129,7 +2241,8 @@ output or a screenshot.
 | 17 Stack: connect an API, fetch, load, another stack's code, decisions | | |
 | 18 Replication guide: read, check, load by hand; unknown rows, bus matrix, exposures, access, masking | | |
 | 19 History types, vault, metrics, Terraform, Iceberg, Kafka and Flink | | |
-| 20 Clean up | | |
+| 20 Change feed, Slim CI, cost, monitoring, catalog lineage, importing dbt, MCP, the assistant | | |
+| 21 Clean up | | |
 
 Also note anything that was confusing, slow or surprising, even if it worked. That is as useful
 as a failure.

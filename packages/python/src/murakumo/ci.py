@@ -176,7 +176,17 @@ def github_workflow(project: Project, deploy: bool, preview: bool = False) -> st
             "run": 'murakumo diff "origin/$BASE_BRANCH" --format markdown >> "$GITHUB_STEP_SUMMARY"',
         },
     ]
-    check_steps += [{"name": name, "run": "murakumo " + " ".join(args)} for name, args in CHECKS]
+    check_steps += [{"name": name, "run": "murakumo " + " ".join(args)} for name, args in CHECKS[:-1]]
+    # A pull request builds what it changed and what that reaches; a push builds everything.
+    check_steps += [
+        {
+            "name": "Build and test what changed, on DuckDB",
+            "if": "github.event_name == 'pull_request'",
+            "env": {"BASE_BRANCH": "${{ github.base_ref }}"},
+            "run": 'murakumo verify --changed-since "origin/$BASE_BRANCH"',
+        },
+        {"name": CHECKS[-1][0], "if": "github.event_name != 'pull_request'", "run": "murakumo verify"},
+    ]
     preview = preview and preview_possible(project)
     jobs: dict[str, Any] = {
         "check": {
@@ -270,7 +280,11 @@ def gitlab_pipeline(project: Project, deploy: bool, preview: bool = False) -> st
                 'murakumo branch check --head "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" '
                 '--base "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" && '
                 'murakumo diff "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"; fi',
-                *("murakumo " + " ".join(args) for _, args in CHECKS),
+                *("murakumo " + " ".join(args) for _, args in CHECKS[:-1]),
+                # A merge request builds what it changed and what that reaches; a push builds everything.
+                'if [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" ]; then '
+                'murakumo verify --changed-since "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"; '
+                "else murakumo verify; fi",
             ],
             "rules": [
                 {"if": "$CI_PIPELINE_SOURCE == 'merge_request_event'"},

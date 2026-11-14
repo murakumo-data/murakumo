@@ -32,7 +32,7 @@ PREFIX = re.compile(r"^[a-z][a-z0-9_]*_$")
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # a terminal spinner redraws one line; captured, each frame is a line
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")  # colours and cursor moves, which a log page cannot show
 ENGINES = ("polars", "pyspark")
-DEPLOY_STEPS = ("provision", "integration", "pipes", "masking", "ci")  # the steps Murakumo runs itself
+DEPLOY_STEPS = ("provision", "integration", "pipes", "masking", "row_access", "ci")  # the steps Murakumo runs itself
 
 
 class JobError(Exception):

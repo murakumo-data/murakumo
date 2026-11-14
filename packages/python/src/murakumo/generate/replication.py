@@ -422,9 +422,15 @@ class Writer:
         sources = [g.name for g in self.plan.sources]
         for name in sources:
             lines.append(f"  src_{name}[({name})]")
-        extract = {"python": "extract.py", "lambda": "AWS Lambda", "glue": "AWS Glue", "none": "your loader"}[
-            stack.extract
-        ]
+        extract = {
+            "python": "extract.py",
+            "lambda": "AWS Lambda",
+            "glue": "AWS Glue",
+            "dlt": "dlt",
+            "airbyte": "Airbyte",
+            "fivetran": "Fivetran",
+            "none": "your loader",
+        }[stack.extract]
         load = {"build": "load SQL", "snowpipe": "Snowpipe", "autoloader": "Auto Loader"}[stack.load]
         lines += [
             f'  extract["{extract}"]',
@@ -716,6 +722,55 @@ class Writer:
                         files=[settings, "ingestion/python/extract.py"],
                     )
                 )
+        if extract == "dlt" and "ingestion/dlt/pipeline.py" in self.files:
+            steps.append(
+                Step(
+                    "source-dlt",
+                    "Fetch the sources with dlt",
+                    "dlt fetches each source and loads it straight into its raw tables, creating them and adding "
+                    "columns as the source grows. The pipeline keeps the sources' column names and adds "
+                    "`_ingested_at` and `_batch_id` to every row, so staging reads the raw tables as it would "
+                    "however they were loaded. A table loaded in full is replaced, an appended one is added to, "
+                    "and an incremental one is merged by its key.",
+                    [
+                        Block("python", self.files["ingestion/dlt/pipeline.py"], "generated/ingestion/dlt/pipeline.py"),
+                        Block(
+                            "bash",
+                            "pip install -r generated/ingestion/dlt/requirements.txt\n"
+                            "python generated/ingestion/dlt/pipeline.py",
+                        ),
+                    ],
+                    "dlt's summary of each load, and the raw tables filled. A second run loads only what is new.",
+                    files=["ingestion/dlt/pipeline.py", "ingestion/dlt/requirements.txt"],
+                )
+            )
+        if extract in ("airbyte", "fivetran") and f"ingestion/{extract}/views.sql" in self.files:
+            tool = extract.capitalize()
+            steps.append(
+                Step(
+                    f"source-{extract}",
+                    f"Set the sources up in {tool}, and make what it lands look like the raw tables",
+                    f"{tool} fetches and loads on its own schedule, into a schema of its own per source "
+                    f"(`<raw schema>_{extract}`), with its own column for when a row arrived. connections.json "
+                    "lists what to create there: each source's settings, and each table's sync mode, key and "
+                    "cursor. views.sql then creates a view per raw table with the model's column names, "
+                    "`_ingested_at` and `_batch_id`, so everything after this reads the raw tables as usual.",
+                    [
+                        Block(
+                            "json",
+                            self.files[f"ingestion/{extract}/connections.json"],
+                            f"generated/ingestion/{extract}/connections.json",
+                        ),
+                        Block(
+                            "sql",
+                            self.files[f"ingestion/{extract}/views.sql"],
+                            f"generated/ingestion/{extract}/views.sql",
+                        ),
+                    ],
+                    "After a first sync and views.sql: `select count(*)` from a raw table returns its rows.",
+                    files=[f"ingestion/{extract}/connections.json", f"ingestion/{extract}/views.sql"],
+                )
+            )
         for step in self.ingestion_steps():
             if step.sql is not None or step.key in ("secrets",):
                 continue
@@ -892,6 +947,11 @@ class Writer:
                 + ", ".join(a.name for a in entity.primary_key)
                 + "); the latest of each key is kept.",
             }[mode]
+            if entity.load.value == "cdc":
+                how = (
+                    "A change feed: every change is added as it arrived, and nothing is replaced. The staging "
+                    "view keeps each key's latest change and leaves out the keys a change deleted."
+                )
             path = self.guide_path(f"sql/load/{name}")
             steps.append(
                 Step(
@@ -1036,6 +1096,26 @@ class Writer:
                             Block("bash", self.run_file(self.guide_path("sql/masking.sql"))),
                         ],
                         "`select` from a masked column as a role outside the list shows the mask.",
+                    )
+                )
+        if self.snowflake:
+            from murakumo.row_access import policy_sql as row_policies
+
+            rows = row_policies(self.project)
+            if rows:
+                steps.append(
+                    Step(
+                        "model-row-access",
+                        "Say which rows each role sees",
+                        "A table with row_access shows each role only the rows whose column has one of that "
+                        "role's values; roles in governance.unmasked_roles see every row, and a role not named "
+                        "sees none. Re-creating a table drops its policies, so dbt sets them again after each "
+                        "build (a post-hook); built by hand, run this after the marts.",
+                        [
+                            Block("sql", rows, self.guide_path("sql/row_access.sql")),
+                            Block("bash", self.run_file(self.guide_path("sql/row_access.sql"))),
+                        ],
+                        "`select` from the table as a role with some values shows only those rows.",
                     )
                 )
         intro = (
@@ -1533,6 +1613,11 @@ class Writer:
             policies = policy_sql(self.project)
             if policies:
                 out["sql/masking.sql"] = "-- Generated by Murakumo.\n" + policies
+            from murakumo.row_access import policy_sql as row_policies
+
+            rows = row_policies(self.project)
+            if rows:
+                out["sql/row_access.sql"] = "-- Generated by Murakumo.\n" + rows
         out["rebuild.sh"] = self.rebuild(out)
         return out
 

@@ -20,6 +20,7 @@ from typing import Any
 import yaml
 
 from murakumo.cron import CronError, describe, quartz
+from murakumo.generate.managed import DLT_KINDS
 from murakumo.generate.plan import Plan, snake
 from murakumo.ir.model import Layer
 from murakumo.manifest import Orchestrator
@@ -38,7 +39,8 @@ class Job:
     description: str
     sources: list[str]  # dbt source selections for freshness: source:group.table
     models: list[str]  # the dbt models and snapshots it builds
-    extract: list[str] = field(default_factory=list)  # the sources it fetches first (stack.extract: python)
+    extract: list[str] = field(default_factory=list)  # the sources it fetches first (stack.extract: python, dlt)
+    dlt: list[str] = field(default_factory=list)  # those of them a dlt pipeline fetches, not extract.py
     load: bool = False  # whether it loads the landed files before building (stack.load: build)
 
 
@@ -50,6 +52,7 @@ def _jobs(project, plan: Plan) -> list[Job]:
     }
     stack = project.manifest.stack
     fills = {t.lower(): d.name for d in project.manifest.sources if d.connection is not None for t in d.tables()}
+    kinds = {d.name: d.connection.kind for d in project.manifest.sources if d.connection is not None}
     jobs = []
     for entry in resolve(project):
         sources = [
@@ -60,6 +63,8 @@ def _jobs(project, plan: Plan) -> list[Job]:
         when = describe(entry.schedule.cron, timezone)
         models = dbt_models(plan, entry.entities)
         fetched = sorted({fills[e.name.lower()] for e in entry.entities if e.name.lower() in fills})
+        by_dlt = [name for name in fetched if stack.extract == "dlt" and kinds[name] in DLT_KINDS]
+        scripted = [name for name in fetched if name not in by_dlt]
         jobs.append(
             Job(
                 entry.schedule.name,
@@ -68,8 +73,10 @@ def _jobs(project, plan: Plan) -> list[Job]:
                 entry.schedule.description or when,
                 sources,
                 models,
-                extract=fetched if stack.extract == "python" else [],
-                load=bool(fetched) and stack.load == "build",
+                extract=fetched if stack.extract in ("python", "dlt") else [],
+                dlt=by_dlt,
+                # dlt loads the raw tables itself; Airbyte and Fivetran fetch and load on their own.
+                load=bool(scripted) and stack.load == "build" and stack.extract not in ("airbyte", "fivetran"),
             )
         )
     return jobs
@@ -107,6 +114,13 @@ def render(project, plan: Plan) -> dict[str, str]:
     return {f"{folder}/{path}": content for path, content in files.items()}
 
 
+def _fetch_command(source: str, dlt: bool) -> str:
+    """The command an Airflow task runs to fetch a source, inside an f-string of the DAG's."""
+    if dlt:
+        return f"{{PYTHON}} {{DLT_DIR}}/pipeline.py {source}"
+    return f"{{PYTHON}} {{INGEST_DIR}}/extract.py {{INGEST_DIR}}/sources/{source}.json"
+
+
 def _py(value: Any) -> str:
     """A Python literal: strings with double quotes, as the rest of the generated code."""
     return json.dumps(value)
@@ -142,12 +156,13 @@ def _airflow(context: dict, manifest) -> dict[str, str]:
 # generated/orchestration/airflow/dags/<this file> -> the project folder, and its fetch scripts
 PROJECT_DIR = Path(os.environ.get("MURAKUMO_PROJECT_DIR", Path(__file__).resolve().parents[4]))
 INGEST_DIR = PROJECT_DIR / "generated" / "ingestion" / "python"
+DLT_DIR = PROJECT_DIR / "generated" / "ingestion" / "dlt"
 PYTHON = os.environ.get("MURAKUMO_PYTHON", sys.executable)"""
             ingest = "".join(
                 f"""
     extract_{source} = BashOperator(
         task_id="extract_{source}",
-        bash_command=f"{{PYTHON}} {{INGEST_DIR}}/extract.py {{INGEST_DIR}}/sources/{source}.json",
+        bash_command=f"{_fetch_command(source, source in job.dlt)}",
     )
 """
                 for source in job.extract
@@ -237,16 +252,22 @@ with DAG(
 # Dagster --------------------------------------------------------------------------------------
 
 
-def _ingest_preamble(depth: int) -> str:
+def _ingest_preamble(depth: int, dlt: list[str] | None = None) -> str:
     """The Python that fetches and loads before a build, for the Python orchestrators."""
+    by_dlt = sorted(set(dlt or []))
     return f"""
 # The project folder, and its fetch scripts (generated/ingestion/python)
 PROJECT_DIR = Path(os.environ.get("MURAKUMO_PROJECT_DIR", Path(__file__).resolve().parents[{depth}]))
 INGEST_DIR = PROJECT_DIR / "generated" / "ingestion" / "python"
+DLT_SOURCES = {by_dlt!r}  # fetched by generated/ingestion/dlt/pipeline.py, straight into the raw tables
 
 
 def extract(source: str) -> None:
-    \"\"\"Fetch what is new from a source into the landing area.\"\"\"
+    \"\"\"Fetch what is new from a source: into the landing area, or with dlt into its raw tables.\"\"\"
+    if source in DLT_SOURCES:
+        pipeline = PROJECT_DIR / "generated" / "ingestion" / "dlt" / "pipeline.py"
+        subprocess.run([sys.executable, str(pipeline), source], check=True)
+        return
     script, settings = INGEST_DIR / "extract.py", INGEST_DIR / "sources" / f"{{source}}.json"
     subprocess.run([sys.executable, str(script), str(settings)], check=True)
 
@@ -266,7 +287,10 @@ def _dagster(context: dict, manifest) -> dict[str, str]:
         entries = ", ".join(
             f'{_py(name)}: {{"extract": {_py(job.extract)}, "load": {job.load}}}' for name, job in ingesting.items()
         )
-        preamble = _ingest_preamble(3) + f"\n\nINGEST = {{{entries}}}  # what each schedule fetches and loads first\n"
+        all_dlt = [name for job in ingesting.values() for name in job.dlt]
+        preamble = (
+            _ingest_preamble(3, all_dlt) + f"\n\nINGEST = {{{entries}}}  # what each schedule fetches and loads first\n"
+        )
         ingest = (
             '    schedule = INGEST.get(context.run.tags.get("murakumo/schedule", ""), {})\n'
             '    for source in schedule.get("extract", []):\n'
@@ -361,7 +385,7 @@ def _prefect(context: dict, manifest) -> dict[str, str]:
     if any(job.extract or job.load for job in context["jobs"]):
         imports = "import subprocess\nimport sys\n"
         ingest = (
-            _ingest_preamble(3)
+            _ingest_preamble(3, [name for job in context["jobs"] for name in job.dlt])
             + """
 
 @task(retries=2, retry_delay_seconds=300)
@@ -544,20 +568,7 @@ def _snowflake(context: dict, manifest) -> dict[str, str]:
     return {"tasks.sql": "\n".join(statements), "README.md": readme}
 
 
-# The rest: a script and steps ---------------------------------------------------------------
-
-
-_CONSOLE_STEPS = {
-    Orchestrator.AWS_GLUE: "Create a Glue Python shell job that installs `requirements.txt` and runs "
-    "`run.sh <schedule>`, with a scheduled trigger per schedule (Glue triggers take the same cron fields, "
-    "written `cron(0 6 * * ? *)`).",
-    Orchestrator.AWS_STEP_FUNCTIONS: "Run `run.sh <schedule>` in an ECS or CodeBuild task from a state machine, and "
-    "start the state machine with an EventBridge Scheduler schedule per Murakumo schedule.",
-    Orchestrator.GCP_WORKFLOWS: "Run `run.sh <schedule>` as a Cloud Run job, started by a Cloud Scheduler job per "
-    "schedule (Cloud Scheduler takes these cron times as they are).",
-    Orchestrator.AZURE_DATA_FACTORY: "Run `run.sh <schedule>` in an Azure Container Apps job or a Batch task from a "
-    "pipeline, with a schedule trigger per Murakumo schedule.",
-}
+# The cloud providers' own: a script that runs a schedule, and what starts it -----------------
 
 
 def _script(context: dict, manifest) -> dict[str, str]:
@@ -587,17 +598,23 @@ case "${{1:-}}" in
     ;;
 esac
 """
-    readme = (
-        f"# Running {context['project']} on {orchestrator.value}\n\n"
-        f"Murakumo does not generate {orchestrator.value} definitions yet. `run.sh` runs one schedule;\n"
-        "start it from the service on each schedule's cron time.\n\n"
-        + _schedule_table(context)
-        + "\n\n## Set up\n\n"
-        + _CONSOLE_STEPS.get(orchestrator, "Start `run.sh <schedule>` on each schedule's cron time.")
-        + "\n\n"
+    files = {"run.sh": script, "requirements.txt": f"{context['adapter']}\n"}
+    from murakumo.generate import orchestration_cloud as cloud
+
+    renderer = {
+        Orchestrator.AWS_STEP_FUNCTIONS: cloud.step_functions,
+        Orchestrator.AWS_GLUE: cloud.glue,
+        Orchestrator.GCP_WORKFLOWS: cloud.gcp_workflows,
+        Orchestrator.AZURE_DATA_FACTORY: cloud.data_factory,
+    }[orchestrator]
+    context = {**context, "folder": orchestrator.value, "table": _schedule_table(context)}
+    files.update(renderer(context))
+    files["README.md"] += (
+        "\n## Try a schedule here\n\n"
+        "`./run.sh <schedule>` runs one schedule on this computer, as the service does.\n\n"
         + _ENVIRONMENT.format(target=context["target"])
     )
-    return {"run.sh": script, "requirements.txt": f"{context['adapter']}\n", "README.md": readme}
+    return files
 
 
 __all__ = ["render"]

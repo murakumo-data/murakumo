@@ -66,8 +66,8 @@ select
     merged.received_on,
     merged._updated_at,
     merged._loaded_at,
-    DATE_DIFF('DAY', merged.ordered_on, merged.shipped_on) as ordered_on_to_shipped_on_days,
-    DATE_DIFF('DAY', merged.shipped_on, merged.received_on) as shipped_on_to_received_on_days,
+    cast(DATE_DIFF('DAY', merged.ordered_on, merged.shipped_on) as BIGINT) as ordered_on_to_shipped_on_days,
+    cast(DATE_DIFF('DAY', merged.shipped_on, merged.received_on) as BIGINT) as shipped_on_to_received_on_days,
     case when merged.received_on is not null then 'received_on' when merged.shipped_on is not null then 'shipped_on' when merged.ordered_on is not null then 'ordered_on' end as current_milestone
 from merged;
 -- The rows past the watermark, kept aside while the old versions of them are removed.
@@ -143,8 +143,8 @@ select
     merged.received_on,
     merged._updated_at,
     merged._loaded_at,
-    DATE_DIFF('DAY', merged.ordered_on, merged.shipped_on) as ordered_on_to_shipped_on_days,
-    DATE_DIFF('DAY', merged.shipped_on, merged.received_on) as shipped_on_to_received_on_days,
+    cast(DATE_DIFF('DAY', merged.ordered_on, merged.shipped_on) as BIGINT) as ordered_on_to_shipped_on_days,
+    cast(DATE_DIFF('DAY', merged.shipped_on, merged.received_on) as BIGINT) as shipped_on_to_received_on_days,
     case when merged.received_on is not null then 'received_on' when merged.shipped_on is not null then 'shipped_on' when merged.ordered_on is not null then 'ordered_on' end as current_milestone
 from merged;
 DELETE FROM marts.fct_order_fulfilment WHERE EXISTS (SELECT 1 FROM fct_order_fulfilment__new WHERE fct_order_fulfilment__new.order_id = marts.fct_order_fulfilment.order_id AND fct_order_fulfilment__new.line_number = marts.fct_order_fulfilment.line_number);

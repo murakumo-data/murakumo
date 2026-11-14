@@ -11,7 +11,9 @@ what someone else saved.
 
 The server only listens on 127.0.0.1 and only answers requests addressed to localhost, so a web
 page in another tab cannot reach it by DNS tricks; changes need a JSON body, which browsers will
-not send across sites without the server's consent.
+not send across sites without the server's consent. Changes that take no body (undo, generate, run
+the CI) have no such guard, so every request that is not a read is also refused when the browser
+says it comes from another site (its ``Origin`` or ``Sec-Fetch-Site`` header).
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import difflib
 import hashlib
 import re
 import threading
+import urllib.parse
 from collections.abc import Callable
 from contextvars import ContextVar
 from pathlib import Path
@@ -51,6 +54,7 @@ REVISION_HEADER = "X-Murakumo-Revision"
 PREVIEW_HEADER = "X-Murakumo-Preview"  # on an edit: say what it would reach, without saving it
 PREVIEW: ContextVar[bool] = ContextVar("preview", default=False)
 LOCAL_HOSTS = ["localhost", "127.0.0.1"]
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 UPLOADS_DIR = "data"
 UPLOAD_NAME = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 UPLOAD_TYPES = {".csv", ".parquet", ".json", ".jsonl", ".xlsx", ".xls", ".tsv"}
@@ -115,6 +119,28 @@ class LakehouseBody(BaseModel):
     catalog_uri: str | None = None
     warehouse: str | None = None
     external_volume: str | None = None
+
+
+class AssistantBody(BaseModel):
+    enabled: bool | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[\w.:-]+$")
+    key_env: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,99}$")
+
+
+class SuggestBody(BaseModel):
+    kind: str = Field(pattern="^(describe|classify|map|draft)$")
+    entities: list[str] = Field(default_factory=list)
+    entity: str | None = None
+    request: str | None = Field(default=None, max_length=4000)
+
+
+class ApplyBody(BaseModel):
+    suggestions: list[dict[str, Any]] = Field(max_length=500)
+
+
+class DbtImportBody(BaseModel):
+    folder: str = Field(min_length=1, max_length=1000)
+    dry_run: bool = False
 
 
 class SettingsBody(BaseModel):
@@ -492,6 +518,18 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         title="Murakumo canvas API", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json"
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS)
+
+    @app.middleware("http")
+    async def same_site_only(request, call_next):
+        """Refuse a change sent by a page on another site. A browser names the page's site in
+        ``Origin`` on every cross-origin request that is not a read; curl and scripts send neither
+        header, and are let through."""
+        if request.method not in SAFE_METHODS:
+            origin = request.headers.get("origin")
+            foreign = origin is not None and urllib.parse.urlsplit(origin).hostname not in LOCAL_HOSTS
+            if foreign or request.headers.get("sec-fetch-site") == "cross-site":
+                return JSONResponse({"message": "changes are only accepted from the canvas itself"}, status_code=403)
+        return await call_next(request)
 
     @app.middleware("http")
     async def preview_header(request, call_next):
@@ -1263,6 +1301,120 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             raise HTTPException(409, {"message": str(exc)}) from None
         result = impact.report(project, old, project.model)
         return {"against": against, **result.as_dict(), "markdown": impact.markdown(result, against)}
+
+    # What the newer commands do, for the canvas: monitor, cost, the assistant, importing a dbt
+    # project, and lineage for a catalog.
+
+    @app.get("/api/monitor")
+    def get_monitor(environment: str | None = None, prefix: str | None = None) -> dict[str, Any]:
+        """What is unusual in the loads and the latest run (`murakumo monitor`)."""
+        from murakumo import monitor
+
+        return monitor.check(loaded(), environment, prefix)
+
+    @app.get("/api/cost")
+    def get_cost(environment: str | None = None) -> dict[str, Any]:
+        """Roughly what the schedules cost to run each month (`murakumo cost`)."""
+        from murakumo import cost
+
+        return cost.estimate(loaded(), environment).as_dict()
+
+    @app.get("/api/catalog")
+    def get_catalog(format: str = "json") -> Any:
+        """The lineage for a catalog (`murakumo catalog export`): a graph, or OpenLineage events."""
+        from murakumo import catalog
+
+        project = loaded()
+        return {"events": catalog.events(project)} if format == "openlineage" else catalog.graph(project)
+
+    def assistant_state(project: Project) -> dict[str, Any]:
+        import os
+
+        settings = project.manifest.assistant
+        return {
+            "enabled": settings.enabled,
+            "provider": settings.provider,
+            "model": settings.model,
+            "key_env": settings.key_env,
+            "key_set": bool(os.environ.get(settings.key_env)),
+        }
+
+    @app.get("/api/assistant")
+    def get_assistant() -> dict[str, Any]:
+        return assistant_state(loaded())
+
+    @app.put("/api/assistant")
+    def put_assistant(body: AssistantBody) -> dict[str, Any]:
+        """Turn the assistant on or off, or change its model (`murakumo ai enable`)."""
+        from murakumo.manifest_edit import write_section
+
+        with lock:
+            project = loaded()
+            changes = body.model_dump(exclude_none=True)
+            write_section(root, ("assistant",), {**project.manifest.assistant.model_dump(exclude_none=True), **changes})
+            return assistant_state(loaded())
+
+    @app.post("/api/assistant/suggest")
+    def assistant_suggest(body: SuggestBody) -> dict[str, Any]:
+        """Ask for suggestions (`murakumo ai describe | classify | map | draft`). Nothing is changed."""
+        from murakumo import assistant
+
+        try:
+            found = assistant.suggest(
+                loaded(), body.kind, entities=body.entities or None, entity=body.entity, request=body.request
+            )
+        except assistant.AssistantError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+        return {"suggestions": [{**s.as_dict(), "text": str(s)} for s in found]}
+
+    @app.post("/api/assistant/apply")
+    def assistant_apply(body: ApplyBody, rev: Revision = None) -> dict[str, Any]:
+        """Make the chosen suggestions' changes. One the model would not take by hand is refused."""
+        from murakumo import assistant
+
+        outcome: dict[str, Any] = {}
+
+        def action(project: Project) -> None:
+            result = assistant.apply(project, [assistant.from_dict(s) for s in body.suggestions])
+            outcome["applied"] = [str(s) for s in result.applied]
+            outcome["refused"] = [{"text": str(s), "why": s.refused} for s in result.refused]
+
+        state_ = change(action, rev)
+        return {**outcome, "state": state_}
+
+    @app.post("/api/import/dbt")
+    def import_dbt(body: DbtImportBody, rev: Revision = None) -> dict[str, Any]:
+        """Bring an existing dbt project into the model (`murakumo import dbt`)."""
+        from murakumo.importers import dbt_project
+
+        folder = Path(body.folder).expanduser()
+        folder = folder if folder.is_absolute() else root / folder
+        try:
+            imported = dbt_project.read(folder)
+        except dbt_project.DbtImportError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+        outcome: dict[str, Any] = {}
+
+        def action(project: Project) -> None:
+            report = dbt_project.apply(project, imported)
+            outcome.update(
+                name=imported.name,
+                compiled=imported.compiled,
+                added=report.added,
+                added_sources=report.added_sources,
+                existing=report.existing,
+                skipped=report.skipped,
+                mapped=report.mapped,
+                unmapped=report.unmapped,
+                relationships=report.relationships,
+                notes=report.notes[:100],
+            )
+
+        if body.dry_run:
+            action(loaded())
+            return {**outcome, "written": False}
+        state_ = change(action, rev)
+        return {**outcome, "written": True, "state": state_}
 
     @app.get("/api/runs")
     def get_runs(environment: str | None = None, prefix: str | None = None, limit: int = 20) -> dict[str, Any]:

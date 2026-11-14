@@ -28,6 +28,7 @@ from murakumo.diagnostics import Diagnostic, error, warning
 from murakumo.generate.targets import Target
 from murakumo.ir.model import (
     Attribute,
+    Cdc,
     Entity,
     EntityKind,
     History,
@@ -311,7 +312,20 @@ class Planner:
         pk = [snake(a.name) for a in entity.primary_key]
         if len(pk) > 1:
             tests.append(Test("murakumo_unique_combination", None, {"columns": pk}))
+        extra = {}
+        if entity.load is LoadPattern.CDC and entity.primary_key:
+            # A change feed: the latest change of each key, and no key whose latest change deleted it.
+            settings = entity.cdc or Cdc()
+            latest = [settings.order or entity.watermark, "_ingested_at"]
+            operation = entity.attribute(settings.operation) if settings.operation else None
+            extra["cdc"] = {
+                "keys": [self.quote(a.name) for a in entity.primary_key],
+                "order": [self.quote(c) for c in dict.fromkeys(c for c in latest if c)],
+                "operation": self.cast(self.quote(operation.name), string) if operation else None,
+                "deletes": [d.lower().replace("'", "''") for d in settings.deletes],
+            }
         return DbtModel(
+            extra=extra,
             name=self.staging_name(entity),
             layer="staging",
             folder=f"staging/{snake(entity.source or 'raw')}",
@@ -782,7 +796,12 @@ class Planner:
             derived.append(
                 Column(
                     f"{start}_to_{end}_{unit}s",
-                    f"{{{{ dbt.datediff('merged.{self.quote(start)}', 'merged.{self.quote(end)}', '{unit}') }}}}",
+                    # Cast: a difference is an integer on some warehouses and a bigint on others, and
+                    # the model's contract names one type.
+                    self.cast(
+                        f"{{{{ dbt.datediff('merged.{self.quote(start)}', 'merged.{self.quote(end)}', '{unit}') }}}}",
+                        number,
+                    ),
                     number,
                     f"{unit.capitalize()}s from {start} to {end}; null until both are reached.",
                 )
@@ -911,6 +930,16 @@ class Planner:
             if columns:
                 roles = [r.upper() for r in self.project.manifest.governance.unmasked_roles]
                 config["post_hook"] = [f"{{{{ murakumo_masking({columns!r}, {roles!r}) }}}}"]
+            from murakumo import row_access
+
+            if any(e is entity for e in row_access.protected(self.project)):
+                roles = self.project.manifest.governance.unmasked_roles
+                condition = row_access.body(entity, roles).replace("'", "\\'")
+                hook = (
+                    f"{{{{ murakumo_row_access('{row_access.policy(entity)}', "
+                    f"'{entity.row_access.column}', '{condition}') }}}}"
+                )
+                config["post_hook"] = config.get("post_hook", []) + [hook]
         if entity.partition_by and self.target.dialect in ("databricks", "bigquery"):
             config["partition_by"] = entity.partition_by
         if entity.cluster_by and self.target.dialect in ("snowflake", "databricks", "bigquery"):

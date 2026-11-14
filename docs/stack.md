@@ -19,19 +19,19 @@ In the canvas, the **Stack** panel (the layers icon on the rail) does the same.
 | Part | Choices | Where it lives in murakumo.yaml |
 | --- | --- | --- |
 | Warehouse | duckdb, snowflake, databricks, bigquery, redshift, postgres, fabric, synapse | `targets.warehouse.type` |
-| Extract: what fetches the data | `python`, `lambda`, `glue`, `none` | `stack.extract` |
+| Extract: what fetches the data | `python`, `lambda`, `glue`, `dlt`, `airbyte`, `fivetran`, `none` | `stack.extract` |
 | Landing: where fetched files land | a folder in the project, or `s3://bucket/prefix` | `stack.landing` |
 | Load: what loads landed files into raw tables | `build`, `snowpipe`, `autoloader` | `stack.load` |
 | Transform | `dbt` | `generation.transform` |
 | Python | `none`, `polars`, `pyspark` (the pipeline written as Python too) | `generation.python_engine` |
-| Orchestrator | airflow, dagster, prefect, databricks_workflows, snowflake_tasks, and others as a starting script | `generation.orchestrator` |
+| Orchestrator | airflow, dagster, prefect, databricks_workflows, snowflake_tasks, gcp_composer, aws_step_functions, aws_glue, gcp_workflows, azure_data_factory | `generation.orchestrator` |
 | CI | `github`, `gitlab`, `none` | `stack.ci` |
 | Streaming: what reads Kafka sources | `consumer`, `flink`, `spark`, `snowpipe_streaming` | `generation.streaming.engine` |
 | Infrastructure as code | `none`, `terraform` | `stack.iac` |
 
 ```yaml
 stack:
-  extract: python      # python | lambda | glue | none
+  extract: python      # python | lambda | glue | dlt | airbyte | fivetran | none
   load: build          # build | snowpipe | autoloader
   landing: landing     # a folder, or s3://bucket/prefix
   ci: github           # github | gitlab | none
@@ -234,6 +234,39 @@ The orchestrator's pipelines fetch and load before each schedule's build:
 
 When something else fetches the data (Lambda, Glue), the pipelines only load. When it is loaded
 continuously (Snowpipe, Auto Loader), they only build.
+
+## Fetching with dlt, Airbyte or Fivetran
+
+Whichever tool fetches the data, the rest of the platform is the same: staging reads each raw
+table's columns as the model names them, with `_ingested_at` and `_batch_id` beside them.
+
+**dlt** (`stack.extract: dlt`) loads straight into the raw tables.
+`generated/ingestion/dlt/pipeline.py` has a function per source, built from its connection:
+
+- databases (`sql_table`, incremental by the table's watermark), REST APIs (`rest_api_source`, with
+  the connection's sign-in and paging) and files (CSV, Parquet, JSON lines);
+- the sources' column names are kept as they are, and every row gets `_ingested_at` and `_batch_id`;
+- a table loaded `full` is replaced, `append` is added to, `incremental` is merged by its key;
+- the orchestrator runs it before each build, and there is no separate load step;
+- SFTP, protobuf and Kafka sources keep Murakumo's own script.
+
+```bash
+pip install -r generated/ingestion/dlt/requirements.txt
+python generated/ingestion/dlt/pipeline.py            # every source, or name one
+```
+
+**Airbyte** and **Fivetran** (`stack.extract: airbyte | fivetran`) are set up in their own product.
+Murakumo writes, under `generated/ingestion/<tool>/`:
+
+- `connections.json`: what to create there. Each source's settings (secrets by the name of their
+  variable), the schema it lands in (`<raw schema>_<tool>`), and each table's sync mode, key and
+  cursor column;
+- `views.sql`: a view per raw table over what the tool lands, with the model's column names,
+  `_ingested_at` and `_batch_id` from the tool's own column (`_airbyte_extracted_at`,
+  `_fivetran_synced`), and without the rows Fivetran marks deleted.
+
+Run `views.sql` after the first sync, and again when a raw table gains or loses a column. Murakumo
+does not create or load the raw tables with these two: the tool does.
 
 ## Streaming: Kafka sources
 

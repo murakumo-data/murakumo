@@ -140,6 +140,24 @@ def plan(project: Project, environment: str) -> list[DeployStep]:
                     role=role_for(environment) or f"SNOWFLAKE_ROLE_{environment.upper()} is not set: your default role",
                 )
             )
+    if warehouse is Warehouse.SNOWFLAKE:
+        from murakumo.generate.ingestion import _environment_databases
+        from murakumo.row_access import policy_sql as row_policies
+
+        database = dict(_environment_databases(project)).get(environment)
+        rows = row_policies(project, database)
+        if rows:
+            out.append(
+                DeployStep(
+                    "row_access",
+                    f"Create the row-access policies in {environment}",
+                    "Which rows of a mart each role sees. dbt sets them after each build; this creates them first,"
+                    " and sets them on marts that exist.",
+                    "sql",
+                    f"use database {database};\n" + rows,
+                    role=role_for(environment) or f"SNOWFLAKE_ROLE_{environment.upper()} is not set: your default role",
+                )
+            )
     if stack.ci != "none":
         from murakumo import ci
 

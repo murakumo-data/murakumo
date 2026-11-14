@@ -490,12 +490,14 @@ _CLOUD_ORCHESTRATORS: dict[Orchestrator, list[str]] = {
         "Run generated/orchestration/snowflake_tasks/tasks.sql in a worksheet: one task per schedule.",
     ],
     Orchestrator.AWS_GLUE: [
-        "In the AWS console: Glue → ETL jobs → a Python shell job that installs dbt and runs `dbt build`.",
-        "Give its IAM role read access to the repository or the S3 copy of generated/dbt.",
+        "Zip generated/dbt and upload it, with generated/orchestration/aws_glue/glue_dbt.py, to an S3 bucket.",
+        "In generated/orchestration/aws_glue: `terraform init && terraform apply -var bucket=<bucket>`.",
+        "It creates a Python shell job that runs dbt, and a scheduled trigger per schedule (disabled at first).",
     ],
     Orchestrator.AWS_STEP_FUNCTIONS: [
-        "Run `dbt build` in a container task (ECS or Fargate) built from generated/dbt.",
-        "In Step Functions, create a state machine that starts that task on a schedule (EventBridge).",
+        "Build generated/orchestration/aws_step_functions/Dockerfile from the project's root and push it to ECR.",
+        "In that folder: `terraform init && terraform apply -var image=<image> -var 'subnets=[...]'`.",
+        "It creates a state machine that runs dbt on Fargate, and an EventBridge schedule per schedule.",
     ],
     Orchestrator.GCP_COMPOSER: [
         "In Google Cloud: Composer → Create environment (managed Airflow).",
@@ -503,12 +505,14 @@ _CLOUD_ORCHESTRATORS: dict[Orchestrator, list[str]] = {
         "Copy the whole generated/ folder into its dags/ bucket: the DAGs find the dbt project beside them.",
     ],
     Orchestrator.GCP_WORKFLOWS: [
-        "Run `dbt build` as a Cloud Run job built from generated/dbt.",
-        "In Workflows, create a workflow that runs the job; schedule it with Cloud Scheduler.",
+        "Build generated/orchestration/gcp_workflows/Dockerfile from the project's root; push it to Artifact Registry.",
+        "In that folder: `terraform init && terraform apply -var project=<project> -var image=<image>`.",
+        "It creates a Cloud Run job, a workflow that runs it, and a Cloud Scheduler job per schedule.",
     ],
     Orchestrator.AZURE_DATA_FACTORY: [
-        "Run `dbt build` in an Azure Container Apps job built from generated/dbt.",
-        "In Data Factory, create a pipeline that starts the job on a schedule trigger.",
+        "Build generated/orchestration/azure_data_factory/Dockerfile; create a Container Apps job from it.",
+        "Create the pipeline from pipeline.json and a trigger per file in triggers/ (commands in the README).",
+        "Give the factory's managed identity Contributor on the job, so it may start it.",
     ],
 }
 

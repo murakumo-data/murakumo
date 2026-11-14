@@ -180,8 +180,15 @@ def verify_command(
     limit: int | None = typer.Option(None, help="Load at most this many rows from each --data file."),
     keep: Path | None = typer.Option(None, help="Keep the build folder here, to inspect the project and database."),
     once: bool = typer.Option(False, "--once", help="Build once; skip the second, incremental build."),
+    changed_since: str | None = typer.Option(
+        None,
+        "--changed-since",
+        help="Build only what changed in the model since this branch, tag or commit, and what that reaches.",
+    ),
     warehouse: Warehouse = typer.Option(
-        Warehouse.DUCKDB, "--warehouse", help="duckdb (local, default) or snowflake (uses SNOWFLAKE_* variables)."
+        Warehouse.DUCKDB,
+        "--warehouse",
+        help="duckdb (local, the default), or any other warehouse: it reads the variables its dbt profile reads.",
     ),
     keep_tables: bool = typer.Option(
         False, "--keep-tables", help="On Snowflake, keep the run's schemas instead of dropping them."
@@ -198,6 +205,28 @@ def verify_command(
         fail("the model has errors; fix them before verifying")
         raise typer.Exit(1)
     files = _data_files(project, data)
+    select = None
+    if changed_since:
+        from murakumo import slim
+
+        try:
+            chosen = slim.changed_since(project, changed_since)
+        except slim.SlimError as exc:
+            fail(str(exc))
+            raise typer.Exit(1) from None
+        if chosen.nothing:
+            console.print(
+                f"[green]verified[/green]: the model has not changed since {changed_since}; nothing to build."
+            )
+            return
+        if chosen.everything:
+            console.print(f"Building everything: {chosen.why}.")
+        else:
+            select = chosen.select
+            console.print(
+                f"Changed since {changed_since}, or built from what changed: {', '.join(chosen.tables)}. "
+                "Building those, and what they are built from."
+            )
 
     with console.status(f"Generating for {warehouse.value}, loading raw tables and running dbt build..."):
         try:
@@ -210,6 +239,7 @@ def verify_command(
                 rerun=not once,
                 warehouse=warehouse,
                 keep_tables=keep_tables,
+                select=select,
             )
         except SourceUnavailable as exc:
             fail(str(exc))
@@ -248,9 +278,7 @@ def build_command(
         None, "--data", help="Load a real file into a raw table: TABLE=PATH_OR_URL. Repeat for several."
     ),
     limit: int | None = typer.Option(None, help="Load at most this many rows from each --data file."),
-    warehouse: Warehouse | None = typer.Option(
-        None, "--warehouse", help="duckdb or snowflake. Defaults to the project's warehouse."
-    ),
+    warehouse: Warehouse | None = typer.Option(None, "--warehouse", help="Defaults to the project's warehouse."),
     schedule: str | None = typer.Option(
         None, "--schedule", help="Build only what this schedule refreshes, as its orchestrator would."
     ),
@@ -763,6 +791,76 @@ def runs_command(
             ["model", "test", "failures"],
             log["failed"],
         )
+
+
+def monitor_command(
+    project_path: Path = ProjectOption,
+    prefix: str | None = typer.Option(None, "--prefix", help="Read this environment's audit schema."),
+    environment: str | None = typer.Option(None, "--env", help="Default: your own environment."),
+    notify: bool = typer.Option(False, "--notify", help="Send what is found to the webhooks under quality.alerts."),
+    as_json: bool = typer.Option(False, "--json", help="Print the findings as JSON."),
+) -> None:
+    """Say what is unusual: loads far from their usual size, late tables, rejected rows, failed runs.
+
+    Exits with 1 when something is an error, so an orchestrator step can fail on it."""
+    import json
+
+    from murakumo import monitor
+
+    project = open_project(project_path)
+    result = monitor.check(project, environment, prefix)
+    if as_json:
+        console.print_json(json.dumps(result))
+    elif not result["recorded"]:
+        console.print(result["reason"])
+    elif not result["findings"]:
+        console.print(f"Nothing unusual in {result['tables']} table(s), from {result['loads']} recorded load(s).")
+    else:
+        for finding in result["findings"]:
+            mark = "[red]error[/red]" if finding["level"] == "error" else "[yellow]warn[/yellow] "
+            console.print(f"  {mark} {finding['check']:<8} {finding['subject']}: {finding['message']}")
+    if notify and result["findings"]:
+        for line in monitor.notify(project, result["findings"], environment):
+            console.print(f"  {line}")
+    if any(f["level"] == "error" for f in result["findings"]):
+        raise typer.Exit(1)
+
+
+def cost_command(
+    project_path: Path = ProjectOption,
+    environment: str | None = typer.Option(None, "--env", help="Measure run times from this environment's run log."),
+    as_json: bool = typer.Option(False, "--json", help="Print the estimate as JSON."),
+) -> None:
+    """Roughly what the schedules cost to run each month, with every assumption shown."""
+    import json
+
+    from rich.table import Table
+
+    from murakumo import cost
+
+    result = cost.estimate(open_project(project_path), environment)
+    if as_json:
+        console.print_json(json.dumps(result.as_dict()))
+        return
+    table = Table(box=None, pad_edge=False)
+    for column in (
+        "Schedule",
+        "Cron",
+        "Runs a month",
+        "Minutes a run",
+        f"{result.unit}s",
+        f"{result.currency} a month",
+    ):
+        table.add_column(column)
+    for line in result.lines:
+        minutes = f"{line.minutes:g}" + ("" if line.measured else " (assumed)")
+        table.add_row(line.schedule, line.cron, f"{line.runs:g}", minutes, f"{line.units:.2f}", f"{line.cost:,.2f}")
+    console.print(table)
+    console.print(
+        f"\n[bold]About {result.total:,.2f} {result.currency} a month[/bold] on {result.warehouse}. An estimate:"
+    )
+    for assumption in result.assumptions:
+        console.print(f"  - {assumption}")
 
 
 def backfill_command(

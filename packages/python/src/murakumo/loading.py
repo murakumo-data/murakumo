@@ -8,7 +8,9 @@ size and a SHA-256 of its content; a file whose content was loaded before is ski
 How the new rows meet the old depends on the raw table's ``load`` in the model:
 
 - ``full``: the table is replaced by every file given, when any of them changed;
-- ``append`` (and ``cdc``, ``streaming``): the new files' rows are added;
+- ``append`` (and ``streaming``): the new files' rows are added;
+- ``cdc``: every change is added, as it arrived; staging then keeps each key's latest change and
+  leaves out the keys a change deleted;
 - ``incremental``: the new rows replace the rows with the same key, the latest of each key (by the
   table's watermark column, else by load time) kept.
 """
