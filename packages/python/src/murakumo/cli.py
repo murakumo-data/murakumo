@@ -368,6 +368,8 @@ app.command("sync")(cli_team.sync_command)
 app.add_typer(cli_team.branch_app, name="branch")
 app.add_typer(cli_generate.env_app, name="env")
 app.command("runs")(cli_generate.runs_command)
+app.command("monitor")(cli_generate.monitor_command)
+app.command("cost")(cli_generate.cost_command)
 app.command("scheduler")(cli_generate.scheduler_command)
 app.command("backfill")(cli_generate.backfill_command)
 app.command("run")(cli_generate.run_command)
@@ -375,11 +377,14 @@ app.command("diff")(cli_team.diff_command)
 app.command("lineage")(cli_model.lineage_command)
 app.command("schedules")(cli_model.schedules_command)
 
-from murakumo import cli_stack  # noqa: E402
+from murakumo import cli_ai, cli_stack  # noqa: E402
 
 app.add_typer(cli_stack.stack_app, name="stack")
 app.add_typer(cli_stack.source_app, name="source")
 app.add_typer(cli_stack.decisions_app, name="decisions")
+app.add_typer(cli_ai.ai_app, name="ai")
+app.command("mcp")(cli_ai.mcp)
+app.add_typer(cli_ai.catalog_app, name="catalog")
 app.command("ingest")(cli_stack.ingest_command)
 app.command("load")(cli_stack.load_command)
 

@@ -81,7 +81,10 @@ with a README on deploying them:
 | Prefect | `flows.py`, `prefect.yaml` | a flow per schedule; deployments on its cron time |
 | Databricks Workflows | `databricks.yml` (an asset bundle) | a dbt task on a SQL warehouse; schedules deploy paused |
 | Snowflake Tasks | `tasks.sql` | a task per schedule running the dbt project deployed in Snowflake |
-| AWS Glue, Step Functions, GCP Workflows, Azure Data Factory | `run.sh` and steps | `run.sh <schedule>`, started by the service on the cron time |
+| AWS Step Functions | `main.tf`, `state_machine.asl.json`, `Dockerfile`, `run.sh` | A state machine runs the schedule as a Fargate task; an EventBridge Scheduler schedule per schedule starts it |
+| AWS Glue | `main.tf`, `glue_dbt.py`, `run.sh` | A Python shell job runs dbt from a zip of the project in S3; a scheduled trigger per schedule, in a workflow |
+| Google Cloud Workflows | `main.tf`, `workflow.yaml`, `Dockerfile`, `run.sh` | A workflow runs the schedule as a Cloud Run job and waits; a Cloud Scheduler job per schedule starts it |
+| Azure Data Factory | `pipeline.json`, `triggers/`, `Dockerfile`, `run.sh` | A pipeline starts a Container Apps job, waits, and fails when the build fails; a schedule trigger per schedule |
 
 Pipelines find the dbt project at `generated/dbt`, beside them; set `MURAKUMO_DBT_DIR` if you copy
 them elsewhere, and `MURAKUMO_TARGET` to build another environment than `prod`. Warehouse

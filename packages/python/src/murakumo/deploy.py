@@ -78,6 +78,26 @@ def plan(project: Project, environment: str) -> list[DeployStep]:
                 role=_admin_role() or "your default role (set SNOWFLAKE_ADMIN_ROLE to use another)",
             )
         )
+    from murakumo.generate import terraform
+
+    for module in terraform.modules(project):
+        what = {
+            "snowflake": "The same databases, warehouse and roles as the provision step, as Terraform: run one or"
+            " the other.",
+            "databricks": "A catalog per environment, the groups and their grants, and a serverless SQL warehouse.",
+            "aws": "The landing bucket, and what fetches into it or loads from it. Add -var endpoint=... to try it"
+            " on LocalStack.",
+        }[module]
+        folder = f"generated/{terraform.FOLDER}/{module}"
+        out.append(
+            DeployStep(
+                f"terraform-{module}",
+                f"Apply the {module} Terraform module",
+                what + " It runs with your own credentials, from the environment.",
+                "commands",
+                f"terraform -chdir={folder} init\nterraform -chdir={folder} apply",
+            )
+        )
     output = generate(project)
     if stack.load == "snowpipe" and warehouse is Warehouse.SNOWFLAKE:
         out.append(
@@ -117,6 +137,24 @@ def plan(project: Project, environment: str) -> list[DeployStep]:
                     " them on the marts after each build; this creates them first, and sets them on marts that exist.",
                     "sql",
                     f"use database {database};\n" + policies,
+                    role=role_for(environment) or f"SNOWFLAKE_ROLE_{environment.upper()} is not set: your default role",
+                )
+            )
+    if warehouse is Warehouse.SNOWFLAKE:
+        from murakumo.generate.ingestion import _environment_databases
+        from murakumo.row_access import policy_sql as row_policies
+
+        database = dict(_environment_databases(project)).get(environment)
+        rows = row_policies(project, database)
+        if rows:
+            out.append(
+                DeployStep(
+                    "row_access",
+                    f"Create the row-access policies in {environment}",
+                    "Which rows of a mart each role sees. dbt sets them after each build; this creates them first,"
+                    " and sets them on marts that exist.",
+                    "sql",
+                    f"use database {database};\n" + rows,
                     role=role_for(environment) or f"SNOWFLAKE_ROLE_{environment.upper()} is not set: your default role",
                 )
             )

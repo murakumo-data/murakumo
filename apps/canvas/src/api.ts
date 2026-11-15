@@ -30,12 +30,19 @@ export type Entity = {
   mappings: Mapping[]
   load: string // full | append | incremental | cdc | streaming: how a raw table takes new rows
   watermark: string | null
+  // load: cdc. The column that says what happened to a row, its values that mean deleted, and
+  // the column that orders a key's changes.
+  cdc: { operation: string | null; deletes: string[]; order: string | null } | null
   incremental_by: 'load_time' | 'watermark'
   lookback_hours: number
   accumulating: { milestones: string[]; unit: 'day' | 'hour' | 'minute' } | null
   unknown_member: boolean | null // null: as the project's modelling.unknown_members says
   conformed: boolean
+  history: string // none | scd1 | scd2 | scd3 | scd4 | scd6 | snapshot
+  tracked: string[] // the columns scd3 keeps a previous value of, or scd6 a current value of
   access: 'private' | 'protected' | 'public' | null
+  // Which rows each role may see (Snowflake): the column that decides, and each role's values.
+  row_access: { column: string; allow: Record<string, string[]> } | null
 }
 
 export type Exposure = {
@@ -48,6 +55,19 @@ export type Exposure = {
   maturity: 'high' | 'medium' | 'low' | null
   description: string | null
   depends_on: string[]
+}
+
+export type Metric = {
+  id?: string
+  name: string
+  label: string | null
+  entity: string
+  expression: string
+  time: string | null
+  grain: 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year' | null
+  dimensions: string[]
+  filters: string[]
+  description: string | null
 }
 
 export type BusMatrix = {
@@ -211,9 +231,20 @@ export type Settings = {
   guide: boolean
   masking: Record<string, string>
   unmasked_roles: string[]
+  lakehouse: Lakehouse | null // which layers are written as open tables, and where
   choices: { warehouses: string[]; orchestrators: string[]; patterns: string[]; python_engines: string[] }
   changed?: string[]
   state?: State
+}
+
+export type Lakehouse = {
+  table_format: 'iceberg' | 'delta' | 'hudi' | 'native'
+  catalog: 'polaris' | 'unity' | 'glue' | 'nessie' | 'none'
+  layers: string[]
+  storage: string | null
+  catalog_uri: string | null
+  warehouse: string | null
+  external_volume: string | null
 }
 
 // One thing `murakumo setup` checks on this machine, and how to put it right.
@@ -226,6 +257,47 @@ export type SetupCheck = {
   sql: string | null
   sql_where: string | null
   docs: string[]
+}
+
+// Suggestions from the assistant (`murakumo ai`): each is a change the canvas could make by hand.
+export type Suggestion = {
+  kind: 'describe_table' | 'describe_column' | 'classify' | 'mapping' | 'table'
+  entity: string
+  column: string | null
+  value: unknown
+  reason: string
+  text: string
+}
+
+export type AssistantInfo = { enabled: boolean; provider: string; model: string; key_env: string; key_set: boolean }
+
+// What is unusual in the loads and the latest run (`murakumo monitor`).
+export type Finding = { level: 'error' | 'warn'; check: 'volume' | 'late' | 'rejected' | 'failed'; subject: string; message: string }
+export type Monitor = { recorded: boolean; reason?: string; audit?: string; tables: number; loads?: number; findings: Finding[] }
+
+// Roughly what the schedules cost to run each month (`murakumo cost`).
+export type Cost = {
+  warehouse: string
+  currency: string
+  unit: string
+  total: number
+  lines: { schedule: string; cron: string; runs: number; minutes: number; measured: boolean; units: number; cost: number }[]
+  assumptions: string[]
+}
+
+export type DbtImport = {
+  name: string
+  compiled: boolean
+  written: boolean
+  added: string[]
+  added_sources: string[]
+  existing: string[]
+  skipped: string[]
+  mapped: number
+  unmapped: number
+  relationships: number
+  notes: string[]
+  state?: State
 }
 
 export type RunLog = {
@@ -301,7 +373,7 @@ export type State = {
   revision: string
   project: string
   editable: boolean
-  model: { entities: Entity[]; relationships: Relationship[]; exposures?: Exposure[] } | null
+  model: { entities: Entity[]; relationships: Relationship[]; exposures?: Exposure[]; metrics?: Metric[] } | null
   layout: Record<string, Position>
   canvas: CanvasSettings
   domains: Domain[]
@@ -315,6 +387,7 @@ export type State = {
     sources: string[]
     layers: Layer[]
     kinds: string[]
+    histories: string[]
     cardinalities: string[]
     classifications: string[]
     types: string[]
@@ -531,6 +604,18 @@ export const api = {
     ),
   diff: (ref: string) =>
     request<ImpactReport & { against: string; markdown: string }>('GET', `/diff?ref=${encodeURIComponent(ref)}`, undefined, false),
+  monitor: (environment?: string) =>
+    request<Monitor>('GET', `/monitor${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`, undefined, false),
+  cost: () => request<Cost>('GET', '/cost', undefined, false),
+  catalog: (format: 'json' | 'openlineage') => request<unknown>('GET', `/catalog?format=${format}`, undefined, false),
+  assistant: () => request<AssistantInfo>('GET', '/assistant', undefined, false),
+  saveAssistant: (changes: Partial<Pick<AssistantInfo, 'enabled' | 'model' | 'key_env'>>) =>
+    request<AssistantInfo>('PUT', '/assistant', changes, false),
+  suggest: (kind: string, options: { entities?: string[]; entity?: string; request?: string }) =>
+    request<{ suggestions: Suggestion[] }>('POST', '/assistant/suggest', { kind, ...options }, false),
+  applySuggestions: (suggestions: Suggestion[]) =>
+    request<{ applied: string[]; refused: { text: string; why: string }[]; state: State }>('POST', '/assistant/apply', { suggestions }),
+  importDbt: (folder: string, dryRun: boolean) => request<DbtImport>('POST', '/import/dbt', { folder, dry_run: dryRun }),
   runs: (environment?: string) =>
     request<RunLog>('GET', `/runs${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`, undefined, false),
   startJob: (kind: string, options: Record<string, unknown> = {}) => request<Job>('POST', '/jobs', { kind, options }, false),
@@ -651,6 +736,7 @@ export const api = {
   guide: () => request<{ chapters: GuideChapter[]; folder: string }>('GET', '/guide', undefined, false),
   bus: () => request<BusMatrix>('GET', '/bus', undefined, false),
   saveExposures: (exposures: Exposure[]) => request<State>('PUT', '/exposures', { exposures }),
+  saveMetrics: (metrics: Metric[]) => request<State>('PUT', '/metrics', { metrics }),
 }
 
 /** What an edit would reach, without making it: the edit is sent as a preview. */

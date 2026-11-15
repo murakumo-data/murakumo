@@ -1,7 +1,154 @@
 {
   "warehouse": "duckdb",
-  "migration": 4,
+  "migration": 5,
   "tables": [
+    {
+      "id": "8eef9243-c4ba-48b8-b12c-8c0f0230d7f9",
+      "kind": "incremental",
+      "schema": "intermediate",
+      "name": "hub_customer",
+      "columns": [
+        {
+          "id": "8eef9243-c4ba-48b8-b12c-8c0f0230d7f9:hub_customer_hk",
+          "name": "hub_customer_hk",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "37945cd8-e627-4d31-afe6-d2677e7a5879",
+          "name": "customer_number",
+          "type": "BIGINT"
+        },
+        {
+          "id": "8eef9243-c4ba-48b8-b12c-8c0f0230d7f9:load_date",
+          "name": "load_date",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "8eef9243-c4ba-48b8-b12c-8c0f0230d7f9:record_source",
+          "name": "record_source",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "b9f4fc4c-d54f-47ff-9ec9-1fc4159ac80a",
+      "kind": "incremental",
+      "schema": "intermediate",
+      "name": "hub_order",
+      "columns": [
+        {
+          "id": "b9f4fc4c-d54f-47ff-9ec9-1fc4159ac80a:hub_order_hk",
+          "name": "hub_order_hk",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "96f83d7f-0fd4-4b2b-ad9a-b90fee1676cd",
+          "name": "order_number",
+          "type": "BIGINT"
+        },
+        {
+          "id": "b9f4fc4c-d54f-47ff-9ec9-1fc4159ac80a:load_date",
+          "name": "load_date",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "b9f4fc4c-d54f-47ff-9ec9-1fc4159ac80a:record_source",
+          "name": "record_source",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "c66668a8-75b7-435a-abbe-55b45696fa72",
+      "kind": "incremental",
+      "schema": "intermediate",
+      "name": "link_order_customer",
+      "columns": [
+        {
+          "id": "c66668a8-75b7-435a-abbe-55b45696fa72:link_order_customer_hk",
+          "name": "link_order_customer_hk",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "c66668a8-75b7-435a-abbe-55b45696fa72:hub_customer_hk",
+          "name": "hub_customer_hk",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "c66668a8-75b7-435a-abbe-55b45696fa72:hub_order_hk",
+          "name": "hub_order_hk",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "5778907e-6191-4e1b-a6b0-488a5003770c",
+          "name": "order_number",
+          "type": "BIGINT"
+        },
+        {
+          "id": "79804a62-59e2-4e80-9956-69d7832f2b05",
+          "name": "customer_number",
+          "type": "BIGINT"
+        },
+        {
+          "id": "c66668a8-75b7-435a-abbe-55b45696fa72:load_date",
+          "name": "load_date",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "c66668a8-75b7-435a-abbe-55b45696fa72:record_source",
+          "name": "record_source",
+          "type": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "id": "77263034-ce4b-4099-8f5f-7451b69d5c93",
+      "kind": "incremental",
+      "schema": "intermediate",
+      "name": "sat_customer",
+      "columns": [
+        {
+          "id": "77263034-ce4b-4099-8f5f-7451b69d5c93:hub_customer_hk",
+          "name": "hub_customer_hk",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "fc643af6-4533-4b89-a7fd-0f818d0171c8",
+          "name": "customer_number",
+          "type": "BIGINT"
+        },
+        {
+          "id": "dc9a06b1-03ac-481a-97b9-5194f9f729e3",
+          "name": "customer_name",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "087209e7-b365-4bb4-a686-26ab0ced205b",
+          "name": "market_segment",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "dc67b163-b65c-45c8-808a-d1e43b0698f0",
+          "name": "account_balance",
+          "type": "DECIMAL(18,4)"
+        },
+        {
+          "id": "77263034-ce4b-4099-8f5f-7451b69d5c93:hashdiff",
+          "name": "hashdiff",
+          "type": "VARCHAR"
+        },
+        {
+          "id": "77263034-ce4b-4099-8f5f-7451b69d5c93:load_date",
+          "name": "load_date",
+          "type": "TIMESTAMPTZ"
+        },
+        {
+          "id": "77263034-ce4b-4099-8f5f-7451b69d5c93:record_source",
+          "name": "record_source",
+          "type": "VARCHAR"
+        }
+      ]
+    },
     {
       "id": "772ed744-3320-4d78-af94-2f50516ae545",
       "kind": "incremental",

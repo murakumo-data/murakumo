@@ -199,6 +199,55 @@ def import_database(
     apply_imports(project, imports, dry_run, prune)
 
 
+@import_app.command("dbt")
+def import_dbt(
+    folder: Path = typer.Argument(
+        ..., exists=True, file_okay=False, help="The dbt project: the folder with dbt_project.yml."
+    ),
+    project_path: Path = ProjectOption,
+    dry_run: bool = DryRunOption,
+) -> None:
+    """Bring an existing dbt project into the model: its sources, models, keys and relationships,
+    and where each column comes from (run `dbt compile` in it first). The dbt project is only read."""
+    from murakumo.importers import dbt_project
+
+    project = open_project(project_path)
+    try:
+        imported = dbt_project.read(folder)
+    except dbt_project.DbtImportError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    report = dbt_project.apply(project, imported)
+    console.print(f"[bold]{imported.name}[/bold] (dbt)")
+    for name in report.added_sources:
+        console.print(f"  + source {name}")
+    for name in report.added:
+        console.print(f"  + {name}")
+    for name in report.existing:
+        console.print(f"  = {name} is already in the model: left as it is")
+    if report.skipped:
+        console.print(
+            f"  {len(report.skipped)} staging model(s) not imported, because Murakumo generates staging itself: "
+            + ", ".join(report.skipped[:8])
+            + ("..." if len(report.skipped) > 8 else "")
+        )
+    console.print(
+        f"  {report.mapped} column(s) mapped to where they come from, {report.unmapped} left to map, "
+        f"{report.relationships} relationship(s)."
+    )
+    for note in report.notes[:40]:
+        console.print(f"  [yellow]to do[/yellow] {escape(note)}")
+    if len(report.notes) > 40:
+        console.print(f"  ... and {len(report.notes) - 40} more.")
+    if dry_run:
+        console.print("Dry run: nothing was written.")
+        return
+    if not (report.added or report.added_sources or report.relationships):
+        console.print("The model is already up to date.")
+        return
+    finish(project)
+
+
 @import_app.command("file")
 def import_file_command(
     location: str = typer.Argument(..., help="Path, glob or https:// URL of a Parquet, CSV or JSON file."),

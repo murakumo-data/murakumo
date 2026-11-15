@@ -1,5 +1,133 @@
 # Changelog
 
+## 1.0.0 (2026-11-14)
+
+The rest of the original plan's Evolution and Breadth phases: more ways to keep history, the Data
+Vault, a semantic layer, the platform as Terraform, open tables in a catalog, and streaming. Each
+has a canvas path, a step in the replication guide, and a part in the end-to-end test.
+
+- **Slowly changing dimensions of types 3, 4 and 6**, built as themselves (not as 1 and 2):
+  - `scd3`: `previous_<column>` beside each tracked column, compared on each incremental run;
+  - `scd4`: the current version in the dimension, every version in `<name>_history`;
+  - `scd6`: type 2 with `current_<column>` on every version.
+  - `tracked:` picks the columns (MK318, MK319). In the canvas: the inspector's **History** and
+    **Tracked**.
+- **The Data Vault pack**: hubs, links and satellites, insert-only, with hash keys of the trimmed,
+  upper-cased business keys, `load_date` and `record_source`. A satellite adds a row when its
+  `hashdiff` changes; `<satellite>_current` has each key's latest row (MK320, MK509). The commerce
+  example has a small vault.
+- **The semantic layer**: dbt semantic models and metrics (MetricFlow) from `model/metrics.yaml`.
+  Simple, derived (`sum(a) / count(*)`) and filtered metrics; SCD2 dimensions joined by validity;
+  the time spine. Metrics gain `label` and `time` (MK210 to MK212). In the canvas: **Bus matrix**
+  → **Metrics**.
+- **Terraform** (`stack.iac: terraform`): a module each for Snowflake, AWS and Databricks.
+  - Snowflake's access roles (`<DB>_READ`, `<DB>_WRITE`) are now kept apart from the functional
+    roles made of them, in Terraform and in the provisioning SQL alike.
+  - The AWS module (bucket, Lambda or Glue, Snowpipe's role) takes an `endpoint`, to try it on
+    LocalStack.
+  - `murakumo stack deploy` lists a step per module.
+- **Open tables** (`targets.lakehouse`): the chosen layers as Iceberg tables in a catalog.
+  Snowflake-managed Iceberg on an external volume (with sync to Open Catalog); Iceberg, Delta or
+  Hudi on Databricks; and from DuckDB into an Iceberg REST catalog, with `generated/lakehouse/`
+  starting S3 (LocalStack) and Polaris locally. In the canvas: **Settings** → **Open tables**.
+- **Kafka sources and streaming**: a `kafka` connection kind, read by the extract script on each
+  schedule (committing only after the files are written), or continuously by a Flink SQL job, a
+  Spark Structured Streaming job, or the Snowflake Kafka connector through Snowpipe Streaming
+  (`generation.streaming.engine`). `generated/streaming/` starts Redpanda and Flink locally.
+  Streaming engines' part files load like any other landed file. The `kafka` extra installs
+  kafka-python.
+- **Fixed:** the guide's rebuild check now leaves out `load_date`, which differs between builds.
+- Docs: modelling patterns, the stack, model and generating codes, practices; end-to-end Part 19.
+  Version 1.0.0.
+
+After a review of the project against the tools it competes with, the rest of 1.0 closes what the
+review found and adds what they have that Murakumo did not.
+
+**Fixed**
+
+- **The canvas server refused nothing sent from another site when the request had no body.** A web
+  page open in the same browser could start a generate, a CI run, an undo or a git sync. Every
+  change is now refused when the browser says it comes from another site (`Origin`,
+  `Sec-Fetch-Site`). The canvas, the Vite dev server and scripts are unaffected.
+- **Incremental models used `delete+insert` on every warehouse.** BigQuery has no such strategy,
+  and Databricks has had `merge` for longer: both now use `merge`.
+- **`load: cdc` was loaded as append, and nothing said so.** It is now a change feed (below).
+- **Accumulating snapshots failed their contract on PostgreSQL**: the time between milestones came
+  back as an integer where the contract says bigint. It is now cast. Found by running `verify` on
+  PostgreSQL for the first time.
+- **The Fabric and Synapse dbt profiles had PostgreSQL's settings.** They now sign in with a
+  service principal, as those adapters expect.
+- **A new project named like `taxi_platform` did not build on another warehouse.** When the
+  database or orchestrator name was as wide as the column `murakumo.yaml`'s comments line up on,
+  the comment became part of the name. Found by the end-to-end test's Part 21.
+- **dlt loaded an API answer made of columns of values as one row.** Open-Meteo's
+  `{"time": [...], "temperature_2m": [...]}` is now one row per position, as Murakumo's own
+  extract has always read it.
+- **dlt could not take over a raw table Murakumo had already loaded**: it adds its two columns
+  NOT NULL, which a table with rows refuses. The pipeline now adds them itself.
+- **`murakumo ingest` only said to run the dlt pipeline.** It now runs it; `murakumo[dlt]` installs
+  dlt beside Murakumo.
+- **An alert written as the documentation shows it did not load**: YAML reads the key `on` as
+  true.
+- The README still said 0.9.0. The package is now classified beta.
+
+**Added**
+
+- **Change feeds** (`load: cdc`): the raw table keeps every change, and staging is each key's
+  latest change without the keys a change deleted. `cdc.operation`, `cdc.deletes`, `cdc.order`;
+  MK321 to MK325. In the canvas: the inspector's **Operation** and **Latest by**.
+- **`verify` and `build` on every warehouse**: PostgreSQL, Redshift, Databricks, BigQuery, Fabric
+  and Synapse, beside DuckDB and Snowflake, each with an install extra. Environments, `runs` and
+  `monitor` reach them too.
+- **The four cloud orchestrators are generated**, where there was a script and a note: AWS Step
+  Functions (a state machine on Fargate, EventBridge schedules), AWS Glue (a Python shell job and
+  triggers), Google Cloud Workflows (a Cloud Run job, Cloud Scheduler) and Azure Data Factory (a
+  pipeline that starts a Container Apps job, schedule triggers).
+- **Fetching with dlt, Airbyte or Fivetran** (`stack.extract`): a dlt pipeline per source that
+  loads straight into the raw tables; for Airbyte and Fivetran, what to set up and a view per raw
+  table over what they land.
+- **Importing an existing dbt project** (`murakumo import dbt`): sources, models, keys,
+  relationships, and where each column comes from, read from the compiled SQL.
+- **The assistant** (`murakumo ai`): descriptions, personal-data marks, mappings and new tables
+  suggested by a language model. Off until a project turns it on, with its own key; it is sent the
+  model, never rows; every suggestion is shown first and applied through the usual edits.
+- **An MCP server** (`murakumo mcp`): the model as tools for an agent of your own.
+- **Monitoring** (`murakumo monitor`): loads far from their usual size, late tables, rejected rows
+  and failed runs, from the run log, with alerts to Slack, Teams or a webhook.
+- **Cost** (`murakumo cost`): roughly what the schedules cost a month, with every assumption shown
+  and your own prices under `costs:`.
+- **Lineage for a catalog** (`murakumo catalog export | send`): OpenLineage events with column
+  lineage.
+- **Slim CI** (`murakumo verify --changed-since`): builds what a change reaches. The generated CI
+  uses it on pull requests.
+- **Row-access policies** (`row_access:` on a mart, Snowflake): which values of a column each role
+  sees; MK707 to MK709; a deploy step and a guide step.
+- **In the canvas:** a **Health** panel (monitoring, cost, catalog lineage, importing a dbt
+  project) and an **Assistant** panel; the inspector's change-feed and row-access settings.
+- **The canvas has tests** (Vitest), run in CI. `CONTRIBUTING.md` and `SECURITY.md`.
+
+**Verified**
+
+- Lint, and the Python and canvas test suites.
+- `verify` on PostgreSQL, live, in a container: the commerce example, 113 of 113 tests, with the
+  incremental rebuild, and its schemas dropped afterwards. CI runs the same against its PostgreSQL.
+- Change feeds: the staging SQL run on DuckDB, and parsed for all eight warehouses.
+- dlt: the generated pipeline run for real into DuckDB, from files and from a database; its REST
+  settings accepted by dlt without sending a request.
+- Importing dbt: on dbt projects Murakumo wrote and dbt compiled.
+- The cloud orchestrators' Terraform parses (`terraform fmt`).
+- The catalog's `send`, against a local HTTP endpoint. The two canvas panels, in a browser.
+
+**Not verified** (no account to run them against)
+
+- `verify` and `build` on Redshift, Databricks, BigQuery, Fabric and Synapse.
+- The four cloud orchestrators deployed, and the dlt pipeline into a warehouse other than DuckDB.
+- Airbyte's and Fivetran's views against what those tools really land. Fivetran's column naming is
+  assumed to be lower snake_case.
+- Row-access policies on a live Snowflake account.
+- The assistant against the provider's API: it is tested with a stand-in, to spend nothing.
+- The cost command's starting prices: list prices as they were known when written. Use your own.
+
 ## 0.9.0 (2026-11-04)
 
 The replication guide: everything it takes to rebuild the platform by hand, without Murakumo. And

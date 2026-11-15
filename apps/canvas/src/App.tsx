@@ -25,6 +25,7 @@ import {
   FileCode2,
   GitBranch,
   Grid3x3,
+  HeartPulse,
   History,
   ImageDown,
   KeyRound,
@@ -46,6 +47,7 @@ import {
   TriangleAlert,
   Undo2,
   Workflow,
+  Sparkles,
 } from 'lucide-react'
 import {
   useCallback,
@@ -89,6 +91,8 @@ import { NoteNode, type NoteNodeType } from './Notes'
 import { SchedulesPanel } from './Schedules'
 import { GuidePanel } from './Guide'
 import { MartsPanel } from './Marts'
+import { AssistantPanel } from './Assistant'
+import { HealthPanel } from './Health'
 import { RunsPanel } from './Runs'
 import { Search } from './Search'
 import { TestChange } from './TestChange'
@@ -152,6 +156,8 @@ type Side =
   | 'activity'
   | 'settings'
   | 'runs'
+  | 'health'
+  | 'assistant'
   | 'guide'
   | 'marts'
 type Theme = 'system' | 'light' | 'dark'
@@ -968,6 +974,8 @@ function Canvas() {
     { id: 'git', label: 'Team', icon: <GitBranch size={18} /> },
     { id: 'ci', label: 'CI', icon: <Workflow size={18} /> },
     { id: 'runs', label: 'Runs', icon: <History size={18} /> },
+    { id: 'health', label: 'Health', icon: <HeartPulse size={18} /> },
+    { id: 'assistant', label: 'Assistant', icon: <Sparkles size={18} /> },
     { id: 'guide', label: 'Guide', icon: <BookOpenCheck size={18} /> },
     {
       id: 'activity',
@@ -1290,6 +1298,21 @@ function Canvas() {
                     if (entity) focus(entity)
                   }}
                 />
+              )}
+              {side === 'health' && (
+                <HealthPanel
+                  refresh={jobsDone}
+                  environments={state.environments}
+                  onState={setState}
+                  onMessage={showMessage}
+                  onModel={(name) => {
+                    const entity = entities.find((e) => e.name.toLowerCase() === name.toLowerCase())
+                    if (entity) focus(entity)
+                  }}
+                />
+              )}
+              {side === 'assistant' && (
+                <AssistantPanel state={state} selected={selectedEntity?.name ?? null} onState={setState} onMessage={showMessage} />
               )}
               {side === 'settings' && <SettingsPanel revision={state.revision} onState={setState} onMessage={showMessage} />}
               {side === 'activity' && (

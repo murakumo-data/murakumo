@@ -34,7 +34,7 @@ def test_verify_the_taxi_example(tmp_path):
     result = verify(init_project(tmp_path / "taxi"), rows=100)
     assert result.ok, [(n.name, n.status, n.message) for n in result.nodes if n.status not in ("success", "pass")]
     assert result.rerun is True
-    assert result.count("model") == 4 and result.count("test", "pass") == result.count("test")
+    assert result.count("model") == 5 and result.count("test", "pass") == result.count("test")
 
 
 def test_verify_the_commerce_example():
@@ -87,7 +87,7 @@ def test_build_keeps_the_tables_and_never_doubles_the_sample(tmp_path):
     project = init_project(tmp_path / "taxi")
     first = runner.invoke(app, ["build", "-p", str(project.root), "--sample", "50"])
     assert first.exit_code == 0, first.output
-    assert "built: 4 models and snapshots" in first.output
+    assert "built: 5 models and snapshots" in first.output
     database = project.root / "taxi.duckdb"
     with duckdb.connect(str(database), read_only=True) as connection:
         tables = {

@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 0.9.0
+# End-to-end test: Murakumo 1.0.0
 
-A step-by-step test of Murakumo 0.9.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 1.0.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -16,7 +16,10 @@ should see.
 | 16 | Optional: the same project on Snowflake: environments, your own schema, production, a pull request's clone | 35 min |
 | 17 | Choosing the stack: connecting an API in the canvas, fetching and loading, the code for another stack, the decisions log | 25 min |
 | 18 | The replication guide: reading it, proving it, loading by hand; unknown rows, the bus matrix, exposures, access and masking | 20 min |
-| 19 | Cleaning up | 2 min |
+| 19 | SCD types 3, 4 and 6, a Data Vault, a metric, Terraform on LocalStack, Iceberg in Polaris, Kafka through the consumer and Flink | 40 min |
+| 20 | A change feed, Slim CI, cost, monitoring, lineage for a catalog, importing a dbt project, the MCP server, the assistant | 30 min |
+| 21 | PostgreSQL, a cloud orchestrator, dlt, Airbyte and Fivetran, row access, alerts, the canvas's guard | 30 min |
+| 22 | Cleaning up | 2 min |
 
 ## How to use this script
 
@@ -121,10 +124,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 0.9.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 1.0.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 0.9.0.
+☐ Version 1.0.0.
 
 ---
 
@@ -1894,11 +1897,478 @@ their ticks in different places. Click **Check it rebuilds the project**: **Acti
 
 ---
 
-## Part 19: Clean up
+## Part 19: History types, the Data Vault, metrics, Terraform, open tables and streaming
 
-**19.1** In the canvas tab, press **Ctrl+C** to stop it.
+The rest of the platform: three more ways to keep a dimension's history, a Data Vault, metrics
+defined once, the platform as Terraform, tables any engine can read, and Kafka. Work in
+`~/murakumo-e2e/taxi_platform`, with the canvas running. Steps 19.4 to 19.6 need Docker
+(Docker Desktop, free for personal use): nothing in the cloud, nothing to pay for.
+[modelling-patterns.md](modelling-patterns.md) and [stack.md](stack.md) describe everything here.
 
-**19.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
+**19.1** SCD type 3. In the canvas, select **dim_taxi_zone**. In the inspector, set **History** to
+`scd3`, and **Tracked** to `zone_name`. Then:
+
+```bash
+murakumo generate
+grep -n "previous_zone_name" generated/dbt/models/marts/*/dim_taxi_zone.sql | head -3
+murakumo verify
+```
+
+You should see `previous_zone_name` in the model, and `verified: ... passed`. Try `scd6` (a
+`current_zone_name` on every version) and `scd4` (a `dim_taxi_zone_history` table beside it) the
+same way, then set it back to `scd1`.
+
+☐ The history types generate and verify.
+
+**19.2** A Data Vault. Create `model/entities/vault/hub_zone.yaml`:
+
+```yaml
+name: hub_zone
+layer: intermediate
+kind: hub
+attributes:
+  - {name: zone_number, type: bigint, nullable: false, key: natural}
+mappings:
+  - {target: zone_number, sources: [taxi_zone_lookup.LocationID]}
+```
+
+and `model/entities/vault/sat_zone.yaml`:
+
+```yaml
+name: sat_zone
+layer: intermediate
+kind: satellite
+attributes:
+  - {name: zone_number, type: bigint, nullable: false, key: natural}
+  - {name: borough, type: string}
+  - {name: zone_name, type: string}
+mappings:
+  - {target: zone_number, sources: [taxi_zone_lookup.LocationID]}
+  - {target: borough, sources: [taxi_zone_lookup.Borough]}
+  - {target: zone_name, sources: [taxi_zone_lookup.Zone]}
+```
+
+In the canvas, draw a relationship from **sat_zone** to **hub_zone** on `zone_number`. Then:
+
+```bash
+murakumo validate --fix
+murakumo verify
+```
+
+You should see `valid: 0 error(s)`, then `verified`, with tests on `hub_zone_hk`. Open
+`generated/dbt/models/intermediate/core/hub_zone.sql`: the hash key is md5 of the trimmed,
+upper-cased key, and each run adds only keys not seen before.
+
+☐ The hub and satellite build and test.
+
+**19.3** A metric. In the canvas, open **Bus matrix** (the grid icon) → **Metrics** → **Add a
+metric**: name `trips`, counted on `fct_trip`, expression `count(*)`, by date `pickup_at`, grain
+`day`. **Save metrics**. Then:
+
+```bash
+murakumo generate
+sed -n '1,40p' generated/dbt/models/semantic/_semantic.yml
+murakumo verify
+```
+
+You should see a semantic model `fct_trip` with a measure `trips`, the metric `trips`, and
+`metricflow_time_spine`. `verify` passes (dbt checks the semantic layer when it reads the
+project). Optionally, query it:
+
+```bash
+pip install "dbt-metricflow[dbt-duckdb]"
+murakumo build --sample 200
+cd generated/dbt && DBT_PROFILES_DIR=. mf query --metrics trips --group-by metric_time__month; cd ../..
+```
+
+☐ The metric is in the semantic layer.
+
+**19.4** Terraform, tried on LocalStack. In **Stack**, set **Infrastructure as code** to
+Terraform, **Extract** to `lambda` and **Landing** to `s3://taxi-landing/raw`. Then:
+
+```bash
+murakumo generate
+ls generated/terraform
+docker run -d --rm --name e2e-localstack -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock localstack/localstack:4.0
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+terraform -chdir=generated/terraform/aws init
+terraform -chdir=generated/terraform/aws apply -var endpoint=http://localhost:4566
+```
+
+Type `yes` when it asks. You should see `Apply complete! Resources: ... added`: the bucket, the
+extract function and its schedule, on LocalStack. Remove them, then put the stack back:
+
+```bash
+terraform -chdir=generated/terraform/aws destroy -var endpoint=http://localhost:4566
+docker stop e2e-localstack
+murakumo stack set extract=python landing=landing iac=none --why "end-to-end test"
+```
+
+☐ Terraform applies and destroys on LocalStack.
+
+**19.5** Open tables: Iceberg in a local catalog. In **Settings** → **Open tables**, set **Table
+format** to Apache Iceberg, **Catalog** to Apache Polaris, and **Catalog warehouse** to `taxi`.
+Then:
+
+```bash
+murakumo generate
+docker compose -f generated/lakehouse/docker-compose.yml up -d
+bash generated/lakehouse/setup.sh
+murakumo build --sample 50
+```
+
+You should see *The catalog taxi is ready*, then `built: ... passed`. The marts are Iceberg tables
+now, in Polaris, with their files in LocalStack's S3:
+
+```bash
+curl -s http://localhost:4566/taxi?list-type=2 | grep -o '<Key>marts/[^/]*' | sort -u
+```
+
+You should see `marts/dim_taxi_zone` and `marts/fct_trip`. Stop it, and set **Table format** back
+to the warehouse's own tables:
+
+```bash
+docker compose -f generated/lakehouse/docker-compose.yml down
+```
+
+☐ The marts are written as Iceberg tables.
+
+**19.6** Streaming from Kafka. In **Sources**, give `nyc_tlc` a connection of kind **Kafka**:
+brokers `localhost:19092`, a topic `zones` for the table `taxi_zone_lookup`. Set that table's
+**New rows** to `append` in the inspector. In **Stack**, set **Streaming** to Flink. Then:
+
+```bash
+murakumo generate
+docker compose -f generated/streaming/docker-compose.yml up -d
+docker compose -f generated/streaming/docker-compose.yml exec redpanda rpk topic create zones
+echo '{"LocationID": 501, "Borough": "Queens", "Zone": "Test zone", "service_zone": "Boro Zone"}' | \
+  docker compose -f generated/streaming/docker-compose.yml exec -T redpanda rpk topic produce zones
+murakumo ingest
+murakumo load
+```
+
+You should see `nyc_tlc.taxi_zone_lookup: 1 new` (the consumer reads what is new since its last
+run), then the load. Now continuously, with Flink: the job reads the topic from inside Docker, so
+set the connection's brokers to `redpanda:9092`, then:
+
+```bash
+murakumo generate
+bash generated/streaming/flink-jars.sh
+docker compose -f generated/streaming/docker-compose.yml exec jobmanager ./bin/sql-client.sh \
+  -j /opt/flink/usrlib/flink-sql-connector-kafka.jar -f /project/generated/streaming/flink/nyc_tlc.sql
+```
+
+You should see `Job ID: ...`, and <http://localhost:8081> lists the running job. Produce another
+message as above; within two minutes a `part-...` file appears in
+`landing/nyc_tlc/taxi_zone_lookup/`, and `murakumo load` loads it. Stop it all:
+
+```bash
+docker compose -f generated/streaming/docker-compose.yml down
+```
+
+Then remove the Kafka connection and set **Streaming** back to the consumer.
+
+☐ Messages reach the raw table, by the consumer and by Flink.
+
+## Part 20: Change feeds, Slim CI, cost, monitoring, a catalog, dbt, an agent
+
+Run these in the project folder, in a second Terminal tab (the canvas still runs in the first).
+
+**20.1 A change feed.** In the canvas, click the raw table **taxi_zone_lookup**. In the inspector,
+set **New rows** to `cdc`.
+
+**You should see** two new rows in the inspector, **Operation** and **Latest by**, and the hint
+*A change feed: every change is kept here.* Set **New rows** back to what it was (`full`).
+
+☐ The change-feed settings appear and go.
+
+**20.2 Slim CI.** Commit what you have, then ask what a change reaches:
+
+```bash
+git add -A && git commit -q -m "before slim" ; murakumo verify --changed-since HEAD
+```
+
+**You should see** `verified: the model has not changed since HEAD; nothing to build.`
+
+In the canvas, click **dim_taxi_zone**, click its **borough** column, and change its type to
+`string(40)`. Then:
+
+```bash
+murakumo verify --changed-since HEAD --once
+```
+
+**You should see** `Changed since HEAD, or built from what changed: dim_taxi_zone.` and
+`verified: 2 models and snapshots built` (the dimension and the staging model it reads), not the
+whole project.
+
+☐ Only what the change reaches is built.
+
+**20.3 Cost.**
+
+```bash
+murakumo cost
+```
+
+**You should see** a row per schedule with **Runs a month** and **Minutes a run**, a total
+(`About 0.00 USD a month on duckdb`, because DuckDB runs on this computer), and the assumptions
+under it.
+
+☐ An estimate, with its assumptions.
+
+**20.4 Monitoring.**
+
+```bash
+murakumo monitor
+```
+
+**You should see** `Nothing unusual in N table(s), from M recorded load(s).` (or, if Part 12 was
+skipped, that nothing is recorded yet).
+
+In the canvas, open the **Health** panel (the heart icon on the rail).
+
+**You should see** the same under **What is unusual**, the cost table, **Lineage for a catalog**
+and **Bring in a dbt project**.
+
+☐ The command and the panel agree.
+
+**20.5 Lineage for a catalog.**
+
+```bash
+murakumo catalog export -o /tmp/lineage.jsonl && head -c 300 /tmp/lineage.jsonl
+```
+
+**You should see** `Wrote N OpenLineage event(s)`, and JSON starting `{"eventType": "COMPLETE"`.
+
+☐ One event per modelled table.
+
+**20.6 Bring in a dbt project.** The project's own generated dbt project stands in for someone
+else's:
+
+```bash
+murakumo generate && murakumo import dbt generated/dbt --dry-run
+```
+
+**You should see** `taxi_platform (dbt)`, a line per table already in the model (`= fct_trip is
+already in the model: left as it is`), how many staging models were not imported, a **to do**
+saying the dbt project is not compiled, and `Dry run: nothing was written.`
+
+☐ It reads the dbt project and changes nothing.
+
+**20.7 The MCP server.** Ask it for its tools, as an agent would:
+
+```bash
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | murakumo mcp | head -c 200
+```
+
+**You should see** JSON starting `{"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name":
+"model_summary"`.
+
+☐ The tools are listed.
+
+**20.8 The assistant is off until you turn it on.**
+
+```bash
+murakumo ai status ; murakumo ai describe
+```
+
+**You should see** `Assistant: off`, that it is sent the model and never rows of data, and then
+`the assistant is off for this project. Turn it on with murakumo ai enable`.
+
+In the canvas, open the **Assistant** panel (the sparkles icon). **You should see** the same
+three promises and **Turn the assistant on**. Leave it off, unless you have a key with the model
+provider and want to try it: then `export ANTHROPIC_API_KEY=...`, restart the canvas, turn it on,
+choose **Describe**, **Suggest**, tick a suggestion and **Apply**.
+
+☐ Off by default, and it says what it would send.
+
+## Part 21: Another warehouse, cloud orchestrators, dlt, Airbyte and Fivetran, row access, alerts
+
+The same project, pointed at other tools. Run these in the project folder, in the second Terminal
+tab. 21.1 needs Docker Desktop running (as Part 19 did); skip it without.
+
+**21.1 Verify on PostgreSQL.** Add PostgreSQL support, and dlt for 21.3, the way your route does
+it:
+
+Route A:
+
+```bash
+uv tool install --force "murakumo[canvas,verify,duckdb,postgres,dlt]"
+```
+
+Route B:
+
+```bash
+pip install "murakumo[postgres,dlt]"
+```
+
+Route C:
+
+```bash
+export MURAKUMO_EXTRAS="postgres,dlt"
+```
+
+Start a throwaway PostgreSQL, and tell Murakumo where it is:
+
+```bash
+docker run -d --rm --name murakumo-e2e-pg -e POSTGRES_PASSWORD=murakumo -p 55432:5432 postgres:16-alpine
+export DB_HOST=localhost DB_PORT=55432 DB_USER=postgres DB_PASSWORD=murakumo DB_NAME=postgres
+```
+
+Wait ten seconds, then build the project there with made-up data, without changing the project:
+
+```bash
+murakumo verify --warehouse postgres
+```
+
+**You should see** a `loaded <table>: 200 rows (synthetic)` line per raw table, then
+`verified: N models and snapshots built, N/N tests passed, incremental rebuild passed on postgres.`
+
+Stop it:
+
+```bash
+docker rm -f murakumo-e2e-pg
+```
+
+☐ The same model builds and passes its tests on PostgreSQL.
+
+> Redshift, Databricks, BigQuery, Fabric and Synapse work the same way (`--warehouse redshift`,
+> and so on, with that warehouse's extra and variables; [generating.md](generating.md) lists them).
+> They need an account, so they are not part of this script. If you have one, try it and note the
+> result: these have not been run against a live warehouse yet.
+
+**21.2 A cloud orchestrator.**
+
+```bash
+murakumo stack set orchestrator=aws_step_functions --why "Trying a cloud orchestrator"
+murakumo generate
+ls generated/orchestration/aws_step_functions
+grep -n "schedule_expression\|StartAt\|Resource" generated/orchestration/aws_step_functions/main.tf generated/orchestration/aws_step_functions/state_machine.asl.json
+```
+
+**You should see** `orchestrator: airflow → aws_step_functions`; the files `Dockerfile`,
+`README.md`, `main.tf`, `requirements.txt`, `run.sh` and `state_machine.asl.json`; a
+`schedule_expression = "cron(...)"` for the daily schedule; and a state machine that starts at
+`Build` and runs an ECS task (`arn:aws:states:::ecs:runTask.sync`).
+
+Try the other three the same way if you like: `aws_glue` (a Glue job and `glue_dbt.py`),
+`gcp_workflows` (`workflow.yaml`) and `azure_data_factory` (`pipeline.json` and a trigger per
+schedule). In the canvas, **Stack** shows the orchestrator you chose, and **Guide** has the steps
+to deploy it by hand.
+
+☐ The orchestrator's files are written, and the guide says how to deploy them.
+
+**21.3 dlt fetches and loads.** Part 17's weather API, fetched by dlt instead of Murakumo's own
+code:
+
+```bash
+murakumo stack set orchestrator=airflow extract=dlt --why "Trying dlt"
+murakumo generate
+murakumo ingest --source open_meteo
+```
+
+**You should see** `extract: python → dlt`, then dlt's own report: `1 load package(s) were loaded
+to destination duckdb and into dataset raw_open_meteo`, `... is LOADED and contains no failed
+jobs`, and last `Loaded into the raw tables by dlt. Build with murakumo build.` There is no
+separate `murakumo load`: dlt fetches and loads in one step. (If it says *dlt is not installed
+beside Murakumo*, do 21.1's install step.) Then:
+
+```bash
+murakumo build
+```
+
+**You should see** `built: N models and snapshots, N/N tests passed`: staging read what dlt
+loaded. (The weather table has 168 rows: one per hour, not one row holding 168 values.)
+
+☐ dlt loads the raw table, and the build reads it.
+
+**21.4 Airbyte and Fivetran.** These fetch in their own product; Murakumo writes what to set up
+there:
+
+```bash
+murakumo stack set extract=airbyte --why "Trying Airbyte"
+murakumo generate
+ls generated/ingestion/airbyte
+grep -n "destination_schema" generated/ingestion/airbyte/connections.json
+grep -n "_airbyte_extracted_at" generated/ingestion/airbyte/views.sql
+```
+
+**You should see** `README.md`, `connections.json` and `views.sql`; the destination schema
+`raw_open_meteo_airbyte`; and a view that turns `_airbyte_extracted_at` into `_ingested_at`.
+`extract=fivetran` writes the same three files under `generated/ingestion/fivetran`, reading
+`_fivetran_synced`. Neither has been run against the real product yet: if you use one, note what
+its landed tables are really called.
+
+Put the project back:
+
+```bash
+murakumo stack set extract=python --why "Back for the test"
+murakumo generate
+```
+
+☐ The connection plan and the views are written; the project is back.
+
+**21.5 Row access.** In the canvas, click **dim_taxi_zone**. In the inspector, under **The column
+that decides which rows a role sees**, choose `borough`. In the box that appears, type
+`ANALYST_QUEENS: Queens`.
+
+**You should see** in **Problems** the warning `MK709` *row-access policies are generated for
+Snowflake only, for now*: the project is on DuckDB. See what Snowflake would get:
+
+```bash
+murakumo stack set warehouse=snowflake --why "Looking at row access"
+murakumo generate
+grep -n "row access policy" generated/guide/05-transformations.md
+```
+
+**You should see** `create row access policy if not exists governance.murakumo_rows_dim_taxi_zone
+... is_role_in_session('ANALYST_QUEENS') and val in ('Queens')`.
+
+Put it back: clear the row-access column in the inspector, then:
+
+```bash
+murakumo stack set warehouse=duckdb --why "Back for the test"
+murakumo generate
+```
+
+☐ The policy is written for Snowflake, with its step in the guide.
+
+**21.6 Alerts.** Open `murakumo.yaml` in a text editor and add at the end:
+
+```yaml
+quality:
+  alerts:
+    - kind: slack
+      url_env: SLACK_WEBHOOK
+      on: [error, warn]
+```
+
+```bash
+murakumo validate && murakumo monitor --notify
+```
+
+**You should see** `valid`, and the same answer as 20.4. With nothing unusual, nothing is sent. If
+you have a Slack incoming webhook, `export SLACK_WEBHOOK=https://hooks.slack.com/...` first: a
+finding then arrives as a message with table names and counts, never rows.
+
+☐ The alert setting loads.
+
+**21.7 The canvas takes changes only from itself.** With the canvas running, pretend to be another
+website:
+
+```bash
+curl -s -X PUT -H 'Origin: https://example.com' -H 'Content-Type: application/json' -d '{"enabled":true}' http://127.0.0.1:8765/api/assistant
+```
+
+**You should see** `{"message":"changes are only accepted from the canvas itself"}`, and
+`murakumo ai status` still says `Assistant: off`.
+
+☐ A page on another site cannot change the project.
+
+## Part 22: Clean up
+
+**22.1** In the canvas tab, press **Ctrl+C** to stop it.
+
+**22.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
 
 ```bash
 rm -rf ~/murakumo-e2e
@@ -1954,7 +2424,10 @@ output or a screenshot.
 | 16 Snowflake (optional): environments, own schema, pull-request clone | | |
 | 17 Stack: connect an API, fetch, load, another stack's code, decisions | | |
 | 18 Replication guide: read, check, load by hand; unknown rows, bus matrix, exposures, access, masking | | |
-| 19 Clean up | | |
+| 19 History types, vault, metrics, Terraform, Iceberg, Kafka and Flink | | |
+| 20 Change feed, Slim CI, cost, monitoring, catalog lineage, importing dbt, MCP, the assistant | | |
+| 21 PostgreSQL, cloud orchestrator, dlt, Airbyte and Fivetran, row access, alerts, the canvas's guard | | |
+| 22 Clean up | | |
 
 Also note anything that was confusing, slow or surprising, even if it worked. That is as useful
 as a failure.

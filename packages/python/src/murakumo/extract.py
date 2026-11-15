@@ -547,6 +547,66 @@ def extract_protobuf(settings: dict[str, Any], landing: Landing, state: dict[str
     return done
 
 
+# Kafka --------------------------------------------------------------------------------------------
+
+KAFKA_IDLE_SECONDS = 10  # a topic with nothing new for this long has been read up to now
+
+
+def kafka_consumer(c: dict[str, Any], group: str, **options: Any):
+    try:
+        from kafka import KafkaConsumer  # type: ignore[import-not-found]
+    except ImportError:
+        raise ExtractError("Kafka needs kafka-python: pip install kafka-python") from None
+    settings: dict[str, Any] = {
+        "bootstrap_servers": c["bootstrap_servers"].split(","),
+        "security_protocol": c.get("security_protocol", "PLAINTEXT"),
+        "group_id": group,
+        **options,
+    }
+    if c.get("sasl_mechanism"):
+        settings["sasl_mechanism"] = c["sasl_mechanism"]
+        settings["sasl_plain_username"] = secret(c.get("username_env"), "the Kafka user")
+        settings["sasl_plain_password"] = secret(c.get("password_env"), "the Kafka password")
+    return KafkaConsumer(**settings)
+
+
+def extract_kafka(settings: dict[str, Any], landing: Landing, state: dict[str, Any], only: str | None):
+    """Each topic's messages since the consumer group's last commit, as files: read until the topic
+    has had nothing new for a while, write the files, then commit, so a message is never lost (one
+    may land twice if a run stops between writing and committing; append tables keep both)."""
+    c = settings["connection"]
+    group = c.get("group") or f"murakumo-{settings['source']}"
+    done = {}
+    for item in c.get("topics") or []:
+        table = item["table"]
+        if only and table != only:
+            continue
+        consumer = kafka_consumer(
+            c,
+            f"{group}-{table}",
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
+            consumer_timeout_ms=KAFKA_IDLE_SECONDS * 1000,
+        )
+        consumer.subscribe([item["topic"]])
+        writer = Writer(landing, table)
+        try:
+            for message in consumer:
+                try:
+                    record = json.loads(message.value)
+                except (TypeError, ValueError):
+                    raise ExtractError(f"{item['topic']}: a message is not JSON (offset {message.offset})") from None
+                writer.add(record if isinstance(record, dict) else {"value": record})
+            writer.flush()
+            if writer.count:
+                consumer.commit()
+        finally:
+            consumer.close()
+        state.setdefault(table, {})["topic"] = item["topic"]
+        done[table] = (writer.count, writer.files)
+    return done
+
+
 # Running ------------------------------------------------------------------------------------------
 
 KINDS = {
@@ -555,6 +615,7 @@ KINDS = {
     "sftp": extract_sftp,
     "database": extract_database,
     "protobuf": extract_protobuf,
+    "kafka": extract_kafka,
 }
 
 
@@ -625,7 +686,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     for table, (count, files) in done.items():
-        unit = "row(s)" if settings["connection"]["kind"] in {"rest", "database", "protobuf"} else "file(s)"
+        unit = "row(s)" if settings["connection"]["kind"] in {"rest", "database", "protobuf", "kafka"} else "file(s)"
         print(f"{settings['source']}.{table}: {count} new {unit}, {len(files)} file(s) landed")
     return 0
 

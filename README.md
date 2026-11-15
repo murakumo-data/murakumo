@@ -2,7 +2,7 @@
 
 **Model-first data engineering.** Design the logical model (entities, relationships, mappings) on a canvas, and Murakumo generates and maintains everything downstream: DDL, dbt projects, Spark and Python jobs, streaming configs, tests, audit tables, data contracts and orchestration, on an open lakehouse.
 
-> Status: alpha. Version 0.9.0 is out ([changelog](CHANGELOG.md)):
+> Status: beta. Version 1.0.0 ([changelog](CHANGELOG.md)):
 > `uv tool install "murakumo[canvas,verify,duckdb]"`, `pip install "murakumo[canvas,verify,duckdb]"`
 > or `npm install -g murakumo`, then `murakumo init my_platform`. The
 > [end-to-end test](docs/end-to-end-test.md) walks through everything.
@@ -14,7 +14,7 @@
 | [packages/python](packages/python) | Engine and `murakumo` CLI (`pip install murakumo`) |
 | [packages/npm](packages/npm) | npm package (`npm install -g murakumo`): runs the PyPI release through uv |
 | [apps/canvas](apps/canvas) | Modelling canvas (React + React Flow), served by `murakumo canvas` |
-| [docs](docs) | [Starting a project and setting up](docs/setup.md), [the end-to-end test](docs/end-to-end-test.md), [model files and validation rules](docs/model.md), [importing metadata](docs/importing.md), [generating and verifying](docs/generating.md), [Snowflake](docs/snowflake.md), [the canvas](docs/canvas.md), [schedules, pipelines and CI](docs/orchestration.md), [choosing the stack: connections, ingestion and deploying](docs/stack.md), [the replication guide: rebuilding it all by hand](docs/guide.md), [modelling patterns](docs/modelling-patterns.md), [working as a team](docs/teamwork.md), [Murakumo against established practice](docs/practices.md) |
+| [docs](docs) | [Starting a project and setting up](docs/setup.md), [the end-to-end test](docs/end-to-end-test.md), [model files and validation rules](docs/model.md), [importing metadata](docs/importing.md), [generating and verifying](docs/generating.md), [Snowflake](docs/snowflake.md), [the canvas](docs/canvas.md), [schedules, pipelines and CI](docs/orchestration.md), [choosing the stack: connections, streaming, open tables, Terraform and deploying](docs/stack.md), [the replication guide: rebuilding it all by hand](docs/guide.md), [modelling patterns: SCD types, Data Vault, the semantic layer](docs/modelling-patterns.md), [working as a team](docs/teamwork.md), [the assistant and the MCP server](docs/assistant.md), [monitoring, cost, catalog lineage and Slim CI](docs/operating.md), [Murakumo against established practice](docs/practices.md) |
 | [examples](examples) | Sample data dictionaries, and [commerce](examples/commerce): a full project with its generated dbt code |
 | [tools](tools) | Developer scripts, including the [install smoke test](tools/smoke_test.sh) |
 
@@ -30,7 +30,8 @@ cd ../../apps/canvas && npm install && npm run build
 cd ../../packages/python && uv run murakumo canvas ../../examples/commerce   # the visual editor
 ```
 
-Releases: [RELEASING.md](RELEASING.md).
+Releases: [RELEASING.md](RELEASING.md). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Reporting a
+vulnerability: [SECURITY.md](SECURITY.md).
 
 ## Licence
 

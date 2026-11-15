@@ -139,6 +139,15 @@ instead, matching columns by name, or on Snowflake from a table (`snowflake:DB.S
 
 Verify needs dbt and DuckDB: `pip install "murakumo[verify]"`, plus `dbt-snowflake` for Snowflake.
 
+On the other warehouses, `murakumo verify --warehouse postgres` (or `redshift`, `databricks`,
+`bigquery`, `fabric`, `synapse`) does the same in schemas with a unique prefix, dropped afterwards.
+Install the warehouse's extra (`pip install "murakumo[postgres]"`) and set the variables its dbt
+profile reads: `DB_HOST`, `DB_USER`, `DB_PASSWORD` (and `DB_PORT`, `DB_NAME`) for PostgreSQL and
+Redshift; `DATABRICKS_HOST`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_TOKEN`; `BIGQUERY_PROJECT`;
+`FABRIC_SERVER` or `SYNAPSE_SERVER` with `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`.
+PostgreSQL is run in CI. The others are written to the same interface and not yet run against a
+real account.
+
 ## Build
 
 `verify` leaves nothing behind. `murakumo build` builds the project where it belongs, in the
@@ -306,11 +315,15 @@ folder has nothing to check, so migrations are opt-in: the first `murakumo migra
 | MK506 | error | No mapping names a source column, so there is no table to select from |
 | MK507 | error | A mapping expression is not valid SQL |
 | MK508 | error | A cumulative table's grain column has no column or mapping |
+| MK509 | error | A Data Vault table cannot be built: a link with fewer than two hubs, a satellite without its hub or link, a relationship that does not map the business key, or no raw table to read |
 | MK701 | error | Two choices in the stack do not go together (Snowpipe on DuckDB, Lambda landing in a folder) |
 | MK702 | warning | A source's connection fills a table that is not a raw table in the model |
 | MK703 | warning | A transient layer asks for more than 1 day of time travel, which Snowflake refuses |
 | MK704 | error | `governance.masking` names a rule that does not exist |
 | MK705 | warning | A column to mask is not text: masking policies here mask text columns |
 | MK706 | warning | A table with `access: private` has no domain, so no group may use it |
+| MK707 | error | `row_access.column` is not a column of the table, or is not text (a warning when the table is not a mart) |
+| MK708 | warning | `row_access` allows no role, so nobody would see a row |
+| MK709 | warning | `row_access` on a warehouse other than Snowflake: nothing is generated |
 
 An entity with an error is skipped; the rest of the project is still generated.

@@ -15,6 +15,8 @@ up by hand. Generated from murakumo.yaml and model/decisions.yaml.
 | Python | `none` | No |
 | Orchestrator | `airflow` | Apache Airflow |
 | CI | `github` | GitHub Actions |
+| Streaming | `consumer` | The extract script, on each schedule: reads what is new since the last run |
+| Infrastructure as code | `none` | No: the SQL and scripts only |
 
 - **warning** (extract): no source has a connection yet, so there is nothing to fetch: add one to a source
 

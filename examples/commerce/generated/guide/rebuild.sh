@@ -37,12 +37,17 @@ run sql/build/09_staging__stg_tpch_erp__part.sql
 run sql/build/10_staging__stg_tpch_erp__partsupp.sql
 run sql/build/11_staging__stg_tpch_erp__region.sql
 run sql/build/12_staging__stg_tpch_erp__supplier.sql
-run sql/build/13_intermediate__int_dim_customer__versions.sql
-run sql/build/14_snapshots__snp_dim_customer.sql
-run sql/build/15_marts__dim_customer.sql
-run sql/build/16_marts__dim_part.sql
-run sql/build/17_marts__fct_order_fulfilment.sql
-run sql/build/18_marts__fct_order_line.sql
-run sql/build/19_marts__customer_order_activity.sql
+run sql/build/13_intermediate__hub_customer.sql
+run sql/build/14_intermediate__hub_order.sql
+run sql/build/15_intermediate__int_dim_customer__versions.sql
+run sql/build/16_intermediate__link_order_customer.sql
+run sql/build/17_intermediate__sat_customer.sql
+run sql/build/18_intermediate__sat_customer_current.sql
+run sql/build/19_snapshots__snp_dim_customer.sql
+run sql/build/20_marts__dim_customer.sql
+run sql/build/21_marts__dim_part.sql
+run sql/build/22_marts__fct_order_fulfilment.sql
+run sql/build/23_marts__fct_order_line.sql
+run sql/build/24_marts__customer_order_activity.sql
 
 echo "Built. The test queries are in $here/sql/tests: each returns the rows that fail."

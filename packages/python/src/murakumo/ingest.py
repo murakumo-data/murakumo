@@ -42,6 +42,10 @@ def run(project: Project, source: str | None = None, table: str | None = None) -
     """Fetch what is new from each source with a connection (or one), into the landing area."""
     if project.manifest.stack.extract == "none":
         raise IngestError("the stack's extract is none: something else fetches the data")
+    if project.manifest.stack.extract in ("airbyte", "fivetran"):
+        raise IngestError(f"{project.manifest.stack.extract.capitalize()} fetches the data: run a sync there")
+    if uses_dlt(project, source):
+        raise IngestError("dlt fetches these sources: use run_dlt, or `murakumo ingest`")
     declarations = [_declaration(project, source)] if source else connected(project)
     if not declarations:
         raise IngestError("no source has a connection yet: add one to a source in murakumo.yaml or the canvas")
@@ -55,6 +59,43 @@ def run(project: Project, source: str | None = None, table: str | None = None) -
             fetched.error = str(exc)
         results.append(fetched)
     return results
+
+
+def uses_dlt(project: Project, source: str | None = None) -> bool:
+    """Whether dlt, not Murakumo's own extract code, fetches these sources."""
+    if project.manifest.stack.extract != "dlt":
+        return False
+    from murakumo.generate.managed import DLT_KINDS
+
+    chosen = [_declaration(project, source)] if source else connected(project)
+    return any(d.connection.kind in DLT_KINDS for d in chosen)
+
+
+def run_dlt(project: Project, source: str | None = None) -> list[str]:
+    """Run the generated dlt pipeline, which fetches and loads in one step. Returns what it said."""
+    import importlib.util
+    import os
+    import subprocess
+    import sys
+
+    script = project.root / "generated" / "ingestion" / "dlt" / "pipeline.py"
+    if not script.is_file():
+        raise IngestError("generated/ingestion/dlt/pipeline.py is not there yet: run `murakumo generate`")
+    if importlib.util.find_spec("dlt") is None:
+        raise IngestError(
+            'dlt is not installed beside Murakumo: add the extra (`pip install "murakumo[dlt]"`), or run '
+            "`python generated/ingestion/dlt/pipeline.py` where dlt is installed"
+        )
+    done = subprocess.run(  # noqa: S603 - our own generated script, with this Python
+        [sys.executable, str(script), *([source] if source else [])],
+        capture_output=True,
+        text=True,
+        cwd=project.root,
+        env={**os.environ, "MURAKUMO_PROJECT_DIR": str(project.root), "RUNTIME__DLTHUB_TELEMETRY": "false"},
+    )
+    if done.returncode != 0:
+        raise IngestError((done.stderr or done.stdout).strip()[-2000:] or "the dlt pipeline failed")
+    return [line for line in done.stdout.splitlines() if line.strip()]
 
 
 def _ignore_landing(project: Project) -> None:
@@ -151,6 +192,15 @@ def test(project: Project, source: str) -> list[str]:
 
                 messages = parse((project.root / c.proto).read_text(encoding="utf-8"))
                 lines.append(f"{c.proto}: {len(messages)} message type(s)")
+        elif c.kind == "kafka":
+            consumer = extract.kafka_consumer(c.model_dump(exclude_none=True), f"murakumo-{declaration.name}-test")
+            try:
+                topics = consumer.topics()
+            finally:
+                consumer.close()
+            for item in c.topics:
+                found = "found" if item.topic in topics else "not found"
+                lines.append(f"{item.table}: topic {item.topic} {found} on {c.bootstrap_servers}")
         elif c.kind == "database":
             try:
                 import sqlalchemy

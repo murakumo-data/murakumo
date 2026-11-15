@@ -195,8 +195,10 @@ def test_provisioning(tmp_path):
     for line in (
         "create database if not exists MURAKUMO;",
         "create database if not exists TAXI_PROD;",
-        "grant all on database TAXI_PROD to role TAXI_DEPLOYER_PROD;",
-        "grant select on all tables in database TAXI_PROD to role TAXI_DEVELOPER;",
+        "grant all on database TAXI_PROD to role TAXI_PROD_WRITE;",
+        "grant role TAXI_PROD_WRITE to role TAXI_DEPLOYER_PROD;",
+        "grant select on all tables in database TAXI_PROD to role TAXI_PROD_READ;",
+        "grant role TAXI_PROD_READ to role TAXI_DEVELOPER;",
     ):
         assert line in sql
     assert "Nothing to run on DuckDB" in environments.provision(init_project(tmp_path / "local"))

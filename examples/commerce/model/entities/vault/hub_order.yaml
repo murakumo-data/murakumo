@@ -1,0 +1,16 @@
+id: b9f4fc4c-d54f-47ff-9ec9-1fc4159ac80a
+name: hub_order
+description: Every order, once, by its order number.
+layer: intermediate
+kind: hub
+domain: sales
+attributes:
+  - id: 96f83d7f-0fd4-4b2b-ad9a-b90fee1676cd
+    name: order_number
+    type: bigint
+    nullable: false
+    key: natural
+mappings:
+  - target: order_number
+    sources:
+      - orders.o_orderkey

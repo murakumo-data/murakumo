@@ -235,6 +235,26 @@ class Freshness(IRModel):
     error_after_hours: float | None = None
 
 
+class Cdc(IRModel):
+    """How a change feed (``load: cdc``) is read: Debezium, a database's log, DMS, Fivetran history.
+
+    The raw table keeps every change as it arrived. Staging gives the table as it is now: each
+    key's latest change, without the keys whose latest change is a delete.
+    """
+
+    operation: Name | None = None  # the column that says what happened to the row (op, __op, Op)
+    deletes: list[str] = Field(default_factory=lambda: ["d", "delete", "deleted"])  # its values that mean deleted
+    order: Name | None = None  # which change is the latest: default the watermark, then load time
+
+
+class RowAccess(IRModel):
+    """Which rows of a mart each role may see: the column that decides, and each role's values.
+    Roles in governance.unmasked_roles see every row."""
+
+    column: Name
+    allow: dict[str, list[str]] = Field(default_factory=dict)  # role -> the values of the column it may see
+
+
 class Cumulative(IRModel):
     """How a cumulative table accumulates: one row per key per day, carrying its whole history.
 
@@ -278,6 +298,9 @@ class Entity(Node):
     owner: str | None = None
     grain: list[Name] = Field(default_factory=list)
     history: History = History.NONE
+    # The columns whose changes it keeps: their previous value (scd3), or their current value on
+    # every version (scd6). Empty: every column that is not a key.
+    tracked: list[Name] = Field(default_factory=list)
     load: LoadPattern = LoadPattern.FULL
     watermark: Name | None = None
     # An incremental table picks up what was loaded since its last run (load_time, the default:
@@ -287,6 +310,7 @@ class Entity(Node):
     partition_by: list[str] = Field(default_factory=list)
     cluster_by: list[Name] = Field(default_factory=list)
     freshness: Freshness | None = None
+    cdc: Cdc | None = None  # for load: cdc
     cumulative: Cumulative | None = None  # for kind: cumulative
     accumulating: Accumulating | None = None  # for kind: accumulating
     # A dimension gets a row for "unknown" (key -1), and facts point at it instead of a missing key;
@@ -294,6 +318,7 @@ class Entity(Node):
     unknown_member: bool | None = None
     conformed: bool = False  # a dimension shared by every domain: facts use it, not copies of it
     access: str | None = Field(default=None, pattern="^(private|protected|public)$")  # dbt model access
+    row_access: RowAccess | None = None  # which rows each role may see (Snowflake)
     tags: list[str] = Field(default_factory=list)
     attributes: list[Attribute] = Field(default_factory=list)
     mappings: list[Mapping] = Field(default_factory=list)
@@ -348,10 +373,20 @@ class SourceSystem(Node):
 
 
 class Metric(Node):
+    """A number defined once: an aggregate over a table, by time and by its dimensions' columns.
+
+    ``expression`` is one or more aggregates (``sum(net_amount)``, ``sum(a) / count(*)``);
+    ``time`` is the date or timestamp column it is counted by (the table's first one when left
+    out); ``dimensions`` are the columns it can be broken down by (``dim_customer.market_segment``);
+    ``filters`` are conditions on the table's own columns that a row must meet to count.
+    """
+
     name: Name
+    label: str | None = None
     entity: Name
     expression: str
-    grain: str | None = None
+    time: Name | None = None
+    grain: str | None = Field(default=None, pattern="^(hour|day|week|month|quarter|year)$")
     dimensions: list[str] = Field(default_factory=list)
     filters: list[str] = Field(default_factory=list)
 

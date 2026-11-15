@@ -34,8 +34,11 @@ def test_github_workflow(project):
         "murakumo validate --strict",
         "murakumo generate --check",
         "murakumo migrate --check",
-        "murakumo verify",
+        'murakumo verify --changed-since "origin/$BASE_BRANCH"',  # a pull request: what it changed
+        "murakumo verify",  # a push: everything
     ]
+    assert check["steps"][-2]["if"] == "github.event_name == 'pull_request'"
+    assert check["steps"][-1]["if"] == "github.event_name != 'pull_request'"
     assert "deploy" not in workflow["jobs"]
 
 

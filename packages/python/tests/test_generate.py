@@ -169,6 +169,16 @@ def test_entity_without_mappings_is_reported(taxi):
     assert "MK504" in {d.code for d in plan_for(taxi).diagnostics}
 
 
+@pytest.mark.parametrize(
+    ("warehouse", "strategy"),
+    [("duckdb", "delete+insert"), ("snowflake", "delete+insert"), ("bigquery", "merge"), ("databricks", "merge")],
+)
+def test_incremental_strategy_is_one_the_adapter_has(taxi, warehouse, strategy):
+    # dbt-bigquery has no delete+insert, and dbt-databricks has had merge for longer.
+    sql = generate(taxi, warehouse).files["dbt/models/marts/mobility/fct_trip.sql"]
+    assert f"incremental_strategy='{strategy}'" in sql and "unique_key='trip_id'" in sql
+
+
 # rendering --------------------------------------------------------------------------------------
 
 

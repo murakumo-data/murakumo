@@ -422,9 +422,15 @@ class Writer:
         sources = [g.name for g in self.plan.sources]
         for name in sources:
             lines.append(f"  src_{name}[({name})]")
-        extract = {"python": "extract.py", "lambda": "AWS Lambda", "glue": "AWS Glue", "none": "your loader"}[
-            stack.extract
-        ]
+        extract = {
+            "python": "extract.py",
+            "lambda": "AWS Lambda",
+            "glue": "AWS Glue",
+            "dlt": "dlt",
+            "airbyte": "Airbyte",
+            "fivetran": "Fivetran",
+            "none": "your loader",
+        }[stack.extract]
         load = {"build": "load SQL", "snowpipe": "Snowpipe", "autoloader": "Auto Loader"}[stack.load]
         lines += [
             f'  extract["{extract}"]',
@@ -558,6 +564,31 @@ class Writer:
                         "AWS role's trust policy.",
                     )
                 )
+        from murakumo.generate import terraform
+
+        modules = terraform.modules(self.project)
+        if modules:
+            blocks = [
+                Block("hcl", self.files.get(f"terraform/{m}/main.tf", ""), f"generated/terraform/{m}/main.tf")
+                for m in modules
+            ]
+            commands = "\n".join(
+                f"terraform -chdir=generated/terraform/{m} init && terraform -chdir=generated/terraform/{m} apply"
+                for m in modules
+            )
+            steps.append(
+                Step(
+                    "accounts-terraform",
+                    "Or create it all with Terraform",
+                    "The same platform as code (`stack.iac: terraform`): "
+                    + ", ".join(modules)
+                    + ". Access roles (`<DB>_READ`, `<DB>_WRITE`) hold the privileges on each database, and the "
+                    "functional roles people and CI use are made of them, as in the SQL above: run one or the "
+                    "other. The providers read credentials from the environment.",
+                    [*blocks, Block("bash", commands)],
+                    "`Apply complete!` for each module, with the resources it added.",
+                )
+            )
         return Chapter(
             1,
             "accounts",
@@ -691,6 +722,55 @@ class Writer:
                         files=[settings, "ingestion/python/extract.py"],
                     )
                 )
+        if extract == "dlt" and "ingestion/dlt/pipeline.py" in self.files:
+            steps.append(
+                Step(
+                    "source-dlt",
+                    "Fetch the sources with dlt",
+                    "dlt fetches each source and loads it straight into its raw tables, creating them and adding "
+                    "columns as the source grows. The pipeline keeps the sources' column names and adds "
+                    "`_ingested_at` and `_batch_id` to every row, so staging reads the raw tables as it would "
+                    "however they were loaded. A table loaded in full is replaced, an appended one is added to, "
+                    "and an incremental one is merged by its key.",
+                    [
+                        Block("python", self.files["ingestion/dlt/pipeline.py"], "generated/ingestion/dlt/pipeline.py"),
+                        Block(
+                            "bash",
+                            "pip install -r generated/ingestion/dlt/requirements.txt\n"
+                            "python generated/ingestion/dlt/pipeline.py",
+                        ),
+                    ],
+                    "dlt's summary of each load, and the raw tables filled. A second run loads only what is new.",
+                    files=["ingestion/dlt/pipeline.py", "ingestion/dlt/requirements.txt"],
+                )
+            )
+        if extract in ("airbyte", "fivetran") and f"ingestion/{extract}/views.sql" in self.files:
+            tool = extract.capitalize()
+            steps.append(
+                Step(
+                    f"source-{extract}",
+                    f"Set the sources up in {tool}, and make what it lands look like the raw tables",
+                    f"{tool} fetches and loads on its own schedule, into a schema of its own per source "
+                    f"(`<raw schema>_{extract}`), with its own column for when a row arrived. connections.json "
+                    "lists what to create there: each source's settings, and each table's sync mode, key and "
+                    "cursor. views.sql then creates a view per raw table with the model's column names, "
+                    "`_ingested_at` and `_batch_id`, so everything after this reads the raw tables as usual.",
+                    [
+                        Block(
+                            "json",
+                            self.files[f"ingestion/{extract}/connections.json"],
+                            f"generated/ingestion/{extract}/connections.json",
+                        ),
+                        Block(
+                            "sql",
+                            self.files[f"ingestion/{extract}/views.sql"],
+                            f"generated/ingestion/{extract}/views.sql",
+                        ),
+                    ],
+                    "After a first sync and views.sql: `select count(*)` from a raw table returns its rows.",
+                    files=[f"ingestion/{extract}/connections.json", f"ingestion/{extract}/views.sql"],
+                )
+            )
         for step in self.ingestion_steps():
             if step.sql is not None or step.key in ("secrets",):
                 continue
@@ -720,6 +800,45 @@ class Writer:
                     tables=[
                         Table(["Source", "Raw table", "Folder"], [[s, t, f"{landing}/{s}/{t}/"] for s, t in others])
                     ],
+                )
+            )
+        stream = {p: t for p, t in self.files.items() if p.startswith("streaming/") and not p.endswith(".md")}
+        if stream:
+            engine = self.manifest.generation.streaming.engine
+            steps.append(
+                Step(
+                    "sources-streaming",
+                    f"Stream the Kafka topics ({engine})",
+                    "The Kafka sources are read continuously, not on a schedule. "
+                    + (
+                        "Flink and Spark land each topic's messages as files where the loads look for them, so "
+                        "loading stays the same."
+                        if engine in ("flink", "spark")
+                        else "The Snowflake Kafka connector writes each topic into its raw table through Snowpipe "
+                        "Streaming, within seconds."
+                    ),
+                    [
+                        *(
+                            Block(
+                                "bash"
+                                if p.endswith(".sh")
+                                else "sql"
+                                if p.endswith(".sql")
+                                else "yaml"
+                                if p.endswith(".yml")
+                                else "python"
+                                if p.endswith(".py")
+                                else "json",
+                                t,
+                                f"generated/{p}",
+                            )
+                            for p, t in sorted(stream.items())
+                        ),
+                        Block("markdown", self.files.get("streaming/README.md", ""), "generated/streaming/README.md"),
+                    ],
+                    "The job running (Flink's dashboard at http://localhost:8081 lists it), then new files in the "
+                    "landing folder a minute after messages arrive, or rows in the raw tables.",
+                    files=sorted(stream),
                 )
             )
         return Chapter(
@@ -774,6 +893,13 @@ class Writer:
                 f"python3 -c \"import os, sqlalchemy as sa; e = sa.create_engine(os.environ['{connection.url_env}']); "
                 f"print(e.connect().execute(sa.text('{query} limit 5')).fetchall())\""
             )
+        if kind == "kafka":
+            first = connection.topics[0].topic if connection.topics else "<topic>"
+            return (
+                "# With kcat (or Redpanda's rpk): the topics, then the first messages of one\n"
+                f"kcat -b {connection.bootstrap_servers} -L | head -20\n"
+                f"kcat -b {connection.bootstrap_servers} -C -t {first} -o beginning -c 5 -e"
+            )
         location = connection.location
         if "://" in location:
             return f"aws s3 ls {location.rstrip('/')}/"
@@ -821,6 +947,11 @@ class Writer:
                 + ", ".join(a.name for a in entity.primary_key)
                 + "); the latest of each key is kept.",
             }[mode]
+            if entity.load.value == "cdc":
+                how = (
+                    "A change feed: every change is added as it arrived, and nothing is replaced. The staging "
+                    "view keeps each key's latest change and leaves out the keys a change deleted."
+                )
             path = self.guide_path(f"sql/load/{name}")
             steps.append(
                 Step(
@@ -847,6 +978,25 @@ class Writer:
         for step in self.ingestion_steps():
             if step.key == "pipes" or (step.sql and step.key != "integration"):
                 steps.append(Step(f"raw-{step.key}", step.title, step.why, [Block("sql", step.sql or "")]))
+        lake = {p: t for p, t in self.files.items() if p.startswith("lakehouse/")}
+        if lake:
+            blocks = [
+                Block("bash" if p.endswith(".sh") else "sql" if p.endswith(".sql") else "yaml", t, f"generated/{p}")
+                for p, t in sorted(lake.items())
+                if not p.endswith(".md")
+            ]
+            steps.append(
+                Step(
+                    "raw-lakehouse",
+                    "Set up the open tables' catalog",
+                    "The lakehouse layers are written as open tables in a catalog, so any engine can read them: "
+                    + lake.get("lakehouse/README.md", "").split("\n", 3)[2],
+                    blocks,
+                    "The catalog answers (setup.sh says it is ready, or `show external volumes` lists the volume), "
+                    "and after a build the tables are listed in it.",
+                    files=sorted(lake),
+                )
+            )
         return Chapter(
             4,
             "raw",
@@ -948,11 +1098,56 @@ class Writer:
                         "`select` from a masked column as a role outside the list shows the mask.",
                     )
                 )
+        if self.snowflake:
+            from murakumo.row_access import policy_sql as row_policies
+
+            rows = row_policies(self.project)
+            if rows:
+                steps.append(
+                    Step(
+                        "model-row-access",
+                        "Say which rows each role sees",
+                        "A table with row_access shows each role only the rows whose column has one of that "
+                        "role's values; roles in governance.unmasked_roles see every row, and a role not named "
+                        "sees none. Re-creating a table drops its policies, so dbt sets them again after each "
+                        "build (a post-hook); built by hand, run this after the marts.",
+                        [
+                            Block("sql", rows, self.guide_path("sql/row_access.sql")),
+                            Block("bash", self.run_file(self.guide_path("sql/row_access.sql"))),
+                        ],
+                        "`select` from the table as a role with some values shows only those rows.",
+                    )
+                )
         intro = (
             "Each model, in the order they must run: what it is for, where each column comes from, its dbt SQL, "
             "the same model as plain SQL, and its tests. Staging models clean and type the raw tables; "
             "intermediate models and snapshots prepare history; the marts are the facts and dimensions people use."
         )
+        semantic = self.files.get("dbt/models/semantic/_semantic.yml")
+        if semantic:
+            steps.append(
+                Step(
+                    "transform-semantic",
+                    "The semantic layer: metrics defined once",
+                    "Each metric in model/metrics.yaml is a MetricFlow measure and metric, on a semantic model per "
+                    "table it is counted on, joined to its dimensions by their keys (an SCD2 dimension by the "
+                    "version current at the time). MetricFlow also needs a time spine: a table of days.",
+                    [
+                        Block("yaml", semantic, "generated/dbt/models/semantic/_semantic.yml"),
+                        Block(
+                            "bash",
+                            'pip install "dbt-metricflow[dbt-duckdb]"   # or the adapter for your warehouse\n'
+                            "cd generated/dbt && dbt parse\n"
+                            "mf list metrics\n"
+                            "mf query --metrics "
+                            + ",".join(m.name for m in self.project.model.metrics[:2])
+                            + " --group-by metric_time__month",
+                        ),
+                    ],
+                    "Each metric listed, and a table of months with a value per metric.",
+                    files=["dbt/models/semantic/_semantic.yml", "dbt/models/semantic/metricflow_time_spine.sql"],
+                )
+            )
         return Chapter(5, "transformations", "Transformations", intro, steps)
 
     def model_why(self, model) -> str:
@@ -973,10 +1168,30 @@ class Writer:
             )
         elif entity.kind is EntityKind.CUMULATIVE:
             parts.append("A cumulative table: one row per key per day, carrying its whole history in arrays.")
+        elif model.extra.get("history"):
+            parts.append(
+                f"Every version of {entity.name} (its SCD4 history): `valid_from`, `valid_to`, and `is_current` "
+                "for the latest."
+            )
+        elif entity.history is History.SCD4:
+            parts.append(
+                f"The current version of each row (SCD4): `valid_from` says since when. Every version is in "
+                f"`{entity.name}_history`."
+            )
         elif entity.history in (History.SCD2, History.SCD6):
             parts.append(
                 "A dimension with every version of each row (SCD2): `valid_from`, `valid_to`, and `is_current` "
                 "for the latest."
+            )
+            if entity.history is History.SCD6:
+                current = [c.name for c in model.columns if c.name.startswith("current_")]
+                parts.append("SCD6: every version also has the value as it is now, in " + ", ".join(current) + ".")
+        elif entity.history is History.SCD3:
+            previous = [c.name for c in model.extra.get("previous", [])]
+            parts.append(
+                "SCD3: one row per key, with the value before its latest change beside the current one ("
+                + ", ".join(previous)
+                + "). Incremental, so each run compares what arrives with the row it replaces."
             )
         if model.materialized == "incremental" and entity.kind not in (EntityKind.CUMULATIVE,):
             parts.append(
@@ -1398,6 +1613,11 @@ class Writer:
             policies = policy_sql(self.project)
             if policies:
                 out["sql/masking.sql"] = "-- Generated by Murakumo.\n" + policies
+            from murakumo.row_access import policy_sql as row_policies
+
+            rows = row_policies(self.project)
+            if rows:
+                out["sql/row_access.sql"] = "-- Generated by Murakumo.\n" + rows
         out["rebuild.sh"] = self.rebuild(out)
         return out
 

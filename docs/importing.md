@@ -103,6 +103,36 @@ Each message type becomes a raw table, its fields columns:
 
 Comments before a message, or before or after a field, become descriptions.
 
+## An existing dbt project
+
+```bash
+murakumo import dbt ../their_dbt_project --dry-run    # see what it would add
+murakumo import dbt ../their_dbt_project
+```
+
+For a team that already has a dbt project. It adds:
+
+- each dbt **source** as a source system, with its tables as raw tables;
+- each **model** as a modelled table: `fct_` and `dim_` as facts and dimensions in marts, the rest
+  as intermediate tables, with columns, descriptions and keys (from `unique` and `not_null` tests,
+  or a `primary_key` constraint);
+- `relationships` tests as relationships;
+- where each column **comes from**, read from the model's compiled SQL. A column that is another
+  column under a new name, or a cast of one, gets a mapping. A computed column is left unmapped
+  and listed with what it reads, to be written as an expression by hand or with `murakumo ai map`.
+
+Staging models that only prepare one source table are not imported, because Murakumo generates
+staging from the raw tables itself. Their renames are followed, so a mart column maps to the raw
+column it began as.
+
+Run `dbt compile` in the dbt project first: where columns come from is read from
+`target/manifest.json`. Run `dbt docs generate` too if its YAML does not give column types: they
+are read from `target/catalog.json`. Without a compile, the tables and columns still come in, and
+the import says what is missing. Tables already in the model are left as they are, and the dbt
+project is only read.
+
+**In the canvas:** the **Health** panel, **Bring in a dbt project**.
+
 ## Fetching the data
 
 Importing reads a source's structure. Fetching its rows (from an API, SFTP, a database or a

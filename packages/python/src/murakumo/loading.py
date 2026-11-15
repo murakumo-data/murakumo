@@ -8,7 +8,9 @@ size and a SHA-256 of its content; a file whose content was loaded before is ski
 How the new rows meet the old depends on the raw table's ``load`` in the model:
 
 - ``full``: the table is replaced by every file given, when any of them changed;
-- ``append`` (and ``cdc``, ``streaming``): the new files' rows are added;
+- ``append`` (and ``streaming``): the new files' rows are added;
+- ``cdc``: every change is added, as it arrived; staging then keeps each key's latest change and
+  leaves out the keys a change deleted;
 - ``incremental``: the new rows replace the rows with the same key, the latest of each key (by the
   table's watermark column, else by load time) kept.
 """
@@ -19,7 +21,7 @@ import glob
 import hashlib
 from pathlib import Path
 
-from murakumo.importers.files import READERS
+from murakumo.importers.files import READERS, STREAM_PARTS
 from murakumo.ir.model import Entity, LoadPattern
 
 LOCAL_FORMATS = {f".{name}" for name in READERS} | {".tsv", ".jsonl", ".ndjson"}
@@ -36,7 +38,11 @@ def expand(location: str) -> list[str]:
         return [location]
     path = Path(location)
     if path.is_dir():
-        return sorted(str(p) for p in path.iterdir() if p.is_file() and p.suffix.lower() in LOCAL_FORMATS)
+        return sorted(
+            str(p)
+            for p in path.iterdir()
+            if p.is_file() and (p.suffix.lower() in LOCAL_FORMATS or (p.name.startswith(STREAM_PARTS) and not p.suffix))
+        )
     if any(c in location for c in "*?["):
         return sorted(p for p in glob.glob(location) if Path(p).is_file())
     return [location]

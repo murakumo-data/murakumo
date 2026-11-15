@@ -38,6 +38,11 @@ def _formats(project) -> dict[str, tuple[str, str]]:
             if found is not None and getattr(found, "format", None):
                 suffix = found.format
             fmt = {"csv": "csv", "tsv": "csv", "parquet": "parquet"}.get(suffix, "json")
+            if connection.kind == "kafka":  # the consumer's files, or a streaming engine's part files
+                from murakumo.generate.streaming import landing_glob
+
+                out[table] = ("json", landing_glob(table))
+                continue
             out[table] = (fmt, f"{table}_*.{suffix}" if pattern else f"{table}_*.jsonl")
     return out
 

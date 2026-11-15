@@ -1,0 +1,40 @@
+metrics:
+  - id: 06a3c10e-7a31-4cd4-8bfb-b5c63e8567f2
+    name: revenue
+    description: Net amount of every order line.
+    label: Revenue
+    entity: fct_order_line
+    expression: sum(net_amount)
+    time: ordered_on
+    grain: day
+    dimensions:
+      - order_status
+      - dim_customer.market_segment
+      - dim_part.brand
+  - id: 37bddba9-4ec4-4f8a-9f17-588ddafeaa89
+    name: orders
+    description: How many orders were placed.
+    label: Orders
+    entity: fct_order_line
+    expression: count(distinct order_id)
+    time: ordered_on
+    dimensions:
+      - dim_customer.market_segment
+  - id: 14732328-96f2-45b8-8367-58de79ecb6e1
+    name: average_order_value
+    description: Revenue per order.
+    label: Average order value
+    entity: fct_order_line
+    expression: sum(net_amount) / count(distinct order_id)
+    time: ordered_on
+    dimensions:
+      - dim_customer.market_segment
+  - id: fbc0e16e-8ad2-4527-ba12-82764d03ab51
+    name: open_order_lines
+    description: Order lines still open.
+    label: Open order lines
+    entity: fct_order_line
+    expression: count(*)
+    time: ordered_on
+    filters:
+      - order_status = 'O'

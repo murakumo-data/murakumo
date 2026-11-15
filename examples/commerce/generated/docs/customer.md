@@ -6,7 +6,7 @@ Customers who place orders.
 
 **Layer:** raw · **Kind:** table · **Source:** tpch_erp · **Refreshed:** hourly_sales: every hour, on the hour
 
-sources → **customer** → [dim_customer](dim_customer.md)
+sources → **customer** → [dim_customer](dim_customer.md), [hub_customer](hub_customer.md), [sat_customer](sat_customer.md)
 
 | Column | Type | About | Comes from |
 | --- | --- | --- | --- |

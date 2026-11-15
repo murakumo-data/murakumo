@@ -1,0 +1,86 @@
+{%- set x = model.extra -%}
+{{ header }}
+{{ '{{' }} config({{ config }}) {{ '}}' }}
+{%- if x['kind'] == 'satellite' %}
+-- A Data Vault satellite: insert-only. A row is added for a {{ x['key'] }} when its descriptive
+-- columns change (by {{ x['compare'] }}), so every version is kept.
+{%- else %}
+-- A Data Vault {{ x['kind'] }}: insert-only. Each {{ x['key'] }} is added once, the first time it is loaded.
+{%- endif %}
+
+with {{ model.alias }} as (
+
+    select * from {{ model.relation }}
+
+){% for join in model.joins %},
+
+{{ join.alias }} as (
+
+    select * from {{ join.relation }}
+
+){% endfor %},
+
+incoming as (
+
+    select
+{%- for column in model.columns %}
+        {{ column.sql }} as {{ quote(column.name) }}{{ "," if not loop.last }}
+{%- endfor %}
+    from {{ model.alias }}
+{%- for join in model.joins %}
+    left join {{ join.alias }}
+        on {{ join.on }}
+{%- endfor %}
+{{ '{%' }} if is_incremental() {{ '%}' }}
+    where {{ model.incremental_filter }}
+{{ '{%' }} endif {{ '%}' }}
+
+),
+
+ranked as (
+
+    select
+        incoming.*,
+        row_number() over (
+            partition by incoming.{{ quote(x['key']) }}
+            order by incoming.load_date {{ 'desc' if x['compare'] else 'asc' }}
+        ) as row_in_batch
+    from incoming
+
+)
+{{ '{%' }} if is_incremental() {{ '%}' }},
+
+latest as (
+
+    select {{ quote(x['key']) }}{% if x['compare'] %}, {{ quote(x['compare']) }}{% endif %}
+    from (
+        select
+            existing.{{ quote(x['key']) }},
+{%- if x['compare'] %}
+            existing.{{ quote(x['compare']) }},
+{%- endif %}
+            row_number() over (partition by existing.{{ quote(x['key']) }} order by existing.load_date desc) as row_in_table
+        from {{ '{{' }} this {{ '}}' }} as existing
+    ) as versions
+    where row_in_table = 1
+
+)
+{{ '{%' }} endif {{ '%}' }}
+
+select
+{%- for column in model.columns %}
+    ranked.{{ quote(column.name) }}{{ "," if not loop.last }}
+{%- endfor %}
+from ranked
+{{ '{%' }} if is_incremental() {{ '%}' }}
+left join latest
+    on latest.{{ quote(x['key']) }} = ranked.{{ quote(x['key']) }}
+{{ '{%' }} endif {{ '%}' }}
+where ranked.row_in_batch = 1
+{{ '{%' }} if is_incremental() {{ '%}' }}
+{%- if x['compare'] %}
+    and (latest.{{ quote(x['key']) }} is null or latest.{{ quote(x['compare']) }} <> ranked.{{ quote(x['compare']) }})
+{%- else %}
+    and latest.{{ quote(x['key']) }} is null
+{%- endif %}
+{{ '{%' }} endif {{ '%}' }}

@@ -7,6 +7,7 @@ look it up and, later, silence it per object.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections import Counter
 from collections.abc import Iterable
@@ -117,9 +118,43 @@ def validate_project(project: Project) -> list[Diagnostic]:
 
     # Entities -----------------------------------------------------------------------------------
 
+    streamed = {
+        table.lower()
+        for declaration in manifest.sources
+        if declaration.connection is not None and declaration.connection.kind == "kafka"
+        for table in declaration.tables()
+    }
+    # Change feeds that say which rows were deleted: what reads them incrementally keeps those rows.
+    change_feeds = {
+        e.name.lower()
+        for e in model.entities
+        if e.load is LoadPattern.CDC and e.layer is Layer.RAW and e.cdc is not None and e.cdc.operation
+    }
+
     for entity in model.entities:
         file = file_of(entity.id)
+        if entity.layer is not Layer.RAW and entity.load is LoadPattern.INCREMENTAL:
+            read = {ref.split(".")[0].lower() for m in entity.mappings for ref in m.sources}
+            for feed in sorted(read & change_feeds):
+                out.append(
+                    warning(
+                        "MK325",
+                        f"built incrementally from the change feed {feed}: a row deleted at the source stays "
+                        "here until a full rebuild; build it in full to follow deletes",
+                        file,
+                        "load",
+                    )
+                )
         out.extend(_check_entity(entity, file, declared_sources, declared_domains, manifest.conventions.case))
+        if entity.load is LoadPattern.STREAMING and entity.layer is Layer.RAW and entity.name.lower() not in streamed:
+            out.append(
+                warning(
+                    "MK324",
+                    "load: streaming, but no Kafka connection fills this table: it is loaded as append",
+                    file,
+                    "load",
+                )
+            )
 
         for mapping in entity.mappings:
             where = f"mappings[{mapping.target}]"
@@ -228,6 +263,12 @@ def validate_project(project: Project) -> list[Diagnostic]:
     for code, name, message in conformed_problems(model):
         entity = model.entity(name)
         out.append(warning(code, message, file_of(entity.id) if entity else None))
+    from murakumo import row_access
+
+    for level, code, name, message in row_access.problems(project):
+        entity = model.entity(name)
+        make = error if level == "error" else warning
+        out.append(make(code, message, file_of(entity.id) if entity else None, "row_access"))
     for code, where, message in masking.problems(project):
         if code == "MK704":
             out.append(error(code, message, manifest_file, "governance.masking"))
@@ -236,6 +277,13 @@ def validate_project(project: Project) -> list[Diagnostic]:
             out.append(
                 warning(code, message, file_of(entity.id) if entity else None, f"attributes[{where.split('.')[1]}]")
             )
+
+    # Metrics: the semantic layer ----------------------------------------------------------------
+
+    from murakumo.generate.semantic import problems as semantic_problems
+
+    for diagnostic in semantic_problems(project):
+        out.append(dataclasses.replace(diagnostic, file=diagnostic.file or root / METRICS_FILE))
 
     # Exposures ----------------------------------------------------------------------------------
 
@@ -339,6 +387,12 @@ def _check_entity(
                     )
         if not entity.grain and not entity.primary_key:
             out.append(error("MK314", "an accumulating snapshot needs a grain: the key of each row", file, "grain"))
+    if entity.kind in (EntityKind.HUB, EntityKind.LINK, EntityKind.SATELLITE) and not any(
+        a.key in (KeyRole.NATURAL, KeyRole.PRIMARY) for a in entity.attributes
+    ):
+        out.append(
+            error("MK320", f"a {entity.kind.value} needs a business key: mark its key columns key: natural", file)
+        )
     if entity.access == "private" and not entity.domain:
         out.append(
             warning("MK706", "private access needs a domain: only models in its domain's group may use it", file)
@@ -347,16 +401,32 @@ def _check_entity(
         out.append(warning("MK304", "a dimension should have a primary key", file))
     if entity.load is LoadPattern.INCREMENTAL and not entity.watermark and entity.layer is Layer.RAW:
         out.append(warning("MK308", "an incremental load needs a watermark column to know what is new", file, "load"))
+    if entity.load is LoadPattern.CDC and entity.layer is Layer.RAW:
+        if not entity.primary_key:
+            out.append(
+                error("MK321", "a change feed (load: cdc) needs a primary key, to tell which row a change is for", file)
+            )
+        settings = entity.cdc
+        for field, column in (("operation", settings and settings.operation), ("order", settings and settings.order)):
+            if column and not entity.attribute(column):
+                out.append(error("MK322", f"cdc.{field}: {entity.name} has no column {column!r}", file, "cdc"))
+    elif entity.cdc is not None:
+        out.append(warning("MK323", "cdc settings are only used with load: cdc", file, "cdc"))
     if entity.incremental_by == "watermark" and entity.load is LoadPattern.INCREMENTAL and not entity.watermark:
         out.append(
             warning(
                 "MK313", "incremental_by: watermark needs a watermark column; it will rebuild in full", file, "load"
             )
         )
-    if entity.history in (History.SCD2, History.SCD6) and not any(
+    if entity.history in (History.SCD2, History.SCD3, History.SCD4, History.SCD6) and not any(
         a.key in (KeyRole.PRIMARY, KeyRole.NATURAL) for a in entity.attributes
     ):
         out.append(warning("MK309", f"{entity.history} history needs a primary or natural key to track", file))
+    for name in entity.tracked:
+        if entity.attribute(name) is None:
+            out.append(error("MK318", f"tracked column {name!r} is not a column of {entity.name}", file, "tracked"))
+    if entity.tracked and entity.history not in (History.SCD3, History.SCD6):
+        out.append(warning("MK319", f"tracked is used by scd3 and scd6 history, not {entity.history}", file, "tracked"))
     if case == "snake" and entity.layer is not Layer.RAW and not SNAKE_CASE.match(entity.name):
         out.append(warning("MK307", f"entity name {entity.name!r} is not snake_case", file, "name"))
 

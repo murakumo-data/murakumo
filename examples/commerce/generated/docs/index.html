@@ -55,6 +55,12 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 <li data-name="weather_hourly"><a href="#t-weather_hourly">weather_hourly</a></li>
 <li data-name="yellow_tripdata"><a href="#t-yellow_tripdata">yellow_tripdata</a></li>
 </ul>
+<h2>intermediate</h2><ul>
+<li data-name="hub_customer"><a href="#t-hub_customer">hub_customer</a></li>
+<li data-name="hub_order"><a href="#t-hub_order">hub_order</a></li>
+<li data-name="link_order_customer"><a href="#t-link_order_customer">link_order_customer</a></li>
+<li data-name="sat_customer"><a href="#t-sat_customer">sat_customer</a></li>
+</ul>
 <h2>marts</h2><ul>
 <li data-name="customer_order_activity"><a href="#t-customer_order_activity">customer_order_activity</a></li>
 <li data-name="dim_customer"><a href="#t-dim_customer">dim_customer</a></li>
@@ -65,9 +71,9 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 </nav>
 <main>
 <section id="overview"><h1>commerce</h1>
-<p class="muted">17 tables (12 raw, 5 marts) on duckdb, run by airflow, modelled as kimball.</p>
+<p class="muted">21 tables (12 raw, 4 intermediate, 5 marts) on duckdb, run by airflow, modelled as kimball.</p>
 <h2>Domains</h2><table><tr><th>Domain</th><th>Owner</th><th>Tables</th></tr>
-<tr><td><strong>sales</strong></td><td></td><td><a href="#t-customer_order_activity"><code>customer_order_activity</code></a> <a href="#t-dim_customer"><code>dim_customer</code></a> <a href="#t-fct_order_fulfilment"><code>fct_order_fulfilment</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a></td></tr>
+<tr><td><strong>sales</strong></td><td></td><td><a href="#t-hub_customer"><code>hub_customer</code></a> <a href="#t-hub_order"><code>hub_order</code></a> <a href="#t-link_order_customer"><code>link_order_customer</code></a> <a href="#t-sat_customer"><code>sat_customer</code></a> <a href="#t-customer_order_activity"><code>customer_order_activity</code></a> <a href="#t-dim_customer"><code>dim_customer</code></a> <a href="#t-fct_order_fulfilment"><code>fct_order_fulfilment</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a></td></tr>
 <tr><td><strong>product</strong></td><td></td><td><a href="#t-dim_part"><code>dim_part</code></a></td></tr>
 <tr><td><strong>mobility</strong></td><td></td><td></td></tr>
 <tr><td><strong>weather</strong></td><td></td><td></td></tr>
@@ -75,7 +81,7 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 </section>
 <section id="schedules"><h2>Schedules</h2>
 <table><tr><th>Schedule</th><th>When</th><th>Refreshes</th></tr>
-<tr><td><strong>hourly_sales</strong><div class="muted">Order lines and customers, every hour</div></td><td>every hour, on the hour<div class="mono muted">0 * * * *</div></td><td><a href="#t-customer"><code>customer</code></a> <a href="#t-customer_order_activity"><code>customer_order_activity</code></a> <a href="#t-dim_customer"><code>dim_customer</code></a> <a href="#t-fct_order_fulfilment"><code>fct_order_fulfilment</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a> <a href="#t-lineitem"><code>lineitem</code></a> <a href="#t-nation"><code>nation</code></a> <a href="#t-orders"><code>orders</code></a></td></tr>
+<tr><td><strong>hourly_sales</strong><div class="muted">Order lines and customers, every hour</div></td><td>every hour, on the hour<div class="mono muted">0 * * * *</div></td><td><a href="#t-customer"><code>customer</code></a> <a href="#t-customer_order_activity"><code>customer_order_activity</code></a> <a href="#t-dim_customer"><code>dim_customer</code></a> <a href="#t-fct_order_fulfilment"><code>fct_order_fulfilment</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a> <a href="#t-hub_customer"><code>hub_customer</code></a> <a href="#t-hub_order"><code>hub_order</code></a> <a href="#t-lineitem"><code>lineitem</code></a> <a href="#t-link_order_customer"><code>link_order_customer</code></a> <a href="#t-nation"><code>nation</code></a> <a href="#t-orders"><code>orders</code></a> <a href="#t-sat_customer"><code>sat_customer</code></a></td></tr>
 <tr><td><strong>nightly</strong></td><td>every day at 06:00 UTC<div class="mono muted">0 6 * * *</div></td><td><a href="#t-dim_part"><code>dim_part</code></a> <a href="#t-part"><code>part</code></a> <a href="#t-partsupp"><code>partsupp</code></a> <a href="#t-region"><code>region</code></a> <a href="#t-supplier"><code>supplier</code></a> <a href="#t-taxi_zone_lookup"><code>taxi_zone_lookup</code></a> <a href="#t-weather_daily"><code>weather_daily</code></a> <a href="#t-weather_hourly"><code>weather_hourly</code></a> <a href="#t-yellow_tripdata"><code>yellow_tripdata</code></a></td></tr>
 </table>
 </section>
@@ -89,15 +95,15 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 <h3><span class="layer" style="background:var(--raw)" title="raw"></span><code>customer</code><span class="chip">raw</span></h3>
 <p>Customers who place orders.</p>
 <dl class="meta"><dt>Source</dt><dd>tpch_erp</dd><dt>Owner</dt><dd>commerce-data</dd><dt>Load</dt><dd>cdc</dd><dt>Refreshed</dt><dd>hourly_sales: every hour, on the hour</dd><dt>dbt</dt><dd><code>stg_tpch_erp__customer</code></dd></dl>
-<div class="flow"><span class="muted">sources</span> → <strong><code>customer</code></strong> → <a href="#t-dim_customer"><code>dim_customer</code></a></div>
+<div class="flow"><span class="muted">sources</span> → <strong><code>customer</code></strong> → <a href="#t-dim_customer"><code>dim_customer</code></a> <a href="#t-hub_customer"><code>hub_customer</code></a> <a href="#t-sat_customer"><code>sat_customer</code></a></div>
 <table><tr><th>Column</th><th>Type</th><th>About</th><th>Comes from</th><th>Used by</th></tr>
-<tr><td><code>c_custkey</code></td><td><code>bigint</code></td><td>Customer identifier. <span class="chip">primary key</span> <span class="chip">not null</span> <span class="chip">internal</span><div class="muted">Tests: not_null, unique</div></td><td></td><td><code>dim_customer.customer_id</code></td></tr>
-<tr><td><code>c_name</code></td><td><code>string</code></td><td>Customer name. <span class="chip">not null</span> <span class="chip">PII</span> <span class="chip">restricted</span></td><td></td><td><code>dim_customer.customer_name</code></td></tr>
+<tr><td><code>c_custkey</code></td><td><code>bigint</code></td><td>Customer identifier. <span class="chip">primary key</span> <span class="chip">not null</span> <span class="chip">internal</span><div class="muted">Tests: not_null, unique</div></td><td></td><td><code>dim_customer.customer_id</code><br><code>hub_customer.customer_number</code><br><code>sat_customer.customer_number</code></td></tr>
+<tr><td><code>c_name</code></td><td><code>string</code></td><td>Customer name. <span class="chip">not null</span> <span class="chip">PII</span> <span class="chip">restricted</span></td><td></td><td><code>dim_customer.customer_name</code><br><code>sat_customer.customer_name</code></td></tr>
 <tr><td><code>c_address</code></td><td><code>string</code></td><td>Customer street address. <span class="chip">PII</span> <span class="chip">restricted</span></td><td></td><td></td></tr>
 <tr><td><code>c_nationkey</code></td><td><code>integer</code></td><td>Nation the customer is based in. <span class="chip">not null</span> <span class="chip">internal</span></td><td></td><td></td></tr>
 <tr><td><code>c_phone</code></td><td><code>string</code></td><td>Customer phone number. <span class="chip">PII</span> <span class="chip">restricted</span></td><td></td><td><code>dim_customer.phone</code></td></tr>
-<tr><td><code>c_acctbal</code></td><td><code>decimal(15,2)</code> (USD)</td><td>Current account balance. <span class="chip">confidential</span></td><td></td><td><code>dim_customer.account_balance</code></td></tr>
-<tr><td><code>c_mktsegment</code></td><td><code>string</code></td><td>Market segment the customer belongs to. <span class="chip">internal</span><div class="muted">Values: AUTOMOBILE, BUILDING, FURNITURE, HOUSEHOLD, MACHINERY</div></td><td></td><td><code>dim_customer.market_segment</code></td></tr>
+<tr><td><code>c_acctbal</code></td><td><code>decimal(15,2)</code> (USD)</td><td>Current account balance. <span class="chip">confidential</span></td><td></td><td><code>dim_customer.account_balance</code><br><code>sat_customer.account_balance</code></td></tr>
+<tr><td><code>c_mktsegment</code></td><td><code>string</code></td><td>Market segment the customer belongs to. <span class="chip">internal</span><div class="muted">Values: AUTOMOBILE, BUILDING, FURNITURE, HOUSEHOLD, MACHINERY</div></td><td></td><td><code>dim_customer.market_segment</code><br><code>sat_customer.market_segment</code></td></tr>
 <tr><td><code>c_comment</code></td><td><code>string</code></td><td>Free-text comment. <span class="chip">internal</span></td><td></td><td></td></tr>
 </table>
 <p class="muted">Relationships:</p><ul><li class=mono>customer → nation: many_to_one, customer.c_nationkey = nation.n_nationkey</li><li class=mono>orders → customer: many_to_one, orders.o_custkey = customer.c_custkey</li></ul>
@@ -144,10 +150,10 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 <h3><span class="layer" style="background:var(--raw)" title="raw"></span><code>orders</code><span class="chip">raw</span></h3>
 <p>Customer orders (order header).</p>
 <dl class="meta"><dt>Source</dt><dd>tpch_erp</dd><dt>Owner</dt><dd>commerce-data</dd><dt>Load</dt><dd>cdc</dd><dt>Refreshed</dt><dd>hourly_sales: every hour, on the hour</dd><dt>dbt</dt><dd><code>stg_tpch_erp__orders</code></dd></dl>
-<div class="flow"><span class="muted">sources</span> → <strong><code>orders</code></strong> → <a href="#t-fct_order_fulfilment"><code>fct_order_fulfilment</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a></div>
+<div class="flow"><span class="muted">sources</span> → <strong><code>orders</code></strong> → <a href="#t-fct_order_fulfilment"><code>fct_order_fulfilment</code></a> <a href="#t-fct_order_line"><code>fct_order_line</code></a> <a href="#t-hub_order"><code>hub_order</code></a> <a href="#t-link_order_customer"><code>link_order_customer</code></a></div>
 <table><tr><th>Column</th><th>Type</th><th>About</th><th>Comes from</th><th>Used by</th></tr>
-<tr><td><code>o_orderkey</code></td><td><code>bigint</code></td><td>Order identifier. <span class="chip">primary key</span> <span class="chip">not null</span> <span class="chip">internal</span><div class="muted">Tests: not_null, unique</div></td><td></td><td></td></tr>
-<tr><td><code>o_custkey</code></td><td><code>bigint</code></td><td>Customer who placed the order. <span class="chip">not null</span> <span class="chip">internal</span></td><td></td><td><code>fct_order_fulfilment.customer_id</code><br><code>fct_order_line.customer_id</code></td></tr>
+<tr><td><code>o_orderkey</code></td><td><code>bigint</code></td><td>Order identifier. <span class="chip">primary key</span> <span class="chip">not null</span> <span class="chip">internal</span><div class="muted">Tests: not_null, unique</div></td><td></td><td><code>hub_order.order_number</code><br><code>link_order_customer.order_number</code></td></tr>
+<tr><td><code>o_custkey</code></td><td><code>bigint</code></td><td>Customer who placed the order. <span class="chip">not null</span> <span class="chip">internal</span></td><td></td><td><code>fct_order_fulfilment.customer_id</code><br><code>fct_order_line.customer_id</code><br><code>link_order_customer.customer_number</code></td></tr>
 <tr><td><code>o_orderstatus</code></td><td><code>string</code></td><td>Order status derived from its line items. <span class="chip">internal</span><div class="muted">Values: F, O, P</div></td><td></td><td><code>fct_order_line.order_status</code></td></tr>
 <tr><td><code>o_totalprice</code></td><td><code>decimal(15,2)</code> (USD)</td><td>Total order value including tax and discounts. <span class="chip">confidential</span></td><td></td><td></td></tr>
 <tr><td><code>o_orderdate</code></td><td><code>date</code></td><td>Date the order was placed. <span class="chip">not null</span> <span class="chip">internal</span></td><td></td><td><code>fct_order_fulfilment.ordered_on</code><br><code>fct_order_line.ordered_on</code></td></tr>
@@ -292,6 +298,52 @@ th{color:var(--muted);font-weight:500;font-size:12px}.flow{display:flex;gap:6px;
 <tr><td><code>Airport_fee</code></td><td><code>decimal(10,2)</code> (USD)</td><td>Fee for pickups at LaGuardia and JFK airports. <span class="chip">confidential</span></td><td></td><td></td></tr>
 </table>
 <p class="muted">Relationships:</p><ul><li class=mono>yellow_tripdata → taxi_zone_lookup: many_to_one, yellow_tripdata.PULocationID = taxi_zone_lookup.LocationID</li><li class=mono>yellow_tripdata → taxi_zone_lookup: many_to_one, yellow_tripdata.DOLocationID = taxi_zone_lookup.LocationID</li></ul>
+</div>
+</section>
+<section><h2>Intermediate</h2>
+<div class="card" id="t-hub_customer" data-name="hub_customer">
+<h3><span class="layer" style="background:var(--intermediate)" title="intermediate"></span><code>hub_customer</code><span class="chip">intermediate</span><span class="chip">hub</span><span class="chip">sales</span></h3>
+<p>Every customer we have heard of, once, by their customer number.</p>
+<dl class="meta"><dt>Refreshed</dt><dd>hourly_sales: every hour, on the hour</dd><dt>dbt</dt><dd><code>hub_customer</code></dd></dl>
+<div class="flow"><a href="#t-customer"><code>customer</code></a> → <strong><code>hub_customer</code></strong> → <span class="muted">nothing yet</span></div>
+<table><tr><th>Column</th><th>Type</th><th>About</th><th>Comes from</th><th>Used by</th></tr>
+<tr><td><code>customer_number</code></td><td><code>bigint</code></td><td> <span class="chip">natural key</span> <span class="chip">not null</span></td><td><code>customer.c_custkey</code></td><td></td></tr>
+</table>
+<p class="muted">Relationships:</p><ul><li class=mono>link_order_customer → hub_customer: many_to_one, link_order_customer.customer_number = hub_customer.customer_number</li><li class=mono>sat_customer → hub_customer: one_to_one, sat_customer.customer_number = hub_customer.customer_number</li></ul>
+</div>
+<div class="card" id="t-hub_order" data-name="hub_order">
+<h3><span class="layer" style="background:var(--intermediate)" title="intermediate"></span><code>hub_order</code><span class="chip">intermediate</span><span class="chip">hub</span><span class="chip">sales</span></h3>
+<p>Every order, once, by its order number.</p>
+<dl class="meta"><dt>Refreshed</dt><dd>hourly_sales: every hour, on the hour</dd><dt>dbt</dt><dd><code>hub_order</code></dd></dl>
+<div class="flow"><a href="#t-orders"><code>orders</code></a> → <strong><code>hub_order</code></strong> → <span class="muted">nothing yet</span></div>
+<table><tr><th>Column</th><th>Type</th><th>About</th><th>Comes from</th><th>Used by</th></tr>
+<tr><td><code>order_number</code></td><td><code>bigint</code></td><td> <span class="chip">natural key</span> <span class="chip">not null</span></td><td><code>orders.o_orderkey</code></td><td></td></tr>
+</table>
+<p class="muted">Relationships:</p><ul><li class=mono>link_order_customer → hub_order: many_to_one, link_order_customer.order_number = hub_order.order_number</li></ul>
+</div>
+<div class="card" id="t-link_order_customer" data-name="link_order_customer">
+<h3><span class="layer" style="background:var(--intermediate)" title="intermediate"></span><code>link_order_customer</code><span class="chip">intermediate</span><span class="chip">link</span><span class="chip">sales</span></h3>
+<p>Which customer placed each order.</p>
+<dl class="meta"><dt>Refreshed</dt><dd>hourly_sales: every hour, on the hour</dd><dt>dbt</dt><dd><code>link_order_customer</code></dd></dl>
+<div class="flow"><a href="#t-orders"><code>orders</code></a> → <strong><code>link_order_customer</code></strong> → <span class="muted">nothing yet</span></div>
+<table><tr><th>Column</th><th>Type</th><th>About</th><th>Comes from</th><th>Used by</th></tr>
+<tr><td><code>order_number</code></td><td><code>bigint</code></td><td> <span class="chip">natural key</span> <span class="chip">not null</span></td><td><code>orders.o_orderkey</code></td><td></td></tr>
+<tr><td><code>customer_number</code></td><td><code>bigint</code></td><td> <span class="chip">natural key</span> <span class="chip">not null</span></td><td><code>orders.o_custkey</code></td><td></td></tr>
+</table>
+<p class="muted">Relationships:</p><ul><li class=mono>link_order_customer → hub_order: many_to_one, link_order_customer.order_number = hub_order.order_number</li><li class=mono>link_order_customer → hub_customer: many_to_one, link_order_customer.customer_number = hub_customer.customer_number</li></ul>
+</div>
+<div class="card" id="t-sat_customer" data-name="sat_customer">
+<h3><span class="layer" style="background:var(--intermediate)" title="intermediate"></span><code>sat_customer</code><span class="chip">intermediate</span><span class="chip">satellite</span><span class="chip">sales</span></h3>
+<p>What we know about each customer, as it changes.</p>
+<dl class="meta"><dt>Refreshed</dt><dd>hourly_sales: every hour, on the hour</dd><dt>dbt</dt><dd><code>sat_customer</code>, <code>sat_customer_current</code></dd></dl>
+<div class="flow"><a href="#t-customer"><code>customer</code></a> → <strong><code>sat_customer</code></strong> → <span class="muted">nothing yet</span></div>
+<table><tr><th>Column</th><th>Type</th><th>About</th><th>Comes from</th><th>Used by</th></tr>
+<tr><td><code>customer_number</code></td><td><code>bigint</code></td><td> <span class="chip">natural key</span> <span class="chip">not null</span></td><td><code>customer.c_custkey</code></td><td></td></tr>
+<tr><td><code>customer_name</code></td><td><code>string</code></td><td></td><td><code>customer.c_name</code></td><td></td></tr>
+<tr><td><code>market_segment</code></td><td><code>string</code></td><td></td><td><code>customer.c_mktsegment</code></td><td></td></tr>
+<tr><td><code>account_balance</code></td><td><code>money</code></td><td></td><td><code>customer.c_acctbal</code></td><td></td></tr>
+</table>
+<p class="muted">Relationships:</p><ul><li class=mono>sat_customer → hub_customer: one_to_one, sat_customer.customer_number = hub_customer.customer_number</li></ul>
 </div>
 </section>
 <section><h2>Marts</h2>

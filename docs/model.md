@@ -44,14 +44,22 @@ domain: mobility                # must be listed under project.domains
 source: nyc_tlc                 # for raw tables: the source system
 grain: [trip_id]                # the columns that make a row unique
 history: none                   # none | scd1 | scd2 | scd3 | scd4 | scd6 | snapshot
+tracked: []                     # scd3 and scd6: the columns whose changes it keeps (default: all but keys)
 load: incremental               # full | append | incremental | cdc | streaming
 watermark: pickup_at            # the column that orders a key's versions (and, by choice, says what is new)
+cdc:                            # load: cdc only. A change feed: Debezium, a database's log, DMS
+  operation: op                 #   the column that says what happened to the row; without it no row counts as deleted
+  deletes: [d, delete, deleted] #   its values that mean the row was deleted (the default)
+  order: changed_at             #   which change is the latest; default the watermark, then load time
 incremental_by: load_time       # load_time (the default: what was loaded since the last run) | watermark
 lookback_hours: 0               # an incremental table also re-reads this many hours, for stragglers
 partition_by: [day(pickup_at)]  # a column, or a transform: day(), month(), year(), hour(), bucket(n, col)
 cluster_by: []
 freshness: { warn_after_hours: 24, error_after_hours: 48 }
 access: public                  # private | protected | public: who may build on it (dbt model access)
+row_access:                     # which rows each role sees (Snowflake); see modelling-patterns.md
+  column: region
+  allow: { SALES_EMEA: [EMEA, UK] }
 tags: []
 attributes:
   - name: trip_id
@@ -202,11 +210,16 @@ Use `env:NAME` in `connection` for anything secret; never put credentials in mod
 ```yaml
 metrics:
   - name: total_revenue
-    entity: fct_trip
-    expression: sum(total_amount)
-    grain: day
+    label: Total revenue
+    entity: fct_trip                   # the table it is counted on
+    expression: sum(total_amount)      # one or more aggregates
+    time: pickup_at                    # left out: the table's first date or timestamp column
+    grain: day                         # hour | day | week | month | quarter | year
     dimensions: [dim_taxi_zone.borough]
+    filters: ["payment_type = 1"]      # only rows that meet them count
 ```
+
+Metrics become dbt's semantic layer: see [modelling patterns](modelling-patterns.md#the-semantic-layer).
 
 ## Validation rules
 
@@ -237,6 +250,9 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK207 | error | A mapping reads from an entity or column that does not exist |
 | MK208 | error | A metric's entity does not exist |
 | MK209 | error | An exposure reads an entity that does not exist |
+| MK210 | error | A metric's table has no date or timestamp column to count it by |
+| MK211 | error | A metric's expression cannot be read, or has no aggregate |
+| MK212 | warning | A metric's dimension does not exist |
 | MK301 | warning | A join compares different types, so it will need a cast |
 | MK302 | warning | The one side of a relationship is not joined on its primary or natural key |
 | MK303 | warning | A fact table has no grain |
@@ -254,6 +270,14 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK315 | error | An accumulating snapshot's milestone is not a date or timestamp column |
 | MK316 | warning | A fact uses another domain's dimension that is not marked `conformed: true` |
 | MK317 | warning | A dimension has the same key as a conformed one: a copy of it |
+| MK318 | error | A tracked column (`tracked:`) is not a column of the table |
+| MK319 | warning | `tracked` is set, but only `scd3` and `scd6` history use it |
+| MK320 | error | A hub, link or satellite has no business key (`key: natural`) |
+| MK321 | error | A change feed (`load: cdc`) has no primary key |
+| MK322 | error | `cdc.operation` or `cdc.order` is not a column of the table |
+| MK323 | warning | `cdc:` settings on a table that is not `load: cdc` |
+| MK324 | warning | `load: streaming` on a table no Kafka connection fills: it is loaded as append |
+| MK325 | warning | A table built incrementally reads a change feed that marks deleted rows (`cdc.operation`): they stay until a full rebuild |
 | MK401 | error | An import would overwrite a table that belongs to another source or layer |
 | MK402 | error | A dictionary row has no table or column name, or the file has no rows |
 | MK403 | warning | A dictionary value could not be used (type, classification, foreign key) |

@@ -1,7 +1,7 @@
 import { CircleAlert, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
-import { api, type BusMatrix, type Exposure, type State } from './api'
+import { api, type BusMatrix, type Exposure, type Metric, type State } from './api'
 
 // The marts as the business sees them: the bus matrix (which processes share which dimensions,
 // and which dimensions are conformed), and the exposures, the dashboards, notebooks and apps that
@@ -15,17 +15,17 @@ type Props = {
 }
 
 export function MartsPanel(props: Props) {
-  const [tab, setTab] = useState<'bus' | 'exposures'>('bus')
+  const [tab, setTab] = useState<'bus' | 'exposures' | 'metrics'>('bus')
   return (
     <div className="settings marts">
       <div className="tabs tabs--inline" role="tablist">
-        {(['bus', 'exposures'] as const).map((t) => (
+        {(['bus', 'exposures', 'metrics'] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'tab tab--on' : 'tab'} onClick={() => setTab(t)}>
-            {{ bus: 'Bus matrix', exposures: 'Exposures' }[t]}
+            {{ bus: 'Bus matrix', exposures: 'Exposures', metrics: 'Metrics' }[t]}
           </button>
         ))}
       </div>
-      {tab === 'bus' ? <Bus {...props} /> : <Exposures {...props} />}
+      {tab === 'bus' ? <Bus {...props} /> : tab === 'exposures' ? <Exposures {...props} /> : <Metrics {...props} />}
     </div>
   )
 }
@@ -212,6 +212,132 @@ function Exposures({ state, onState, onMessage }: Props) {
           <>
             <button className="button button--primary" disabled={saving || draft.some((x) => !x.name.trim())} onClick={save}>
               Save exposures
+            </button>
+            <button className="button" disabled={saving} onClick={() => setDraft(saved)}>
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const NEW_METRIC: Metric = {
+  name: '',
+  label: null,
+  entity: '',
+  expression: '',
+  time: null,
+  grain: null,
+  dimensions: [],
+  filters: [],
+  description: null,
+}
+
+// The metrics, defined once (model/metrics.yaml): dbt's semantic layer (MetricFlow) is written from them.
+function Metrics({ state, onState, onMessage }: Props) {
+  const saved = state.model?.metrics ?? []
+  const [draft, setDraft] = useState<Metric[]>(saved)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => setDraft(state.model?.metrics ?? []), [state.model?.metrics])
+  const tables = (state.model?.entities ?? []).filter((e) => e.layer !== 'raw' && e.layer !== 'staging').map((e) => e.name)
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
+  const change = (index: number, changes: Partial<Metric>) => setDraft(draft.map((m, i) => (i === index ? { ...m, ...changes } : m)))
+  const list = (text: string) => text.split(',').map((t) => t.trim()).filter(Boolean)
+  const save = async () => {
+    setSaving(true)
+    try {
+      onState(await api.saveMetrics(draft))
+      onMessage('Saved in model/metrics.yaml. Generate to write the semantic layer.', 'info')
+    } catch (e) {
+      onMessage(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="settings__form">
+      <p className="muted small">
+        A number defined once: one or more aggregates over a table (sum(net_amount), sum(a) / count(*)), counted by a
+        date, broken down by columns of its own or its dimensions&apos; (dim_customer.market_segment).
+      </p>
+      {draft.map((m, index) => (
+        <fieldset key={m.id ?? index} className="settings__group">
+          <legend>{m.label || m.name || 'New metric'}</legend>
+          <label className="settings__row">
+            <span>Name</span>
+            <input className="input" value={m.name} placeholder="revenue" onChange={(e) => change(index, { name: e.target.value })} />
+          </label>
+          <label className="settings__row">
+            <span>Label</span>
+            <input className="input" value={m.label ?? ''} placeholder="Revenue" onChange={(e) => change(index, { label: e.target.value || null })} />
+          </label>
+          <label className="settings__row">
+            <span>Counted on</span>
+            <select className="input" value={m.entity} onChange={(e) => change(index, { entity: e.target.value })}>
+              <option value="">(a table)</option>
+              {tables.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label className="settings__row">
+            <span>Expression</span>
+            <input className="input" value={m.expression} placeholder="sum(net_amount)" onChange={(e) => change(index, { expression: e.target.value })} />
+          </label>
+          <label className="settings__row">
+            <span>By date</span>
+            <input className="input" value={m.time ?? ''} placeholder="the table's first date column" onChange={(e) => change(index, { time: e.target.value || null })} />
+          </label>
+          <label className="settings__row">
+            <span>Grain</span>
+            <select className="input" value={m.grain ?? ''} onChange={(e) => change(index, { grain: (e.target.value || null) as Metric['grain'] })}>
+              <option value="">(any)</option>
+              {['hour', 'day', 'week', 'month', 'quarter', 'year'].map((g) => (
+                <option key={g}>{g}</option>
+              ))}
+            </select>
+          </label>
+          <label className="settings__row">
+            <span>Broken down by</span>
+            <input
+              className="input"
+              key={`d${index}:${m.dimensions.join(',')}`}
+              defaultValue={m.dimensions.join(', ')}
+              placeholder="order_status, dim_customer.market_segment"
+              onBlur={(e) => change(index, { dimensions: list(e.target.value) })}
+            />
+          </label>
+          <label className="settings__row">
+            <span>Only rows where</span>
+            <input
+              className="input"
+              key={`f${index}:${m.filters.join(',')}`}
+              defaultValue={m.filters.join(', ')}
+              placeholder="order_status = 'O'"
+              onBlur={(e) => change(index, { filters: list(e.target.value) })}
+            />
+          </label>
+          <div className="stack__buttons">
+            <button className="button button--small" onClick={() => setDraft(draft.filter((_, i) => i !== index))}>
+              <Trash2 size={13} /> Remove
+            </button>
+          </div>
+        </fieldset>
+      ))}
+      <div className="stack__buttons">
+        <button className="button button--small" onClick={() => setDraft([...draft, { ...NEW_METRIC }])}>
+          <Plus size={13} /> Add a metric
+        </button>
+        {dirty && (
+          <>
+            <button
+              className="button button--primary"
+              disabled={saving || draft.some((m) => !m.name.trim() || !m.entity || !m.expression.trim())}
+              onClick={save}
+            >
+              Save metrics
             </button>
             <button className="button" disabled={saving} onClick={() => setDraft(saved)}>
               Cancel

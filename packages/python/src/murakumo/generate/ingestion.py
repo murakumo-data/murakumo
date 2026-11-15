@@ -41,6 +41,7 @@ REQUIREMENTS = {
     "sftp": ["paramiko>=3.4"],
     "database": ["sqlalchemy>=2.0"],
     "protobuf": ["protobuf>=5.27", "grpcio-tools>=1.64"],
+    "kafka": ["kafka-python>=2.0"],
 }
 
 
@@ -92,8 +93,12 @@ def render(project, plan: Plan) -> dict[str, str]:
     if not sources:
         return {}
     files: dict[str, str] = {}
-    if stack.extract != "none":
-        files.update(_python(project, sources))
+    from murakumo.generate import managed
+
+    scripted = [d for d in sources if managed.uses_scripts(project, d)]
+    if scripted:
+        files.update(_python(project, scripted))
+    files.update(managed.render(project, plan, sources))
     if stack.extract == "lambda":
         files.update(_lambda(project, sources))
     if stack.extract == "glue":

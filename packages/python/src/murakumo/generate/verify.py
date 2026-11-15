@@ -40,7 +40,33 @@ from murakumo.ir.model import Entity, Layer
 from murakumo.manifest import Warehouse
 from murakumo.project import Project
 
-SUPPORTED = (Warehouse.DUCKDB, Warehouse.SNOWFLAKE)
+SUPPORTED = tuple(Warehouse)
+
+
+def _need_dbt(warehouse: Warehouse, what: str) -> None:
+    """Fail clearly when dbt or the warehouse's adapter is not installed."""
+    import importlib
+
+    adapter = target_for(warehouse).adapter
+    package = "'murakumo[verify]'" if warehouse is Warehouse.DUCKDB else adapter
+    try:
+        import dbt.cli.main  # noqa: F401
+
+        importlib.import_module("dbt.adapters." + adapter.removeprefix("dbt-"))
+    except ImportError:
+        raise SourceUnavailable(
+            f"{what} on {warehouse.value} needs dbt and its adapter: pip install {package}"
+        ) from None
+
+
+def _backend_for(warehouse: Warehouse):
+    if warehouse is Warehouse.DUCKDB:
+        return DuckDBBackend
+    if warehouse is Warehouse.SNOWFLAKE:
+        return SnowflakeBackend
+    from murakumo.generate.sqlbackend import BACKENDS
+
+    return BACKENDS[warehouse]
 
 
 @dataclass
@@ -514,6 +540,7 @@ def _run_dbt(
     selector: str | None = None,
     select: str | None = None,
     dbt_vars: dict[str, str] | None = None,
+    whole_tests_only: bool = False,
 ):
     from dbt.cli.main import dbtRunner
 
@@ -532,6 +559,8 @@ def _run_dbt(
         "--no-use-colors",
         *(["--selector", selector] if selector else []),
         *(["--select", select] if select else []),
+        # A test between a chosen table and one left out cannot run: skip it, rather than fail on it.
+        *(["--indirect-selection", "cautious"] if select and whole_tests_only else []),
         *(["--vars", json.dumps(dbt_vars)] if dbt_vars else []),
     ]
     try:
@@ -578,22 +607,10 @@ def verify(
     rerun: bool = True,
     warehouse: Warehouse | str = Warehouse.DUCKDB,
     keep_tables: bool = False,
+    select: str | None = None,
 ) -> VerifyResult:
     warehouse = Warehouse(warehouse)
-    if warehouse not in SUPPORTED:
-        raise SourceUnavailable(f"verify runs on {' or '.join(w.value for w in SUPPORTED)}, not {warehouse.value}")
-    try:
-        import dbt.cli.main  # noqa: F401
-
-        if warehouse is Warehouse.DUCKDB:
-            import dbt.adapters.duckdb  # noqa: F401
-    except ImportError:
-        raise SourceUnavailable("verify needs dbt and DuckDB: pip install 'murakumo[verify]'") from None
-    if warehouse is Warehouse.SNOWFLAKE:
-        try:
-            import dbt.adapters.snowflake  # noqa: F401
-        except ImportError:
-            raise SourceUnavailable("verify on Snowflake needs dbt-snowflake: pip install dbt-snowflake") from None
+    _need_dbt(warehouse, "verify")
 
     output = generate(project, warehouse)
     result = VerifyResult(warehouse=warehouse.value)
@@ -606,7 +623,7 @@ def verify(
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
 
-        backend = (SnowflakeBackend if warehouse is Warehouse.SNOWFLAKE else DuckDBBackend)(project, folder)
+        backend = _backend_for(warehouse)(project, folder)
         try:
             try:
                 backend.run_ddl(DDL(output.plan, schema_prefix=backend.prefix).raw())
@@ -638,7 +655,15 @@ def verify(
                 backend.finish_loading()
 
             environment = project.manifest.targets.names[0]
-            run = _run_dbt(folder / "dbt", environment, backend.dbt_environment(), rerun, result)
+            run = _run_dbt(
+                folder / "dbt",
+                environment,
+                backend.dbt_environment(),
+                rerun,
+                result,
+                select=select,
+                whole_tests_only=True,
+            )
         finally:
             if keep_tables:
                 result.location = backend.describe()
@@ -723,9 +748,11 @@ def _build_backend(
         from murakumo.environments import role_for
 
         backend = SnowflakeBackend(project, folder, prefix=prefix, database=database, role=role_for(environment))
-    else:
+    elif warehouse is Warehouse.DUCKDB:
         backend = DuckDBBackend(project, folder, path=_duckdb_path(project, database))
         backend.prefix = prefix
+    else:
+        backend = _backend_for(warehouse)(project, folder, prefix=prefix, database=database)
     backend.batch = datetime.now().strftime("build_%Y%m%d_%H%M%S")
     return backend
 
@@ -755,21 +782,7 @@ def build(
     ``load_only`` creates and loads the raw tables, and stops before dbt (``murakumo load``).
     """
     warehouse = Warehouse(warehouse or project.manifest.targets.warehouse.type)
-    if warehouse not in SUPPORTED:
-        raise SourceUnavailable(
-            f"build runs on {' or '.join(w.value for w in SUPPORTED)} for now; for {warehouse.value}, "
-            "run `dbt build` in generated/dbt"
-        )
-    try:
-        import dbt.cli.main  # noqa: F401
-
-        if warehouse is Warehouse.DUCKDB:
-            import dbt.adapters.duckdb  # noqa: F401
-        else:
-            import dbt.adapters.snowflake  # noqa: F401
-    except ImportError:
-        package = "'murakumo[verify]'" if warehouse is Warehouse.DUCKDB else "dbt-snowflake"
-        raise SourceUnavailable(f"build needs dbt for {warehouse.value}: pip install {package}") from None
+    _need_dbt(warehouse, "build")
 
     from murakumo.environments import EnvError, placement_for
 

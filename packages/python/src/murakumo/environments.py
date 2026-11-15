@@ -147,11 +147,12 @@ def project_schemas(project: Project, warehouse: Warehouse) -> list[str]:
 
 @dataclass
 class Connection:
-    """The few statements environments need, on DuckDB or Snowflake."""
+    """The few statements environments need, on any warehouse."""
 
     warehouse: Warehouse
     raw: Any
     database: str | None = None
+    schema_lister: Any = None  # for a warehouse with no information_schema.schemata to ask (BigQuery)
 
     def execute(self, sql: str, fetch: bool = False) -> list[tuple]:
         if self.warehouse is Warehouse.DUCKDB:
@@ -170,8 +171,12 @@ class Connection:
                 "select schema_name from information_schema.schemata where catalog_name = current_database()",
                 fetch=True,
             )
-        else:
+        elif self.warehouse is Warehouse.SNOWFLAKE:
             rows = [(r[1],) for r in self.execute(f"show schemas in database {self.database}", fetch=True)]
+        elif self.schema_lister is not None:
+            rows = [(name,) for name in self.schema_lister()]
+        else:
+            rows = self.execute("select schema_name from information_schema.schemata", fetch=True)
         return {r[0].lower() for r in rows}
 
     def tables(self, schema: str) -> list[str]:
@@ -182,7 +187,13 @@ class Connection:
                 fetch=True,
             )
             return [r[0] for r in rows]
-        return [r[1] for r in self.execute(f"show tables in schema {self.database}.{schema}", fetch=True)]
+        if self.warehouse is Warehouse.SNOWFLAKE:
+            return [r[1] for r in self.execute(f"show tables in schema {self.database}.{schema}", fetch=True)]
+        rows = self.execute(
+            f"select table_name from information_schema.tables where lower(table_schema) = '{schema.lower()}'",
+            fetch=True,
+        )
+        return [r[0] for r in rows]
 
     def close(self) -> None:
         self.raw.close()
@@ -227,7 +238,15 @@ def connect(
             return Connection(warehouse, snowflake.connect("snowflake://", database=database, **extra), database)
         except snowflake.SnowflakeUnavailable as exc:
             raise EnvError(str(exc)) from None
-    raise EnvError(f"environments work on DuckDB and Snowflake for now, not {warehouse.value}")
+    from murakumo.generate.sqlbackend import BACKENDS
+    from murakumo.importers.database import SourceUnavailable
+
+    try:
+        backend = BACKENDS[warehouse](project, project.root, prefix="", database=database)
+    except SourceUnavailable as exc:
+        raise EnvError(str(exc)) from None
+    lister = backend.schemas if warehouse is Warehouse.BIGQUERY else None
+    return Connection(warehouse, backend.connection, backend.database, lister)
 
 
 def _qualified(connection: Connection, schema: str) -> str:
@@ -412,26 +431,55 @@ def provision(project: Project) -> str:
         f"grant usage, create schema on database {personal} to role {developer_role};",
         f"grant role {developer_role} to role sysadmin;",
     ]
+    from murakumo.generate.terraform import roles as project_roles
+
+    planned = project_roles(project)
+    lines += [
+        "",
+        "-- Access roles hold the privileges on one database; the functional roles people and CI use",
+        "-- are made of them.",
+    ]
+    for database in sorted(planned["databases"]):
+        read, write = f"{database}_READ", f"{database}_WRITE"
+        lines += [
+            "",
+            f"create database if not exists {database};",
+            f"create role if not exists {read};",
+            f"grant usage on database {database} to role {read};",
+            f"grant usage on all schemas in database {database} to role {read};",
+            f"grant usage on future schemas in database {database} to role {read};",
+            f"grant select on all tables in database {database} to role {read};",
+            f"grant select on future tables in database {database} to role {read};",
+            f"grant select on all views in database {database} to role {read};",
+            f"grant select on future views in database {database} to role {read};",
+            f"create role if not exists {write};",
+            f"grant all on database {database} to role {write};",
+            f"grant all on future schemas in database {database} to role {write};",
+            f"grant role {read} to role {write};",
+            f"grant role {write} to role sysadmin;",
+            "-- Developers read it, to copy it into their own schema or a pull request's.",
+            f"grant role {read} to role {developer_role};",
+        ]
     environment_roles = []
     for env in manifest.targets.environments:
-        database = (env.database or default).upper()
-        role = f"{name}_DEPLOYER_{env.name.upper()}"
+        role, database = planned["deployers"][env.name]
         environment_roles.append((env.name, role))
         lines += [
             "",
             f"-- {env.name}: deployed by CI" + (f" when {env.branch} changes" if env.branch else "") + ".",
-            f"create database if not exists {database};",
             f"create role if not exists {role};",
             f"grant usage on warehouse {compute} to role {role};",
-            f"grant all on database {database} to role {role};",
-            f"grant all on future schemas in database {database} to role {role};",
+            f"grant role {database}_WRITE to role {role};",
             f"grant role {role} to role sysadmin;",
-            "-- Developers read it, to copy it into their own schema or a pull request's.",
-            f"grant usage on database {database} to role {developer_role};",
-            f"grant usage on future schemas in database {database} to role {developer_role};",
-            f"grant usage on all schemas in database {database} to role {developer_role};",
-            f"grant select on all tables in database {database} to role {developer_role};",
-            f"grant select on future tables in database {database} to role {developer_role};",
+        ]
+    for role in planned["unmasked"]:
+        lines += [
+            "",
+            f"-- {role} sees personal data unmasked (governance.unmasked_roles), in {planned['production']}.",
+            f"create role if not exists {role};",
+            f"grant usage on warehouse {compute} to role {role};",
+            f"grant role {planned['production']}_READ to role {role};",
+            f"grant role {role} to role sysadmin;",
         ]
     lines += [
         "",

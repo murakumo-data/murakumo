@@ -13,7 +13,6 @@ accumulating:
     - ordered_on
     - shipped_on
     - received_on
-  unit: day
 attributes:
   - id: ead0f13f-954c-4b92-a4e4-bc6e83868bc1
     name: order_id

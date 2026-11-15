@@ -1,0 +1,16 @@
+id: 8eef9243-c4ba-48b8-b12c-8c0f0230d7f9
+name: hub_customer
+description: Every customer we have heard of, once, by their customer number.
+layer: intermediate
+kind: hub
+domain: sales
+attributes:
+  - id: 37945cd8-e627-4d31-afe6-d2677e7a5879
+    name: customer_number
+    type: bigint
+    nullable: false
+    key: natural
+mappings:
+  - target: customer_number
+    sources:
+      - customer.c_custkey

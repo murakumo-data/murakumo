@@ -142,6 +142,91 @@ function ProjectSettings({ onState, onMessage }: { onState: (state: State) => vo
         </label>
       </fieldset>
       <fieldset className="settings__group">
+        <legend>Open tables</legend>
+        <p className="muted small">
+          Write layers as open tables in a catalog, so any engine reads them: Iceberg on Snowflake, Databricks or DuckDB
+          (into Polaris or Nessie), Delta or Hudi on Databricks. generated/lakehouse says what to set up.
+        </p>
+        {(() => {
+          const lake = settings.lakehouse ?? {
+            table_format: 'native' as const,
+            catalog: 'none' as const,
+            layers: ['marts'],
+            storage: null,
+            catalog_uri: null,
+            warehouse: null,
+            external_volume: null,
+          }
+          const text = (key: 'storage' | 'catalog_uri' | 'warehouse' | 'external_volume', label: string, hint: string) => (
+            <label className="settings__row" key={key}>
+              <span>{label}</span>
+              <input
+                className="input"
+                key={`${key}:${lake[key] ?? ''}`}
+                defaultValue={lake[key] ?? ''}
+                placeholder={hint}
+                disabled={saving || lake.table_format === 'native'}
+                onBlur={(e) => {
+                  const value = e.target.value.trim() || null
+                  if (value !== lake[key]) save({ lakehouse: { ...lake, [key]: value } })
+                }}
+              />
+            </label>
+          )
+          return (
+            <>
+              <label className="settings__row">
+                <span>Table format</span>
+                <select
+                  className="input"
+                  value={lake.table_format}
+                  disabled={saving}
+                  onChange={(e) => save({ lakehouse: { ...lake, table_format: e.target.value as typeof lake.table_format } })}
+                >
+                  <option value="native">the warehouse's own tables</option>
+                  <option value="iceberg">Apache Iceberg</option>
+                  <option value="delta">Delta Lake (Databricks)</option>
+                  <option value="hudi">Apache Hudi (Databricks)</option>
+                </select>
+              </label>
+              <label className="settings__row">
+                <span>Catalog</span>
+                <select
+                  className="input"
+                  value={lake.catalog}
+                  disabled={saving || lake.table_format === 'native'}
+                  onChange={(e) => save({ lakehouse: { ...lake, catalog: e.target.value as typeof lake.catalog } })}
+                >
+                  <option value="none">the warehouse's</option>
+                  <option value="polaris">Apache Polaris (Snowflake Open Catalog)</option>
+                  <option value="nessie">Nessie</option>
+                  <option value="glue">AWS Glue</option>
+                  <option value="unity">Unity Catalog</option>
+                </select>
+              </label>
+              <label className="settings__row">
+                <span>Layers</span>
+                <input
+                  className="input"
+                  key={lake.layers.join(',')}
+                  defaultValue={lake.layers.join(', ')}
+                  placeholder="marts"
+                  disabled={saving || lake.table_format === 'native'}
+                  onBlur={(e) => {
+                    const layers = e.target.value.split(',').map((l) => l.trim()).filter(Boolean)
+                    if (layers.join(',') !== lake.layers.join(',')) save({ lakehouse: { ...lake, layers } })
+                  }}
+                />
+              </label>
+              {text('storage', 'Storage', 's3://my-lake/')}
+              {text('catalog_uri', 'Catalog address', 'http://localhost:8181/api/catalog')}
+              {text('warehouse', 'Catalog warehouse', 'its name in Polaris')}
+              {text('external_volume', 'Snowflake external volume', 'PROJECT_LAKE')}
+            </>
+          )
+        })()}
+      </fieldset>
+      <fieldset className="settings__group">
         <legend>Personal data</legend>
         <p className="muted small">
           On Snowflake, columns marked PII or classified get a masking policy: what roles outside the list below see in

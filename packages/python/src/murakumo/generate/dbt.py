@@ -53,7 +53,10 @@ def render(plan: Plan) -> dict[str, str]:
         header = HEADER.format(origin=where)
         template = model.template or ("staging.sql.j2" if model.layer == "staging" else "model.sql.j2")
         files[f"models/{model.folder}/{model.name}.sql"] = _env.get_template(template).render(
-            model=model, header=header, quote=lambda n: quote_identifier(n, plan.target.dialect), config=_config(model)
+            model=model,
+            header=header,
+            quote=lambda n: quote_identifier(n, plan.target.dialect),
+            config=_config(model, plan),
         )
     for folder, models in sorted(by_folder.items()):
         leaf = folder.rsplit("/", 1)[-1]
@@ -64,6 +67,10 @@ def render(plan: Plan) -> dict[str, str]:
     exposures = _exposures(plan)
     if exposures:
         files["models/_exposures.yml"] = _yaml({"version": 2, "exposures": exposures})
+
+    from murakumo.generate import semantic
+
+    files.update(semantic.render(plan))  # metrics: MetricFlow's semantic models, and its time spine
 
     groups = _groups(plan)
     if groups:
@@ -97,7 +104,7 @@ def render(plan: Plan) -> dict[str, str]:
     return dict(sorted(files.items()))
 
 
-def _config(model: DbtModel) -> str:
+def _config(model: DbtModel, plan: Plan) -> str:
     """The config() arguments for a model's SQL file."""
     if model.layer == "staging":
         return ""
@@ -107,7 +114,8 @@ def _config(model: DbtModel) -> str:
         if key:
             parts.append(f"unique_key={key!r}")
         parts.append("on_schema_change='append_new_columns'")
-        parts.append("incremental_strategy='delete+insert'" if model.unique_key else "incremental_strategy='append'")
+        strategy = plan.target.incremental_keyed if model.unique_key else plan.target.incremental_append
+        parts.append(f"incremental_strategy={strategy!r}")
     for key, value in model.config.items():
         parts.append(f"{key}={value!r}")
     return ", ".join(parts)
@@ -277,7 +285,7 @@ def _dbt_project(plan: Plan) -> dict:
             if layer in warehouse.time_travel_days:
                 settings["+post-hook"] = [f"{{{{ murakumo_retention({warehouse.time_travel_days[layer]}) }}}}"]
         snapshots = {"snapshots": {name: {"+transient": False}}}
-    return {
+    project = {
         "name": name,
         "version": "1.0.0",
         "config-version": 2,
@@ -299,6 +307,12 @@ def _dbt_project(plan: Plan) -> dict:
         "models": {name: layers},
         **snapshots,
     }
+    from murakumo.generate import lakehouse
+
+    namespaces = lakehouse.run_start(plan.project, plan.target.warehouse)
+    if namespaces:  # the catalog's namespaces, once, before models run side by side
+        project["on-run-start"] = [*project.get("on-run-start", []), namespaces]
+    return project
 
 
 def profiles(plan: Plan) -> dict:
@@ -324,11 +338,14 @@ def profiles(plan: Plan) -> dict:
             path = own if own and environment != personal else configured if is_file else f"{name}.duckdb"
             if not path.endswith((".duckdb", ".db")):
                 path = f"{path}.duckdb"
+            from murakumo.generate.lakehouse import duckdb_profile
+
             outputs[environment] = {
                 "type": "duckdb",
                 "path": f"{{{{ env_var('MURAKUMO_DUCKDB_PATH', '{path}') }}}}",
                 "schema": schema,
                 "threads": 4,
+                **duckdb_profile(plan.project),  # the Iceberg catalog, when the lakehouse is on
             }
         elif warehouse is Warehouse.SNOWFLAKE:
             outputs[environment] = {
@@ -349,7 +366,7 @@ def profiles(plan: Plan) -> dict:
                 "host": "{{ env_var('DATABRICKS_HOST') }}",
                 "http_path": "{{ env_var('DATABRICKS_HTTP_PATH') }}",
                 "token": "{{ env_var('DATABRICKS_TOKEN') }}",
-                "catalog": database.lower(),
+                "catalog": f"{{{{ env_var('DATABRICKS_CATALOG', '{database.lower()}') }}}}",
                 "schema": schema,
                 "threads": 8,
             }
@@ -361,14 +378,31 @@ def profiles(plan: Plan) -> dict:
                 "dataset": schema,
                 "threads": 8,
             }
+        elif warehouse in (Warehouse.FABRIC, Warehouse.SYNAPSE):
+            # A service principal: the same sign-in on a laptop, in CI and in the orchestrator.
+            server = "FABRIC_SERVER" if warehouse is Warehouse.FABRIC else "SYNAPSE_SERVER"
+            outputs[environment] = {
+                "type": plan.target.adapter.removeprefix("dbt-"),
+                "driver": "ODBC Driver 18 for SQL Server",
+                "server": f"{{{{ env_var('{server}') }}}}",
+                "port": 1433,
+                "database": database,
+                "schema": schema,
+                "authentication": "ServicePrincipal",
+                "tenant_id": "{{ env_var('AZURE_TENANT_ID') }}",
+                "client_id": "{{ env_var('AZURE_CLIENT_ID') }}",
+                "client_secret": "{{ env_var('AZURE_CLIENT_SECRET') }}",
+                "threads": 4,
+            }
         else:
+            port = 5439 if warehouse is Warehouse.REDSHIFT else 5432
             outputs[environment] = {
                 "type": plan.target.adapter.removeprefix("dbt-"),
                 "host": "{{ env_var('DB_HOST') }}",
                 "user": "{{ env_var('DB_USER') }}",
                 "password": "{{ env_var('DB_PASSWORD') }}",
-                "port": 5439 if warehouse is Warehouse.REDSHIFT else 5432,
-                "dbname": database.lower(),
+                "port": f"{{{{ env_var('DB_PORT', '{port}') | int }}}}",
+                "dbname": f"{{{{ env_var('DB_NAME', '{database.lower()}') }}}}",
                 "schema": schema,
                 "threads": 4,
             }

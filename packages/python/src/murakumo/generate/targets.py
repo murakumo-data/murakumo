@@ -24,6 +24,11 @@ class Target:
     string_n: Callable[[int], str] | None = None
     array: Callable[[str], str] = lambda element: f"ARRAY<{element}>"
     max_precision: int = 38
+    # dbt's incremental strategy for a model with a unique key, and for one without. Not every
+    # adapter has delete+insert: BigQuery only merges (and a merge with no key appends), and
+    # Databricks has had merge for far longer than delete+insert.
+    incremental_keyed: str = "delete+insert"
+    incremental_append: str = "append"
 
     def physical_name(self, logical: str) -> str:
         """The physical type for a logical type written as text: ``physical_name("timestamp")``."""
@@ -124,6 +129,7 @@ TARGETS: dict[Warehouse, Target] = {
             T.STRUCT: "STRING",
         },
         decimal=lambda p, s: f"DECIMAL({p},{s})",
+        incremental_keyed="merge",
     ),
     Warehouse.BIGQUERY: Target(
         Warehouse.BIGQUERY,
@@ -151,6 +157,8 @@ TARGETS: dict[Warehouse, Target] = {
         decimal=lambda p, s: f"BIGNUMERIC({p},{s})" if p > 38 or s > 9 else f"NUMERIC({p},{s})",
         string_n=lambda n: f"STRING({n})",
         max_precision=76,
+        incremental_keyed="merge",
+        incremental_append="merge",
     ),
     Warehouse.POSTGRES: Target(
         Warehouse.POSTGRES,
