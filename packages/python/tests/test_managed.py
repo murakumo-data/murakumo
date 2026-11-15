@@ -186,3 +186,69 @@ def test_orchestrators_run_the_dlt_pipeline_and_skip_the_load(tmp_path):
     flows = generate(project).files["orchestration/prefect/flows.py"]
     assert "DLT_SOURCES = ['nyc_tlc']" in flows and "\n    load_landed()\n" not in flows
     ast.parse(flows)
+
+
+def test_dlt_turns_columns_of_values_into_a_row_each(tmp_path):
+    # Some APIs answer {"time": [...], "temperature": [...]}: one row per position, not one row.
+    code = generate(taxi(tmp_path, "dlt", zone_files())).files["ingestion/dlt/pipeline.py"]
+    assert "add_yield_map(rows)" in code
+    tree = ast.parse(code)
+    wanted = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in ("stamp", "rows")]
+    scope = {"NOW": "now", "BATCH": "b1"}
+    exec(compile(ast.Module(body=wanted, type_ignores=[]), "pipeline", "exec"), scope)  # noqa: S102
+    made = list(scope["rows"]({"time": ["t1", "t2"], "temperature": [1.5, 2.5]}))
+    assert [(r["time"], r["temperature"], r["_batch_id"]) for r in made] == [("t1", 1.5, "b1"), ("t2", 2.5, "b1")]
+    # An ordinary record, lists of different lengths included, stays one row.
+    assert len(list(scope["rows"]({"id": 1, "tags": ["a", "b"]}))) == 1
+    assert len(list(scope["rows"]({"a": [1], "b": [1, 2]}))) == 1
+
+
+def test_ingest_runs_the_dlt_pipeline(tmp_path, monkeypatch):
+    pytest.importorskip("dlt")
+    pytest.importorskip("pandas")
+    from typer.testing import CliRunner
+
+    from murakumo.cli import app
+    from murakumo.project import load_project
+
+    root = init_project(tmp_path / "taxi").root
+    with (root / "murakumo.yaml").open("a") as file:
+        file.write(
+            "\nstack:\n  extract: dlt\nsources:\n  - name: nyc_tlc\n    connection:\n      kind: files\n"
+            "      location: incoming\n      files:\n        - {table: taxi_zone_lookup, pattern: 'zones_*.csv'}\n"
+        )
+    project = load_project(root).project
+    write(generate(project), project.root)
+    (project.root / "incoming").mkdir()
+    (project.root / "incoming" / "zones_1.csv").write_text(
+        "LocationID,Borough,Zone,service_zone\n1,EWR,Newark Airport,EWR\n"
+    )
+    db = tmp_path / "taxi.duckdb"
+    monkeypatch.setenv("MURAKUMO_DUCKDB_PATH", str(db))
+    monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / "dlt"))
+    done = CliRunner().invoke(app, ["ingest", "-p", str(project.root)])
+    assert done.exit_code == 0, done.output
+    assert "Loaded into the raw tables by dlt" in done.output
+    with duckdb.connect(str(db), read_only=True) as connection:
+        assert connection.execute("select count(*) from raw_nyc_tlc.taxi_zone_lookup").fetchone()[0] == 1
+
+
+def test_dlt_takes_over_a_raw_table_that_already_has_rows(tmp_path):
+    # Loaded by Murakumo first, then the stack changes to dlt: dlt's own columns cannot be added
+    # NOT NULL to a table with rows, so the pipeline adds them itself.
+    pytest.importorskip("dlt")
+    pytest.importorskip("pandas")
+    project = taxi(tmp_path, "dlt", zone_files())
+    with duckdb.connect(str(tmp_path / "taxi.duckdb")) as connection:
+        connection.execute("create schema raw_nyc_tlc")
+        connection.execute(
+            'create table raw_nyc_tlc.taxi_zone_lookup as select 9 as "LocationID", \'Old\' as "Borough", '
+            "'Old' as \"Zone\", 'Old' as service_zone, now() as _ingested_at, 'b0' as _batch_id"
+        )
+    (project.root / "incoming").mkdir()
+    (project.root / "incoming" / "zones_1.csv").write_text(
+        "LocationID,Borough,Zone,service_zone\n1,EWR,Newark Airport,EWR\n"
+    )
+    db = run_pipeline(project, tmp_path)
+    assert db.execute('select "LocationID" from raw_nyc_tlc.taxi_zone_lookup').fetchall() == [(1,)]
+    db.close()

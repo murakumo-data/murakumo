@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 (unreleased)
+## 1.0.0 (2026-11-14)
 
 The rest of the original plan's Evolution and Breadth phases: more ways to keep history, the Data
 Vault, a semantic layer, the platform as Terraform, open tables in a catalog, and streaming. Each
@@ -57,6 +57,18 @@ review found and adds what they have that Murakumo did not.
   PostgreSQL for the first time.
 - **The Fabric and Synapse dbt profiles had PostgreSQL's settings.** They now sign in with a
   service principal, as those adapters expect.
+- **A new project named like `taxi_platform` did not build on another warehouse.** When the
+  database or orchestrator name was as wide as the column `murakumo.yaml`'s comments line up on,
+  the comment became part of the name. Found by the end-to-end test's Part 21.
+- **dlt loaded an API answer made of columns of values as one row.** Open-Meteo's
+  `{"time": [...], "temperature_2m": [...]}` is now one row per position, as Murakumo's own
+  extract has always read it.
+- **dlt could not take over a raw table Murakumo had already loaded**: it adds its two columns
+  NOT NULL, which a table with rows refuses. The pipeline now adds them itself.
+- **`murakumo ingest` only said to run the dlt pipeline.** It now runs it; `murakumo[dlt]` installs
+  dlt beside Murakumo.
+- **An alert written as the documentation shows it did not load**: YAML reads the key `on` as
+  true.
 - The README still said 0.9.0. The package is now classified beta.
 
 **Added**

@@ -18,7 +18,8 @@ should see.
 | 18 | The replication guide: reading it, proving it, loading by hand; unknown rows, the bus matrix, exposures, access and masking | 20 min |
 | 19 | SCD types 3, 4 and 6, a Data Vault, a metric, Terraform on LocalStack, Iceberg in Polaris, Kafka through the consumer and Flink | 40 min |
 | 20 | A change feed, Slim CI, cost, monitoring, lineage for a catalog, importing a dbt project, the MCP server, the assistant | 30 min |
-| 21 | Cleaning up | 2 min |
+| 21 | PostgreSQL, a cloud orchestrator, dlt, Airbyte and Fivetran, row access, alerts, the canvas's guard | 30 min |
+| 22 | Cleaning up | 2 min |
 
 ## How to use this script
 
@@ -2180,11 +2181,194 @@ choose **Describe**, **Suggest**, tick a suggestion and **Apply**.
 
 ☐ Off by default, and it says what it would send.
 
-## Part 21: Clean up
+## Part 21: Another warehouse, cloud orchestrators, dlt, Airbyte and Fivetran, row access, alerts
 
-**21.1** In the canvas tab, press **Ctrl+C** to stop it.
+The same project, pointed at other tools. Run these in the project folder, in the second Terminal
+tab. 21.1 needs Docker Desktop running (as Part 19 did); skip it without.
 
-**21.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
+**21.1 Verify on PostgreSQL.** Add PostgreSQL support, and dlt for 21.3, the way your route does
+it:
+
+Route A:
+
+```bash
+uv tool install --force "murakumo[canvas,verify,duckdb,postgres,dlt]"
+```
+
+Route B:
+
+```bash
+pip install "murakumo[postgres,dlt]"
+```
+
+Route C:
+
+```bash
+export MURAKUMO_EXTRAS="postgres,dlt"
+```
+
+Start a throwaway PostgreSQL, and tell Murakumo where it is:
+
+```bash
+docker run -d --rm --name murakumo-e2e-pg -e POSTGRES_PASSWORD=murakumo -p 55432:5432 postgres:16-alpine
+export DB_HOST=localhost DB_PORT=55432 DB_USER=postgres DB_PASSWORD=murakumo DB_NAME=postgres
+```
+
+Wait ten seconds, then build the project there with made-up data, without changing the project:
+
+```bash
+murakumo verify --warehouse postgres
+```
+
+**You should see** a `loaded <table>: 200 rows (synthetic)` line per raw table, then
+`verified: N models and snapshots built, N/N tests passed, incremental rebuild passed on postgres.`
+
+Stop it:
+
+```bash
+docker rm -f murakumo-e2e-pg
+```
+
+☐ The same model builds and passes its tests on PostgreSQL.
+
+> Redshift, Databricks, BigQuery, Fabric and Synapse work the same way (`--warehouse redshift`,
+> and so on, with that warehouse's extra and variables; [generating.md](generating.md) lists them).
+> They need an account, so they are not part of this script. If you have one, try it and note the
+> result: these have not been run against a live warehouse yet.
+
+**21.2 A cloud orchestrator.**
+
+```bash
+murakumo stack set orchestrator=aws_step_functions --why "Trying a cloud orchestrator"
+murakumo generate
+ls generated/orchestration/aws_step_functions
+grep -n "schedule_expression\|StartAt\|Resource" generated/orchestration/aws_step_functions/main.tf generated/orchestration/aws_step_functions/state_machine.asl.json
+```
+
+**You should see** `orchestrator: airflow → aws_step_functions`; the files `Dockerfile`,
+`README.md`, `main.tf`, `requirements.txt`, `run.sh` and `state_machine.asl.json`; a
+`schedule_expression = "cron(...)"` for the daily schedule; and a state machine that starts at
+`Build` and runs an ECS task (`arn:aws:states:::ecs:runTask.sync`).
+
+Try the other three the same way if you like: `aws_glue` (a Glue job and `glue_dbt.py`),
+`gcp_workflows` (`workflow.yaml`) and `azure_data_factory` (`pipeline.json` and a trigger per
+schedule). In the canvas, **Stack** shows the orchestrator you chose, and **Guide** has the steps
+to deploy it by hand.
+
+☐ The orchestrator's files are written, and the guide says how to deploy them.
+
+**21.3 dlt fetches and loads.** Part 17's weather API, fetched by dlt instead of Murakumo's own
+code:
+
+```bash
+murakumo stack set orchestrator=airflow extract=dlt --why "Trying dlt"
+murakumo generate
+murakumo ingest --source open_meteo
+```
+
+**You should see** `extract: python → dlt`, then dlt's own report: `1 load package(s) were loaded
+to destination duckdb and into dataset raw_open_meteo`, `... is LOADED and contains no failed
+jobs`, and last `Loaded into the raw tables by dlt. Build with murakumo build.` There is no
+separate `murakumo load`: dlt fetches and loads in one step. (If it says *dlt is not installed
+beside Murakumo*, do 21.1's install step.) Then:
+
+```bash
+murakumo build
+```
+
+**You should see** `built: N models and snapshots, N/N tests passed`: staging read what dlt
+loaded. (The weather table has 168 rows: one per hour, not one row holding 168 values.)
+
+☐ dlt loads the raw table, and the build reads it.
+
+**21.4 Airbyte and Fivetran.** These fetch in their own product; Murakumo writes what to set up
+there:
+
+```bash
+murakumo stack set extract=airbyte --why "Trying Airbyte"
+murakumo generate
+ls generated/ingestion/airbyte
+grep -n "destination_schema" generated/ingestion/airbyte/connections.json
+grep -n "_airbyte_extracted_at" generated/ingestion/airbyte/views.sql
+```
+
+**You should see** `README.md`, `connections.json` and `views.sql`; the destination schema
+`raw_open_meteo_airbyte`; and a view that turns `_airbyte_extracted_at` into `_ingested_at`.
+`extract=fivetran` writes the same three files under `generated/ingestion/fivetran`, reading
+`_fivetran_synced`. Neither has been run against the real product yet: if you use one, note what
+its landed tables are really called.
+
+Put the project back:
+
+```bash
+murakumo stack set extract=python --why "Back for the test"
+murakumo generate
+```
+
+☐ The connection plan and the views are written; the project is back.
+
+**21.5 Row access.** In the canvas, click **dim_taxi_zone**. In the inspector, under **The column
+that decides which rows a role sees**, choose `borough`. In the box that appears, type
+`ANALYST_QUEENS: Queens`.
+
+**You should see** in **Problems** the warning `MK709` *row-access policies are generated for
+Snowflake only, for now*: the project is on DuckDB. See what Snowflake would get:
+
+```bash
+murakumo stack set warehouse=snowflake --why "Looking at row access"
+murakumo generate
+grep -n "row access policy" generated/guide/05-transformations.md
+```
+
+**You should see** `create row access policy if not exists governance.murakumo_rows_dim_taxi_zone
+... is_role_in_session('ANALYST_QUEENS') and val in ('Queens')`.
+
+Put it back: clear the row-access column in the inspector, then:
+
+```bash
+murakumo stack set warehouse=duckdb --why "Back for the test"
+murakumo generate
+```
+
+☐ The policy is written for Snowflake, with its step in the guide.
+
+**21.6 Alerts.** Open `murakumo.yaml` in a text editor and add at the end:
+
+```yaml
+quality:
+  alerts:
+    - kind: slack
+      url_env: SLACK_WEBHOOK
+      on: [error, warn]
+```
+
+```bash
+murakumo validate && murakumo monitor --notify
+```
+
+**You should see** `valid`, and the same answer as 20.4. With nothing unusual, nothing is sent. If
+you have a Slack incoming webhook, `export SLACK_WEBHOOK=https://hooks.slack.com/...` first: a
+finding then arrives as a message with table names and counts, never rows.
+
+☐ The alert setting loads.
+
+**21.7 The canvas takes changes only from itself.** With the canvas running, pretend to be another
+website:
+
+```bash
+curl -s -X PUT -H 'Origin: https://example.com' -H 'Content-Type: application/json' -d '{"enabled":true}' http://127.0.0.1:8765/api/assistant
+```
+
+**You should see** `{"message":"changes are only accepted from the canvas itself"}`, and
+`murakumo ai status` still says `Assistant: off`.
+
+☐ A page on another site cannot change the project.
+
+## Part 22: Clean up
+
+**22.1** In the canvas tab, press **Ctrl+C** to stop it.
+
+**22.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
 
 ```bash
 rm -rf ~/murakumo-e2e
@@ -2242,7 +2426,8 @@ output or a screenshot.
 | 18 Replication guide: read, check, load by hand; unknown rows, bus matrix, exposures, access, masking | | |
 | 19 History types, vault, metrics, Terraform, Iceberg, Kafka and Flink | | |
 | 20 Change feed, Slim CI, cost, monitoring, catalog lineage, importing dbt, MCP, the assistant | | |
-| 21 Clean up | | |
+| 21 PostgreSQL, cloud orchestrator, dlt, Airbyte and Fivetran, row access, alerts, the canvas's guard | | |
+| 22 Clean up | | |
 
 Also note anything that was confusing, slow or surprising, even if it worked. That is as useful
 as a failure.

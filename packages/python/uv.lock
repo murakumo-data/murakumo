@@ -2413,6 +2413,9 @@ databricks = [
     { name = "databricks-sql-connector" },
     { name = "dbt-databricks" },
 ]
+dlt = [
+    { name = "dlt", extra = ["duckdb"] },
+]
 duckdb = [
     { name = "duckdb" },
 ]
@@ -2485,6 +2488,7 @@ requires-dist = [
     { name = "dbt-postgres", marker = "extra == 'postgres'", specifier = ">=1.9" },
     { name = "dbt-redshift", marker = "extra == 'redshift'", specifier = ">=1.9" },
     { name = "dbt-synapse", marker = "extra == 'synapse'", specifier = ">=1.8" },
+    { name = "dlt", extras = ["duckdb"], marker = "extra == 'dlt'", specifier = ">=1.4" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1" },
     { name = "duckdb", marker = "extra == 'polars'", specifier = ">=1.1" },
     { name = "duckdb", marker = "extra == 'pyspark'", specifier = ">=1.1" },
@@ -2511,7 +2515,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.15" },
     { name = "uvicorn", marker = "extra == 'canvas'", specifier = ">=0.32" },
 ]
-provides-extras = ["duckdb", "postgres", "redshift", "databricks", "bigquery", "fabric", "synapse", "verify", "snowflake", "kafka", "ai", "canvas", "polars", "pyspark"]
+provides-extras = ["duckdb", "postgres", "redshift", "databricks", "bigquery", "fabric", "synapse", "verify", "snowflake", "kafka", "ai", "dlt", "canvas", "polars", "pyspark"]
 
 [package.metadata.requires-dev]
 dev = [

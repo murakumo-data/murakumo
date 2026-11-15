@@ -41,8 +41,8 @@ project:
 
 targets:
   warehouse:
-    type: {warehouse:<21}# snowflake | databricks | bigquery | redshift | fabric | synapse | postgres | duckdb
-    database: {database:<20}# everyone's own builds; the shared environments have their own below
+    type: {warehouse:<21} # snowflake | databricks | bigquery | redshift | fabric | synapse | postgres | duckdb
+    database: {database:<20} # everyone's own builds; the shared environments have their own below
   environments:                # merging into an environment's branch deploys to it
     - name: dev
       database: {dev}
@@ -60,14 +60,14 @@ targets:
   #                            # On this computer: ./lake/ (a folder laid out like a cloud bucket)
 
 modelling:
-  pattern: {pattern:<20}# kimball | datavault | obt | 3nf | mixed
+  pattern: {pattern:<20} # kimball | datavault | obt | 3nf | mixed
   default_scd: 2
   surrogate_keys: hash
   unknown_members: true        # dimensions get an "unknown" row (-1) that facts point at when a key is missing
 
 generation:
   transform: dbt
-  orchestrator: {orchestrator:<15}# airflow | dagster | prefect | databricks_workflows | snowflake_tasks | ...
+  orchestrator: {orchestrator:<15} # airflow | dagster | prefect | databricks_workflows | snowflake_tasks | ...
 
 collaboration:
   base_branch: dev             # new branches (feature/..., fix/..., chore/...) start from dev

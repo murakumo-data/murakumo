@@ -46,6 +46,8 @@ snowflake = ["snowflake-connector-python>=3.12"]
 kafka = ["kafka-python>=2.0"]
 # `murakumo ai`: suggestions from a language model, with your own key. Off until a project enables it.
 ai = ["anthropic>=0.70"]
+# `murakumo ingest` with `stack.extract: dlt`: dlt fetches the sources and loads the raw tables.
+dlt = ["dlt[duckdb]>=1.4"]
 # Run `murakumo canvas`: the visual editor and the API it reads and writes the model through.
 canvas = ["fastapi>=0.115", "uvicorn>=0.32"]
 # Run the pipeline as Polars jobs: `murakumo run --engine polars`.

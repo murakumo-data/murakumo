@@ -149,6 +149,13 @@ def ingest_command(
 
     project = open_project(project_path)
     try:
+        if ingest.uses_dlt(project, source):
+            with console.status("Fetching and loading with dlt..."):
+                lines = ingest.run_dlt(project, source)
+            for line in lines:
+                console.print(f"  {line}", markup=False, highlight=False)
+            console.print("Loaded into the raw tables by dlt. Build with [bold]murakumo build[/bold].")
+            return
         with console.status("Fetching..."):
             results = ingest.run(project, source, table)
     except ingest.IngestError as exc:

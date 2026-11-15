@@ -102,3 +102,13 @@ def test_alerts_go_only_to_https_webhooks_that_are_set(tmp_path, monkeypatch):
     findings[0]["level"] = "error"
     assert monitor.notify(project, findings)[0] == "slack: SLACK_HOOK is not set, nothing sent"
     assert "1 thing(s) to look at in taxi (prod)" in monitor.message(project, findings, "prod")
+
+
+def test_an_alert_written_as_the_docs_show_it_loads(tmp_path):
+    # YAML 1.1 reads the bare key `on` as true; the manifest must still load.
+    from murakumo.project import load_project
+
+    root = init_project(tmp_path / "taxi").root
+    with (root / "murakumo.yaml").open("a") as file:
+        file.write("\nquality:\n  alerts:\n    - kind: slack\n      url_env: HOOK\n      on: [error, warn]\n")
+    assert load_project(root).project.manifest.quality.alerts[0].on == ["error", "warn"]

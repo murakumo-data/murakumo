@@ -251,9 +251,14 @@ table's columns as the model names them, with `_ingested_at` and `_batch_id` bes
 - SFTP, protobuf and Kafka sources keep Murakumo's own script.
 
 ```bash
-pip install -r generated/ingestion/dlt/requirements.txt
-python generated/ingestion/dlt/pipeline.py            # every source, or name one
+pip install "murakumo[dlt]"
+murakumo ingest                                       # every source, or --source <name>
 ```
+
+`murakumo ingest` runs the pipeline. It is an ordinary script, so anything else can run it too
+(`pip install -r generated/ingestion/dlt/requirements.txt`, then
+`python generated/ingestion/dlt/pipeline.py`). A raw table that Murakumo loaded before the stack
+changed to dlt is taken over as it is: the pipeline adds dlt's two columns to it.
 
 **Airbyte** and **Fivetran** (`stack.extract: airbyte | fivetran`) are set up in their own product.
 Murakumo writes, under `generated/ingestion/<tool>/`:

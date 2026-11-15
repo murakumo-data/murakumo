@@ -300,6 +300,17 @@ def stamp(row):
     return row
 
 
+def rows(record):
+    """One row per record. A record that is columns of values (lists of one length, as some APIs
+    answer: {{"time": [...], "temperature": [...]}}) is one row per position."""
+    values = list(record.values()) if isinstance(record, dict) else []
+    if values and all(isinstance(value, list) for value in values) and len({{len(value) for value in values}}) == 1:
+        for parts in zip(*values):
+            yield stamp(dict(zip(record, parts)))
+    else:
+        yield stamp(record)
+
+
 def destination():
 {where}
 
@@ -310,11 +321,31 @@ SOURCES = {{
 }}
 
 
+def adopt(pipeline, tables):
+    """A raw table that was loaded before dlt took over has no _dlt_load_id or _dlt_id, and dlt
+    cannot add them to a table that already has rows. Add them here, empty; where the table is not
+    there yet, or has them, nothing happens."""
+    try:
+        with pipeline.sql_client() as client:
+            for table in tables:
+                name = client.make_qualified_table_name(table)
+                for column in ("_dlt_load_id", "_dlt_id"):
+                    for kind in ("varchar", "string"):
+                        try:
+                            client.execute_sql(f"alter table {{name}} add column {{column}} {{kind}}")
+                            break
+                        except Exception:  # noqa: BLE001 - no such table, or it has the column
+                            continue
+    except Exception:  # noqa: BLE001 - nothing loaded yet: dlt creates everything
+        pass
+
+
 def run(names):
     for name in names:
         dataset, resources = SOURCES[name]()
         pipeline = dlt.pipeline(pipeline_name=f"{name}_{{name}}", destination=destination(), dataset_name=dataset)
-        print(pipeline.run([resource.add_map(stamp) for resource in resources]))
+        adopt(pipeline, [resource.name for resource in resources])
+        print(pipeline.run([resource.add_yield_map(rows) for resource in resources]))
 
 
 if __name__ == "__main__":
@@ -341,6 +372,7 @@ if __name__ == "__main__":
         "python generated/ingestion/dlt/pipeline.py            # every source\n"
         f"python generated/ingestion/dlt/pipeline.py {sources[0].name}   # one\n"
         "```\n\n"
+        'With Murakumo installed with its dlt extra (`pip install "murakumo[dlt]"`), `murakumo ingest` runs it.\n\n'
         "- The sources' secrets are read from the same environment variables as before.\n"
         + (
             "- The warehouse is the project's DuckDB file.\n"

@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from murakumo.ir.model import Name
 
@@ -465,6 +465,14 @@ class Alert(Section):
     kind: str = Field(default="slack", pattern="^(slack|teams|webhook)$")
     url_env: str  # the variable holding the webhook's address
     on: list[str] = Field(default_factory=lambda: ["error"])  # error, warn
+
+    @model_validator(mode="before")
+    @classmethod
+    def _yaml_reads_on_as_true(cls, data: Any) -> Any:
+        # YAML 1.1 reads the bare key `on` as the boolean true.
+        if isinstance(data, dict) and True in data:
+            data = {("on" if key is True else key): value for key, value in data.items()}
+        return data
 
 
 class Monitoring(Section):
