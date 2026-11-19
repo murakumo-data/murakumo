@@ -112,3 +112,36 @@ def test_an_alert_written_as_the_docs_show_it_loads(tmp_path):
     with (root / "murakumo.yaml").open("a") as file:
         file.write("\nquality:\n  alerts:\n    - kind: slack\n      url_env: HOOK\n      on: [error, warn]\n")
     assert load_project(root).project.manifest.quality.alerts[0].on == ["error", "warn"]
+
+
+def test_a_load_with_many_rows_set_aside_is_reported():
+    found = monitor.evaluate([], {}, Monitoring(), NOW, None, None, [("zones", 100, 30), ("trips", 100, 1)])
+    assert [(f.check, f.subject) for f in found] == [("quarantined", "zones")]
+    assert "30 of the latest load's 100 rows" in found[0].message
+
+
+def test_quarantine_and_a_contract_breach_from_a_real_build(tmp_path):
+    import duckdb
+
+    from murakumo import contracts
+    from murakumo.ir.model import QualityRule
+    from murakumo.project import save_model
+
+    project = init_project(tmp_path / "taxi")
+    zones = project.model.entity("taxi_zone_lookup")
+    zones.attribute("Borough").tests = [QualityRule(type="accepted_values", values=["Queens"], action="quarantine")]
+    save_model(project)
+    data = tmp_path / "zones.csv"
+    data.write_text("LocationID,Borough,Zone,service_zone\n1,Queens,a,x\n2,Atlantis,b,x\n3,Mars,c,x\n")
+    result = build(project, data={"taxi_zone_lookup": str(data)}, sample=20)
+    assert result.error is None
+    found = monitor.check(project)["findings"]
+    aside = [f for f in found if f["check"] == "quarantined"]
+    assert aside and "2 of the latest load's 3 rows" in aside[0]["message"]
+    with duckdb.connect(str(project.root / "taxi.duckdb"), read_only=True) as db:
+        rows = db.execute(
+            "select location_id, _failed_rule from staging.stg_nyc_tlc__taxi_zone_lookup__quarantine order by 1"
+        ).fetchall()
+    assert rows == [(2, "borough: accepted_values"), (3, "borough: accepted_values")]
+    breaches = contracts.check(project)["breaches"]
+    assert any(b["what"] == "rules" and "2 of the latest load's 3 rows" in b["message"] for b in breaches)

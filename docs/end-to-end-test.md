@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 1.0.0
+# End-to-end test: Murakumo 1.1.0
 
-A step-by-step test of Murakumo 1.0.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 1.1.0 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -19,7 +19,8 @@ should see.
 | 19 | SCD types 3, 4 and 6, a Data Vault, a metric, Terraform on LocalStack, Iceberg in Polaris, Kafka through the consumer and Flink | 40 min |
 | 20 | A change feed, Slim CI, cost, monitoring, lineage for a catalog, importing a dbt project, the MCP server, the assistant | 30 min |
 | 21 | PostgreSQL, a cloud orchestrator, dlt, Airbyte and Fivetran, row access, alerts, the canvas's guard | 30 min |
-| 22 | Cleaning up | 2 min |
+| 22 | Quality rules on the canvas, quarantine, the query console, data contracts, Great Expectations and Soda, write-audit-publish | 35 min |
+| 23 | Cleaning up | 2 min |
 
 ## How to use this script
 
@@ -124,10 +125,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 1.0.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 1.1.0`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 1.0.0.
+☐ Version 1.1.0.
 
 ---
 
@@ -2364,11 +2365,212 @@ curl -s -X PUT -H 'Origin: https://example.com' -H 'Content-Type: application/js
 
 ☐ A page on another site cannot change the project.
 
-## Part 22: Clean up
+## Part 22: Data quality rules, quarantine, data contracts and the query console
 
-**22.1** In the canvas tab, press **Ctrl+C** to stop it.
+Rules you set on the canvas, what a failure does (stop, warn, or set the rows aside), the same
+rules for Great Expectations and Soda, each table's data contract, and SQL on any table at any
+stage. Work in `~/murakumo-e2e/taxi_platform`, with the canvas running and the real data from
+Part 13 built. Use the second Terminal tab for commands.
 
-**22.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
+**22.1 Set bad rows aside.** In the canvas, click the raw table **yellow_tripdata**, and scroll
+the inspector to **Quality rules**. Click **Add rule** and fill in:
+
+| Field | Value |
+| --- | --- |
+| On | `total_amount` |
+| Rule | **Between** |
+| Minimum | `0` (leave Maximum empty) |
+| When it fails | **Set rows aside** |
+
+Click **Add rule** under the form.
+
+**You should see** the rule in the list: `total_amount`, `at least 0`, **Set rows aside**.
+**Set rows aside** is offered only on raw tables, and only for rules that judge each row.
+
+☐ The rule is on yellow_tripdata.
+
+**22.2 A rule that warns, and one that stops.** Click the raw table **taxi_zone_lookup**, then
+**Add rule**: On `Borough`, Rule **One of a list**, values
+`Manhattan, Queens, Bronx, Brooklyn, Staten Island, EWR`, When it fails **Warn**, then **Add
+rule**. Add a second: On **the whole table**, Rule **Row count**, Minimum `200`, When it fails
+**Stop the run**.
+
+**You should see** both rules, and nothing new in **Problems**.
+
+☐ Three rules in all.
+
+**22.3 Build.** Stop the canvas (Ctrl+C in its tab), then:
+
+```bash
+murakumo generate
+murakumo build
+```
+
+**You should see** a `warn test accepted_values_stg_nyc_tlc__taxi_zone_lookup_borough_...
+(2 failing rows)` line (zones 264 and 265, whose borough is `Unknown` and `N/A`), and
+`built: ... tests passed`. The warning did not stop the build. Start the canvas again
+(`murakumo canvas`).
+
+☐ Built, with one warning.
+
+**22.4 The query console.** Click **Query** (the terminal icon) on the rail. Under **Tables**,
+click **stg_nyc_tlc__yellow_tripdata__quarantine (quarantine)**.
+
+**You should see** up to 1,000 trips, each with a negative `total_amount` and `_failed_rule`
+`total_amount: range`, and `1,000 rows (the first 1,000; there are more)`. These trips are not in
+staging, so not in **fct_trip**.
+
+Replace the query with this one and press **Ctrl+Enter**:
+
+```sql
+select _failed_rule, count(*) as trips from staging.stg_nyc_tlc__yellow_tripdata__quarantine group by 1
+```
+
+**You should see** one row: `total_amount: range` and about 35,500 trips.
+
+Now read a file directly: choose **Files and storage (DuckDB here)** in the first list, and run:
+
+```sql
+select borough, count(*) as zones from read_csv('~/murakumo-e2e/data/taxi_zone_lookup.csv') group by 1 order by 2 desc
+```
+
+**You should see** eight boroughs, `Manhattan` and `Queens` with 69 zones each. Then try to
+change something, on **Warehouse** again:
+
+```sql
+drop table marts.fct_trip
+```
+
+**You should see** *The console only reads: SELECT, DESCRIBE, SHOW. Change data through the model
+and a build.*, and fct_trip is still there. Last, click **dim_taxi_zone** on the canvas, and click
+**Query** at the top of the inspector: the console opens on it, already run.
+
+The same from the terminal:
+
+```bash
+murakumo query "select _failed_rule, count(*) as trips from staging.stg_nyc_tlc__yellow_tripdata__quarantine group by 1"
+```
+
+☐ Previews, a file, a refusal, and the terminal agree.
+
+**22.5 Each load against its contract.**
+
+```bash
+murakumo contract
+murakumo monitor
+```
+
+**You should see**, from `murakumo contract`, `warn rules yellow_tripdata: 35,504 of the latest
+load's 2,964,624 rows broke a quarantine rule: set aside`: a warning, because that is under the
+5% `quality.monitoring.rejected_tolerance`. `murakumo monitor` reports nothing about it for the
+same reason (above 5% it would say **quarantined**).
+
+In the canvas, open **Health**: **Data contracts** shows the same.
+
+☐ The set-aside rows are counted against the contract.
+
+**22.6 The contracts themselves.**
+
+```bash
+ls generated/contracts
+grep -n "apiVersion\|physicalName\|mustBe\|rule:" generated/contracts/yellow_tripdata.odcs.yaml | head
+```
+
+**You should see** a contract per table (`dim_taxi_zone`, `fct_trip`, `taxi_zone_lookup`,
+`yellow_tripdata`), each `apiVersion: v3.0.2`, the raw one on `raw_nyc_tlc.yellow_tripdata`, and
+its rule as a query that `mustBe: 0`.
+
+Bring one in as if a partner had sent it, without writing anything:
+
+```bash
+sed 's/^- name: taxi_zone_lookup$/- name: partner_zones/' generated/contracts/taxi_zone_lookup.odcs.yaml > /tmp/partner.odcs.yaml
+murakumo import odcs /tmp/partner.odcs.yaml --source partner --dry-run
+```
+
+**You should see** `+ partner_zones: 4 column(s), 2 rule(s)` and `Dry run: nothing was written.`
+In the canvas, **Health → Data contracts** does the same (**See what it would add**), and its
+list downloads each contract.
+
+☐ Contracts written, and one read back.
+
+**22.7 The same rules for Great Expectations and Soda; reconcile; write, audit, publish.** In
+the canvas, open **Settings** (the sliders icon) → **Data quality**, and tick all six boxes:
+Great Expectations, Soda, Reconcile, Write audit publish, Check each load, and Enforce the marts'
+contracts. Then, with the canvas stopped:
+
+```bash
+murakumo generate
+ls generated/quality
+murakumo build
+```
+
+**You should see** `great_expectations` and `soda`, then `built: ...` and `audited in the wap_
+schemas, then published: every test passed there first`.
+
+Run both tools. Routes A and C:
+
+```bash
+uv run --no-project --with-requirements generated/quality/great_expectations/requirements.txt python generated/quality/great_expectations/run.py
+uv run --no-project --with-requirements generated/quality/soda/requirements.txt env MURAKUMO_DUCKDB_PATH=$PWD/taxi_platform.duckdb python generated/quality/soda/run.py
+```
+
+Route B:
+
+```bash
+pip install -r generated/quality/great_expectations/requirements.txt -r generated/quality/soda/requirements.txt
+python generated/quality/great_expectations/run.py
+MURAKUMO_DUCKDB_PATH=$PWD/taxi_platform.duckdb python generated/quality/soda/run.py
+```
+
+**You should see** from Great Expectations `warn: stg_nyc_tlc__taxi_zone_lookup:
+expect_column_values_to_be_in_set (2)` and `0 failed, 1 warned.`; from Soda
+`invalid_count(borough) warn when > 0 [WARNED]` and `0 table(s) with failing checks.` The first
+run of each downloads the tool (a minute or two).
+
+☐ Both tools agree with dbt.
+
+**22.8 Write, audit, publish keeps the last good tables.** Break the zones on purpose: a second
+copy of a zone makes the key not unique.
+
+Routes A and C (route B: the same lines without `uv run --no-project --with duckdb`):
+
+```bash
+murakumo query "select count(*) from marts.dim_taxi_zone"
+uv run --no-project --with duckdb python3 -c "import duckdb; duckdb.connect('taxi_platform.duckdb').execute('insert into raw_nyc_tlc.taxi_zone_lookup select * from raw_nyc_tlc.taxi_zone_lookup limit 1')"
+murakumo build
+murakumo query "select count(*) from marts.dim_taxi_zone"
+```
+
+**You should see** 266 (265 zones and the unknown row) both times, and between them
+`error the audit build in the wap_* schemas failed: nothing was published, so the tables people
+read are the last ones that passed`. Take the copy out again, and build:
+
+```bash
+uv run --no-project --with duckdb python3 -c "import duckdb; duckdb.connect('taxi_platform.duckdb').execute('create or replace table raw_nyc_tlc.taxi_zone_lookup as select distinct * from raw_nyc_tlc.taxi_zone_lookup')"
+murakumo build
+```
+
+**You should see** `audited in the wap_ schemas, then published` again.
+
+☐ A failed audit published nothing.
+
+**22.9 The replication guide.**
+
+```bash
+grep -n "^## 7\.\|^### " generated/guide/07-quality.md | head -20
+```
+
+**You should see** steps for what each rule does when it fails, setting failing rows aside,
+reconciling, write-audit-publish, Great Expectations, Soda, the data contracts and looking at the
+data at each stage.
+
+☐ Every new piece has its step by hand.
+
+## Part 23: Clean up
+
+**23.1** In the canvas tab, press **Ctrl+C** to stop it.
+
+**23.2** Optional: delete the test folder, and uninstall Murakumo the way you installed it:
 
 ```bash
 rm -rf ~/murakumo-e2e
@@ -2427,7 +2629,8 @@ output or a screenshot.
 | 19 History types, vault, metrics, Terraform, Iceberg, Kafka and Flink | | |
 | 20 Change feed, Slim CI, cost, monitoring, catalog lineage, importing dbt, MCP, the assistant | | |
 | 21 PostgreSQL, cloud orchestrator, dlt, Airbyte and Fivetran, row access, alerts, the canvas's guard | | |
-| 22 Clean up | | |
+| 22 Quality rules, quarantine, query console, contracts, Great Expectations and Soda, write-audit-publish | | |
+| 23 Clean up | | |
 
 Also note anything that was confusing, slow or surprising, even if it worked. That is as useful
 as a failure.

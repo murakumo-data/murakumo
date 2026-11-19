@@ -365,7 +365,12 @@ def build_command(
             fail(str(exc))
             raise typer.Exit(1) from None
 
+    for breach in result.breaches:
+        mark = "[red]error[/red]" if breach["level"] == "error" else "[yellow]warn[/yellow] "
+        console.print(f"  {mark} contract {breach['table']}: {escape(breach['message'])}")
     _report(result, files)
+    if result.published:
+        console.print("  audited in the wap_ schemas, then published: every test passed there first")
     if result.skipped:
         console.print(f"  kept the rows already in {', '.join(sorted(result.skipped))} (no sample added)")
     if result.error:
@@ -826,6 +831,73 @@ def monitor_command(
         raise typer.Exit(1)
 
 
+def query_command(
+    sql: str = typer.Argument(..., help="One SELECT, DESCRIBE or SHOW."),
+    engine: str = typer.Option("warehouse", "--engine", help="warehouse, files, lake or source:<name>."),
+    environment: str | None = typer.Option(None, "--env", help="Default: your own environment."),
+    limit: int = typer.Option(100, "--limit", help="At most this many rows (up to 10,000)."),
+    project_path: Path = ProjectOption,
+    as_csv: bool = typer.Option(False, "--csv", help="Print the rows as CSV."),
+) -> None:
+    """Read any table at any stage, or files anywhere, as the canvas's query console does. Only
+    reads: anything that would change data is refused."""
+    import csv
+    import io
+
+    from rich.table import Table
+
+    from murakumo import query
+
+    try:
+        result = query.run(open_project(project_path), sql, engine, environment, limit)
+    except query.QueryError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    if as_csv:
+        out = io.StringIO()
+        writer = csv.writer(out)
+        writer.writerow(result.columns)
+        writer.writerows(["" if v is None else v for v in row] for row in result.rows)
+        print(out.getvalue(), end="")
+        return
+    table = Table(box=None, pad_edge=False)
+    for column in result.columns:
+        table.add_column(column, overflow="fold")
+    for row in result.rows:
+        table.add_row(*("null" if v is None else escape(str(v)) for v in row))
+    console.print(table)
+    more = f" (the first {len(result.rows):,}; there are more)" if result.truncated else ""
+    console.print(f"[dim]{len(result.rows):,} row(s){more} in {result.elapsed_ms} ms[/dim]")
+
+
+def contract_command(
+    project_path: Path = ProjectOption,
+    environment: str | None = typer.Option(None, "--env", help="Default: your own environment."),
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+) -> None:
+    """Check each raw table's latest load against its data contract: the columns and types it
+    promises, its rules and how fresh it is. Exits with 1 on a breach of a contract that blocks."""
+    import json
+
+    from murakumo import contracts
+
+    result = contracts.check(open_project(project_path), environment)
+    if as_json:
+        console.print_json(json.dumps(result, default=str))
+    elif not result["checked"]:
+        console.print(result["reason"])
+    elif not result["tables"]:
+        console.print("No raw table has been loaded yet: nothing to check.")
+    elif not result["breaches"]:
+        console.print(f"Every load kept to its contract ({len(result['tables'])} table(s)).")
+    else:
+        for breach in result["breaches"]:
+            mark = "[red]error[/red]" if breach["level"] == "error" else "[yellow]warn[/yellow] "
+            console.print(f"  {mark} {breach['what']:<6} {breach['table']}: {escape(breach['message'])}")
+    if any(b["level"] == "error" for b in result["breaches"]):
+        raise typer.Exit(1)
+
+
 def cost_command(
     project_path: Path = ProjectOption,
     environment: str | None = typer.Option(None, "--env", help="Measure run times from this environment's run log."),
@@ -956,11 +1028,17 @@ def run_command(
             target.write_text(content, encoding="utf-8")
         arguments = ["--output", str(output), "--format", table_format]
         for item in data or []:
-            arguments += ["--data", item]
+            table, _, path = item.partition("=")
+            if path and "://" not in path:
+                path = str(Path(path).expanduser().resolve())  # the pipeline runs in another folder
+            arguments += ["--data", f"{table}={path}" if path else item]
         if sample:
             raw = [e for e in project.model.entities if e.layer is Layer.RAW]
             rows = sample_rows(project.model, raw, rows=sample)
+            given = {item.split("=", 1)[0].lower() for item in data or []}
             for entity in raw:
+                if entity.name.lower() in given:
+                    continue  # a table's own file wins over made-up rows
                 path = Path(tmp) / "sample" / f"{entity.name}.csv"
                 path.parent.mkdir(parents=True, exist_ok=True)
                 names = [a.name for a in entity.attributes]

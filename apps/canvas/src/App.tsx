@@ -48,6 +48,7 @@ import {
   Undo2,
   Workflow,
   Sparkles,
+  SquareTerminal,
 } from 'lucide-react'
 import {
   useCallback,
@@ -74,6 +75,8 @@ import { EntityNode, tableHandle, type EntityNodeType } from './EntityNode'
 import { Explorer } from './Explorer'
 import { Shortcuts, Tour } from './Help'
 import { EntityPanel, RelationshipPanel } from './Inspector'
+import { QueryPanel } from './Query'
+import { recall, remember } from './storage'
 import {
   domainColour,
   ends,
@@ -116,22 +119,6 @@ function savedPanelWidth(): number {
   }
 }
 
-function remember(key: string, value: string) {
-  try {
-    window.localStorage.setItem(key, value)
-  } catch {
-    // Only a convenience.
-  }
-}
-
-function recall(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-
 const AREA_PADDING = 28
 const POLL_MS = 2000
 
@@ -158,6 +145,7 @@ type Side =
   | 'runs'
   | 'health'
   | 'assistant'
+  | 'query'
   | 'guide'
   | 'marts'
 type Theme = 'system' | 'light' | 'dark'
@@ -221,6 +209,7 @@ function Canvas() {
   const [displayOpen, setDisplayOpen] = useState(false)
   const [scheduleShown, setScheduleShown] = useState<{ name: string; entities: string[] } | null>(null)
   const shownSchedule = side === 'schedules' ? scheduleShown : null // only while its panel is open
+  const [queryFocus, setQueryFocus] = useState<{ entity: string; at: number } | null>(null)
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
   const [domainFilter, setDomainFilter] = useState<string | null>(null)
   const [layoutUndo, setLayoutUndo] = useState<Record<string, Position> | null>(null)
@@ -974,6 +963,7 @@ function Canvas() {
     { id: 'git', label: 'Team', icon: <GitBranch size={18} /> },
     { id: 'ci', label: 'CI', icon: <Workflow size={18} /> },
     { id: 'runs', label: 'Runs', icon: <History size={18} /> },
+    { id: 'query', label: 'Query', icon: <SquareTerminal size={18} /> },
     { id: 'health', label: 'Health', icon: <HeartPulse size={18} /> },
     { id: 'assistant', label: 'Assistant', icon: <Sparkles size={18} /> },
     { id: 'guide', label: 'Guide', icon: <BookOpenCheck size={18} /> },
@@ -1299,6 +1289,7 @@ function Canvas() {
                   }}
                 />
               )}
+              {side === 'query' && <QueryPanel environments={state.environments} focus={queryFocus} />}
               {side === 'health' && (
                 <HealthPanel
                   refresh={jobsDone}
@@ -1517,6 +1508,10 @@ function Canvas() {
                 lineageOf={lineageOf}
                 onLineage={setLineageOf}
                 onJob={startJob}
+                onQuery={(entity) => {
+                  setQueryFocus({ entity, at: Date.now() })
+                  setSide('query')
+                }}
               />
             )}
             {selectedRelationship && (

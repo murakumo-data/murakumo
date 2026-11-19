@@ -5,11 +5,13 @@
     {#- Someone's own builds (MURAKUMO_SINGLE_SCHEMA) put every layer in one schema named after them. -#}
     {%- set single = env_var('MURAKUMO_SINGLE_SCHEMA', '') -%}
     {%- set prefix = env_var('MURAKUMO_SCHEMA_PREFIX', '') -%}
+    {#- Write-audit-publish builds and tests in wap_ schemas first; sources are read where they are. -#}
+    {%- set wap = env_var('MURAKUMO_WAP_PREFIX', '') -%}
     {%- if single -%}
-        {{ single }}
+        {{ wap ~ single }}
     {%- elif custom_schema_name is none -%}
-        {{ target.schema }}
+        {{ wap ~ target.schema }}
     {%- else -%}
-        {{ prefix ~ (custom_schema_name | trim) }}
+        {{ wap ~ prefix ~ (custom_schema_name | trim) }}
     {%- endif -%}
 {%- endmacro %}

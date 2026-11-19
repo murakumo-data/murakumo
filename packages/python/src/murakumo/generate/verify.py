@@ -43,6 +43,9 @@ from murakumo.project import Project
 SUPPORTED = tuple(Warehouse)
 
 
+WAP_PREFIX = "wap_"  # write-audit-publish builds and tests here first
+
+
 def _need_dbt(warehouse: Warehouse, what: str) -> None:
     """Fail clearly when dbt or the warehouse's adapter is not installed."""
     import importlib
@@ -88,6 +91,8 @@ class VerifyResult:
     location: str | None = None  # where the built tables are, when kept
     error: str | None = None
     rerun: bool | None = None  # whether the second build passed; None when it did not run
+    breaches: list[dict] = field(default_factory=list)  # where a load broke its data contract
+    published: bool = False  # write-audit-publish: the audit build passed and was published
 
     @property
     def ok(self) -> bool:
@@ -541,6 +546,7 @@ def _run_dbt(
     select: str | None = None,
     dbt_vars: dict[str, str] | None = None,
     whole_tests_only: bool = False,
+    skip_tests: bool = False,
 ):
     from dbt.cli.main import dbtRunner
 
@@ -562,6 +568,7 @@ def _run_dbt(
         # A test between a chosen table and one left out cannot run: skip it, rather than fail on it.
         *(["--indirect-selection", "cautious"] if select and whole_tests_only else []),
         *(["--vars", json.dumps(dbt_vars)] if dbt_vars else []),
+        *(["--exclude-resource-type", "test", "--exclude-resource-type", "unit_test"] if skip_tests else []),
     ]
     try:
         run = dbtRunner().invoke(arguments)
@@ -852,6 +859,18 @@ def build(
                 backend.finish_loading()
             if load_only:
                 return result
+            if "sources" in project.manifest.contracts.enforce_on and result.loaded:
+                # Data contracts: a load that breaks one that blocks stops here, before anything is built from it.
+                from murakumo import contracts
+
+                found = contracts.check(project, environment, schema_prefix, only=list(result.loaded), loading=True)
+                result.breaches = found.get("breaches", [])
+                blocking = [b for b in result.breaches if b["level"] == "error"]
+                if blocking:
+                    result.error = "a load broke its data contract: " + "; ".join(
+                        f"{b['table']}: {b['message']}" for b in blocking[:5]
+                    )
+                    return result
             variables = backend.dbt_environment()
             if warehouse is Warehouse.DUCKDB:
                 variables.pop("MURAKUMO_SCHEMA")  # the environment's own schema, as in profiles.yml
@@ -859,6 +878,30 @@ def build(
             if placement.single:
                 variables["MURAKUMO_SCHEMA"] = placement.single
             variables["MURAKUMO_SCHEDULE"] = schedule or ""  # recorded in audit.run_log
+            if project.manifest.quality.write_audit_publish:
+                # Write-audit-publish: build and test everything in wap_ schemas first. Only when every
+                # test passes is it built where people read it; otherwise they keep the last good tables.
+                audit = _run_dbt(
+                    folder / "dbt",
+                    environment,
+                    {**variables, "MURAKUMO_WAP_PREFIX": WAP_PREFIX},
+                    False,
+                    result,
+                    selector=schedule,
+                    select=select,
+                    dbt_vars=dbt_vars,
+                )
+                if audit.exception is not None:
+                    result.error = f"dbt could not run: {audit.exception}"
+                    return result
+                _collect(audit, result)
+                if not result.ok:
+                    result.error = (
+                        f"the audit build in the {WAP_PREFIX}* schemas failed: nothing was published, "
+                        "so the tables people read are the last ones that passed"
+                    )
+                    return result
+                result.published = True
             run = _run_dbt(
                 folder / "dbt",
                 environment,
@@ -868,6 +911,7 @@ def build(
                 selector=schedule,
                 select=select,
                 dbt_vars=dbt_vars,
+                skip_tests=result.published,  # already tested, on the same data, in the audit build
             )
         finally:
             result.location = backend.describe()
@@ -877,7 +921,14 @@ def build(
         if run.exception is not None:
             result.error = f"dbt could not run: {run.exception}"
             return result
-        _collect(run, result)
+        if result.published:
+            published = VerifyResult()
+            _collect(run, published)
+            failed = [n for n in published.nodes if n.status not in ("success", "pass", "warn", "skipped")]
+            if failed or not run.success:
+                result.error = "publishing failed after the audit passed: " + ", ".join(n.name for n in failed[:5])
+        else:
+            _collect(run, result)
         if not result.nodes and not run.success:
             result.error = "dbt build failed before running any node"
     return result

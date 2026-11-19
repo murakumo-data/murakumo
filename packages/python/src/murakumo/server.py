@@ -33,7 +33,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from murakumo import __version__, edit
 from murakumo import history as history_module
@@ -143,6 +143,20 @@ class DbtImportBody(BaseModel):
     dry_run: bool = False
 
 
+class QueryBody(BaseModel):
+    sql: str = Field(min_length=1, max_length=100_000)
+    engine: str = Field(default="warehouse", pattern=r"^(warehouse|files|lake|source:[\w.-]{1,100})$")
+    environment: str | None = Field(default=None, pattern=r"^[\w-]{1,64}$")
+    limit: int = Field(default=1000, ge=1, le=10_000)
+    timeout: int = Field(default=30, ge=1, le=600)
+
+
+class OdcsImportBody(BaseModel):
+    path: str = Field(min_length=1, max_length=1000)
+    source: str | None = Field(default=None, pattern=r"^[A-Za-z_][\w]{0,99}$")
+    dry_run: bool = False
+
+
 class SettingsBody(BaseModel):
     """What `murakumo config` and murakumo.yaml's switches set; only the fields given change."""
 
@@ -162,6 +176,26 @@ class SettingsBody(BaseModel):
     masking: dict[str, str] | None = None
     unmasked_roles: list[str] | None = None
     lakehouse: LakehouseBody | None = None
+    # Quality: the tools the rules are written for, reconciliation, write-audit-publish, and where
+    # data contracts are enforced.
+    quality_tools: list[str] | None = None
+    reconciliation: bool | None = None
+    write_audit_publish: bool | None = None
+    contracts_enforce_on: list[str] | None = None
+
+    @field_validator("quality_tools")
+    @classmethod
+    def _tools(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and set(value) - {"great_expectations", "soda"}:
+            raise ValueError("quality tools are great_expectations and soda")
+        return value
+
+    @field_validator("contracts_enforce_on")
+    @classmethod
+    def _enforce(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and set(value) - {"sources", "marts"}:
+            raise ValueError("contracts are enforced on sources, marts or both")
+        return value
 
 
 class ExposuresBody(BaseModel):
@@ -860,6 +894,10 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             "guide": m.generation.guide,
             "masking": m.governance.masking,
             "unmasked_roles": m.governance.unmasked_roles,
+            "quality_tools": sorted(set(m.quality.framework) - {"dbt_tests"}),
+            "reconciliation": m.quality.reconciliation,
+            "write_audit_publish": m.quality.write_audit_publish,
+            "contracts_enforce_on": m.contracts.enforce_on,
             "lakehouse": (
                 m.targets.lakehouse.model_dump(
                     mode="json",
@@ -916,8 +954,26 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                     "guide": ("generation", "guide"),
                     "masking": ("governance", "masking"),
                     "unmasked_roles": ("governance", "unmasked_roles"),
+                    "reconciliation": ("quality", "reconciliation"),
+                    "write_audit_publish": ("quality", "write_audit_publish"),
+                    "contracts_enforce_on": ("contracts", "enforce_on"),
                 }
                 current = settings()
+
+                def current_tools() -> list[str]:
+                    return list(current["quality_tools"])
+
+                if "quality_tools" in given and given["quality_tools"] is not None:
+                    tools = sorted(set(given["quality_tools"]))
+                    if tools != current_tools():
+                        framework = ["dbt_tests", *tools]
+                        try:
+                            write_section(root, ("quality", "framework"), framework)
+                        except ManifestEditError:
+                            write_section(root, ("quality",), {"framework": framework})
+                        shown = [", ".join(t) or "dbt only" for t in (current_tools(), tools)]
+                        changed.append(f"quality tools: {shown[0]} → {shown[1]}")
+
                 if "raw_text" in given and given["raw_text"] is not None and given["raw_text"] != current["raw_text"]:
                     value = "text" if given["raw_text"] else "typed"
                     write_section(root, ("modelling", "raw_columns"), value)
@@ -1415,6 +1471,71 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             return {**outcome, "written": False}
         state_ = change(action, rev)
         return {**outcome, "written": True, "state": state_}
+
+    @app.get("/api/query/targets")
+    def get_query_targets(environment: str | None = None) -> dict[str, Any]:
+        """What the console can query, at every stage, each with a query that previews it."""
+        from murakumo import query
+
+        project = loaded()
+        return {
+            "engines": query.engines(project),
+            "targets": [t.as_dict() for t in query.targets(project, environment)],
+            "limit": query.LIMIT,
+        }
+
+    @app.post("/api/query")
+    def post_query(body: QueryBody) -> dict[str, Any]:
+        """Run one read-only query (`SELECT`, `DESCRIBE`, `SHOW`), cut at the limit and the timeout."""
+        from murakumo import query
+
+        try:
+            return query.run(loaded(), body.sql, body.engine, body.environment, body.limit, body.timeout).as_dict()
+        except query.QueryError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.get("/api/contracts")
+    def get_contracts(environment: str | None = None, check: bool = False) -> dict[str, Any]:
+        """Each table's data contract (ODCS), and, with check, whether the latest loads kept to them."""
+        from murakumo import contracts
+        from murakumo.generate import generate
+
+        project = loaded()
+        files = generate(project).files
+        found = {
+            path.removeprefix("contracts/").removesuffix(".odcs.yaml"): text
+            for path, text in files.items()
+            if path.startswith("contracts/")
+        }
+        result: dict[str, Any] = {
+            "standard": project.manifest.contracts.standard,
+            "enforce_on": project.manifest.contracts.enforce_on,
+            "contracts": found,
+        }
+        if check:
+            result["check"] = contracts.check(project, environment)
+        return result
+
+    @app.post("/api/import/odcs")
+    def import_odcs(body: OdcsImportBody, rev: Revision = None) -> dict[str, Any]:
+        """Bring in a data contract someone sent (`murakumo import odcs`)."""
+        from murakumo import contracts
+
+        path = Path(body.path).expanduser()
+        path = path if path.is_absolute() else root / path
+        try:
+            data = contracts.read(path)
+        except ValueError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+        outcome: dict[str, Any] = {}
+
+        def action(project: Project) -> None:
+            outcome["tables"] = [r.__dict__ for r in contracts.apply(project, data, body.source)]
+
+        if body.dry_run:
+            action(loaded())
+            return {**outcome, "written": False}
+        return {**outcome, "written": True, "state": change(action, rev)}
 
     @app.get("/api/runs")
     def get_runs(environment: str | None = None, prefix: str | None = None, limit: int = 20) -> dict[str, Any]:

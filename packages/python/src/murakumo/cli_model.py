@@ -248,6 +248,42 @@ def import_dbt(
     finish(project)
 
 
+@import_app.command("odcs")
+def import_odcs(
+    path: Path = typer.Argument(..., exists=True, dir_okay=False, help="An ODCS v3 data contract (YAML)."),
+    source: str | None = typer.Option(None, help="The source its tables come from. Default: the contract's."),
+    project_path: Path = ProjectOption,
+    dry_run: bool = DryRunOption,
+) -> None:
+    """Bring in a data contract (ODCS v3) someone sent: a raw table per table it describes, with its
+    columns, keys and quality rules. A table already in the model gains what it lacks; what differs
+    is listed, not changed."""
+    from murakumo import contracts
+
+    project = open_project(project_path)
+    try:
+        data = contracts.read(path)
+        results = contracts.apply(project, data, source)
+    except (ValueError, edit.EditError) as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    console.print(
+        f"[bold]{escape(str(data.get('name') or path.name))}[/bold] (ODCS {data.get('apiVersion')}, "
+        f"version {data.get('version')})"
+    )
+    for result in results:
+        mark = "+" if result.new else "="
+        added = f", {len(result.added)} column(s) added" if result.added and not result.new else ""
+        columns = f"{len(result.added)} column(s), " if result.new else ""
+        console.print(f"  {mark} {result.entity}: {columns}{result.rules} rule(s){added}")
+        for difference in result.different:
+            console.print(f"    [yellow]differs[/yellow] {escape(difference)}")
+    if dry_run:
+        console.print("Dry run: nothing was written.")
+        return
+    finish(project)
+
+
 @import_app.command("file")
 def import_file_command(
     location: str = typer.Argument(..., help="Path, glob or https:// URL of a Parquet, CSV or JSON file."),

@@ -48,6 +48,9 @@ generated/
     stack.md                            the platform: its tools, sources, how to set it up by hand, and why
   sql/<warehouse>/                      the project as plain SQL, with `plain_sql: true`
   python/<engine>/                      the pipeline as PySpark or Polars jobs, with `python_engine`
+  contracts/<table>.odcs.yaml           each table's data contract (ODCS v3.0.2)
+  quality/great_expectations/           an expectation suite per table, and run.py (quality.framework)
+  quality/soda/                         SodaCL checks per table, the warehouse, and run.py (quality.framework)
 ```
 
 Schedules, pipelines, plain SQL and CI are described in [orchestration.md](orchestration.md); the
@@ -67,6 +70,13 @@ that:
 Tests come from the model: `unique` and `not_null` for a single-column primary key, one
 `murakumo_unique_combination` for a composite key, `not_null` for non-nullable columns,
 `accepted_values`, `relationships` for foreign keys, and every rule in `tests:`.
+
+A raw table with rules whose `action` is `quarantine` gets a second model beside its staging
+model, `<staging model>__quarantine` (a table). Both read the raw table and check those rules with
+the same CASE; staging keeps the rows that pass, the quarantine table the rows that fail, with
+`_failed_rule`. Everything built from staging only sees rows that passed. With
+`quality.reconciliation`, the quarantine table (or staging, without one) has a test that the two
+add up to the raw table. See [operating.md](operating.md#data-quality-rules-quarantine-reconciliation-write-audit-publish).
 
 ### Modelled layers
 

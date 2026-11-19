@@ -6,6 +6,7 @@ import { ExpressionEditor } from './ExpressionEditor'
 import { Row, SelectField, TextField } from './Field'
 import { DiagramChips } from './Diagrams'
 import { LabelSelect } from './Labels'
+import { QualitySection } from './Rules'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
 
@@ -50,9 +51,10 @@ type EntityProps = {
   lineageOf: LineageTarget
   onLineage: (target: LineageTarget) => void
   onJob: (kind: string, options: Record<string, unknown>) => void // start a long command (backfill)
+  onQuery?: (entity: string) => void // preview the table's data in the query console
 }
 
-export function EntityPanel({ state, entity, run, diagnostics, generatedRevision, lineageOf, onLineage, onJob }: EntityProps) {
+export function EntityPanel({ state, entity, run, diagnostics, generatedRevision, lineageOf, onLineage, onJob, onQuery }: EntityProps) {
   const [tab, setTab] = useState<'model' | 'code'>('model')
   const issues = diagnostics.filter((d) => d.entity_id === entity.id)
   return (
@@ -64,6 +66,11 @@ export function EntityPanel({ state, entity, run, diagnostics, generatedRevision
         <button role="tab" aria-selected={tab === 'code'} className="tab" onClick={() => setTab('code')}>
           Code
         </button>
+        {onQuery && (
+          <button className="button button--small tabs__action" onClick={() => onQuery(entity.name)} title="Preview its data in the query console">
+            Query
+          </button>
+        )}
       </div>
       {tab === 'model' ? (
         <EntityForm state={state} entity={entity} run={run} issues={issues} lineageOf={lineageOf} onLineage={onLineage} onJob={onJob} />
@@ -680,6 +687,8 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
       {entity.layer !== 'raw' && <Mappings state={state} entity={entity} run={run} filter={matches} />}
 
       <Relationships state={state} entity={entity} run={run} />
+
+      <QualitySection entity={entity} disabled={disabled} saveEntity={save} saveColumn={saveColumn} />
 
       {editable && (
         <section className="section section--danger">

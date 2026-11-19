@@ -110,7 +110,30 @@ class RuleType(StrEnum):
     RANGE = "range"
     UNIQUE_COMBINATION = "unique_combination"
     FRESHNESS = "freshness"
-    CUSTOM_SQL = "custom_sql"
+    CUSTOM_SQL = "custom_sql"  # an expression every row must satisfy
+    REGEX = "regex"  # values match a pattern
+    LENGTH = "length"  # text length between min and max
+    ROW_COUNT = "row_count"  # the table has between min and max rows
+    NULL_SHARE = "null_share"  # at most `max` (0 to 1) of the column's values are null
+    DISTINCT_COUNT = "distinct_count"  # the column has between min and max distinct values
+    RECENT = "recent"  # the newest value of a date or timestamp column is at most max_age_hours old
+
+
+# Rules that judge each row on its own: only these can set rows aside (action: quarantine).
+ROW_RULES = {
+    "not_null",
+    "accepted_values",
+    "range",
+    "custom_sql",
+    "regex",
+    "length",
+}
+
+
+class RuleAction(StrEnum):
+    FAIL = "fail"  # the run stops
+    WARN = "warn"  # recorded, the run carries on
+    QUARANTINE = "quarantine"  # failing rows are set aside in <table>_quarantine; the rest carry on
 
 
 class Severity(StrEnum):
@@ -140,10 +163,40 @@ class QualityRule(IRModel):
     max: float | None = None
     sql: str | None = None
     max_age_hours: float | None = None
+    pattern: str | None = None  # regex
+    action: RuleAction | None = None  # fail | warn | quarantine; from severity when not given
     description: str | None = None
+
+    @property
+    def effective_action(self) -> RuleAction:
+        if self.action is not None:
+            return self.action
+        return RuleAction.WARN if self.severity is Severity.WARN else RuleAction.FAIL
+
+    @property
+    def row_level(self) -> bool:
+        return self.type.value in ROW_RULES
+
+    @model_validator(mode="before")
+    @classmethod
+    def _severity_from_action(cls, data: Any) -> Any:
+        # The action decides the severity: fail is an error, warn a warning.
+        if isinstance(data, dict) and data.get("action") in ("warn", "fail"):
+            data = {**data, "severity": "warn" if data["action"] == "warn" else "error"}
+        return data
 
     @model_validator(mode="after")
     def _check_arguments(self) -> QualityRule:
+        if self.type is RuleType.REGEX and not self.pattern:
+            raise ValueError("a regex rule needs pattern")
+        if self.type in (RuleType.LENGTH, RuleType.ROW_COUNT, RuleType.DISTINCT_COUNT) and (
+            self.min is None and self.max is None
+        ):
+            raise ValueError(f"a {self.type.value} rule needs min, max or both")
+        if self.type is RuleType.NULL_SHARE and (self.max is None or not 0 <= self.max <= 1):
+            raise ValueError("a null_share rule needs max, a share from 0 to 1")
+        if self.type is RuleType.RECENT and self.max_age_hours is None:
+            raise ValueError("a recent rule needs max_age_hours")
         if self.type is RuleType.RANGE and self.min is None and self.max is None:
             raise ValueError("a range rule needs min, max or both")
         if self.type is RuleType.CUSTOM_SQL and not self.sql:
@@ -287,6 +340,14 @@ class Accumulating(IRModel):
     unit: str = Field(default="day", pattern="^(day|hour|minute)$")
 
 
+class ContractTerms(IRModel):
+    """The table's data contract (ODCS): its version and status, and what a load that breaks it does."""
+
+    version: str = "1.0.0"
+    status: str = Field(default="active", pattern="^(proposed|draft|active|deprecated|retired)$")
+    enforce: str = Field(default="block", pattern="^(block|warn)$")  # block: the build stops
+
+
 class Entity(Node):
     """A table in the logical model: a source table, a staging model, a dimension, a fact..."""
 
@@ -319,6 +380,7 @@ class Entity(Node):
     conformed: bool = False  # a dimension shared by every domain: facts use it, not copies of it
     access: str | None = Field(default=None, pattern="^(private|protected|public)$")  # dbt model access
     row_access: RowAccess | None = None  # which rows each role may see (Snowflake)
+    contract: ContractTerms | None = None  # its data contract's version and status (ODCS)
     tags: list[str] = Field(default_factory=list)
     attributes: list[Attribute] = Field(default_factory=list)
     mappings: list[Mapping] = Field(default_factory=list)

@@ -51,6 +51,12 @@ def generate(project: Project, warehouse: Warehouse | str | None = None) -> Outp
     output.files.update(terraform.render(project, plan))
     output.files.update(lakehouse.render(project, plan))
     output.files.update(streaming.render(project, plan))
+    from murakumo.generate import checks
+
+    output.files.update(checks.render(project, plan))
+    from murakumo import contracts
+
+    output.files.update(contracts.render(project, plan))
     engine = project.manifest.generation.python_engine
     if engine != "none":
         from murakumo.generate import python

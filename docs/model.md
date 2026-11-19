@@ -129,18 +129,69 @@ physical type per warehouse.
 
 ### Quality rules
 
-Write `tests: [unique, not_null]` for simple rules, or a full rule:
+Write `tests: [unique, not_null]` for simple rules, or a full rule. Rules on a column sit under the
+column; rules on the whole table sit under the table's `tests:`.
 
-| Type | Needs |
+| Type | Checks | Needs | Judges each row |
+| --- | --- | --- | --- |
+| `not_null` | every row has a value | nothing | yes |
+| `unique` | no two rows share a value | nothing | no |
+| `accepted_values` | values come from a list | `values` (or the column's `accepted_values`) | yes |
+| `range` | numbers or dates between bounds | `min`, `max` or both | yes |
+| `regex` | text matches a pattern | `pattern` | yes |
+| `length` | text length between bounds | `min`, `max` or both | yes |
+| `custom_sql` | an expression every row satisfies | `sql` (staging's column names) | yes |
+| `null_share` | at most a share of values is empty | `max`, from 0 to 1 | no |
+| `distinct_count` | how many distinct values | `min`, `max` or both | no |
+| `recent` | the newest date or time is recent | `max_age_hours` | no |
+| `row_count` | how many rows (table level) | `min`, `max` or both | no |
+| `unique_combination` | no two rows share these columns together (table level) | two or more `columns` | no |
+| `freshness` | the table loads often enough | `max_age_hours` | no |
+
+What a failing rule does is its `action`:
+
+| `action` | When a row or the table fails |
 | --- | --- |
-| `unique`, `not_null` | nothing |
-| `accepted_values` | `values` (or use the attribute's `accepted_values`) |
-| `range` | `min`, `max` or both |
-| `unique_combination` | two or more `columns` (table level) |
-| `freshness` | `max_age_hours` |
-| `custom_sql` | `sql` |
+| `fail` (default) | the run stops: an error test |
+| `warn` | it is recorded and the run carries on: a warning test |
+| `quarantine` | the rows that fail are set aside in `<staging model>__quarantine`, with the first rule each failed (`_failed_rule`); the rest carry on. Only for rules that judge each row, on raw tables |
 
-Every rule takes `severity: error | warn`.
+```yaml
+attributes:
+  - name: Borough
+    type: string
+    tests:
+      - type: accepted_values
+        values: [Manhattan, Queens, Bronx, Brooklyn, Staten Island, EWR]
+        action: quarantine
+  - name: service_zone
+    type: string
+    example: Boro Zone            # made-up data for `verify` uses it for the regex rule
+    tests:
+      - { type: regex, pattern: '^[A-Za-z ]+$', action: warn }
+      - { type: null_share, max: 0.05 }
+tests:
+  - { type: row_count, min: 1 }
+  - { type: custom_sql, sql: location_id > 0, action: quarantine, description: ids are positive }
+```
+
+`severity: error | warn` still works; `action` sets it (`fail` is `error`, `warn` is `warn`). Every
+rule becomes a dbt test (or, for quarantine, the CASE that splits staging), a check in the PySpark
+and Polars jobs, an expectation for Great Expectations and a SodaCL check when
+`quality.framework` names them, and a quality entry in the table's data contract. In the canvas:
+the inspector's **Quality rules**.
+
+#### Data contract
+
+```yaml
+contract:
+  version: 1.2.0
+  status: active                  # proposed | draft | active | deprecated | retired
+  enforce: block                  # block: a load that breaks it stops the build; warn: it is reported
+```
+
+Every table has a contract in `generated/contracts/<table>.odcs.yaml` (ODCS v3.0.2); these
+settings are its version and status. See [operating.md](operating.md#data-contracts).
 
 ### Cumulative tables
 
@@ -278,6 +329,12 @@ something looks wrong). It exits with 1 on errors, or on warnings too with `--st
 | MK323 | warning | `cdc:` settings on a table that is not `load: cdc` |
 | MK324 | warning | `load: streaming` on a table no Kafka connection fills: it is loaded as append |
 | MK325 | warning | A table built incrementally reads a change feed that marks deleted rows (`cdc.operation`): they stay until a full rebuild |
+| MK326 | error | `action: quarantine` on a rule that judges the whole table (unique, row_count...), not each row |
+| MK327 | error | `action: quarantine` on a table that is not raw: rows are set aside as they are loaded |
+| MK328 | warning | A `regex` rule on Synapse, which has no regular expressions |
+| MK329 | error | A `regex` rule's pattern is not a regular expression |
+| MK330 | warning | A `regex` rule's column has no `example` that matches: made-up data for `verify` cannot match a pattern |
+| MK331 | warning | `quality.framework` names a tool Murakumo does not write rules for (it writes dbt_tests, great_expectations, soda) |
 | MK401 | error | An import would overwrite a table that belongs to another source or layer |
 | MK402 | error | A dictionary row has no table or column name, or the file has no rows |
 | MK403 | warning | A dictionary value could not be used (type, classification, foreign key) |

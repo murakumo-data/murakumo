@@ -1,7 +1,7 @@
 import { Download, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
-import { api, type Cost, type DbtImport, type Monitor, type State } from './api'
+import { api, type Contracts, type Cost, type DbtImport, type Monitor, type State } from './api'
 
 // Health: what is unusual in the loads and runs (`murakumo monitor`), roughly what the schedules
 // cost a month (`murakumo cost`), the lineage for a catalog (`murakumo catalog export`), and
@@ -34,11 +34,15 @@ export function HealthPanel({
   const [folder, setFolder] = useState('')
   const [imported, setImported] = useState<DbtImport | null>(null)
   const [busy, setBusy] = useState(false)
+  const [contracts, setContracts] = useState<Contracts | null>(null)
+  const [contractPath, setContractPath] = useState('')
+  const [contractImport, setContractImport] = useState<string | null>(null)
   const fail = useCallback((e: unknown) => onMessage(e instanceof Error ? e.message : String(e), 'error'), [onMessage])
 
   const load = useCallback(() => {
     api.monitor(environment).then(setMonitor, fail)
     api.cost().then(setCost, fail)
+    api.contracts(true, environment).then(setContracts, fail)
   }, [environment, fail])
   useEffect(() => {
     load()
@@ -51,6 +55,26 @@ export function HealthPanel({
       else save('lineage.jsonl', (data as { events: unknown[] }).events.map((e) => JSON.stringify(e)).join('\n') + '\n')
     } catch (e) {
       fail(e)
+    }
+  }
+  const importOdcs = async (dryRun: boolean) => {
+    setBusy(true)
+    try {
+      const result = await api.importOdcs(contractPath.trim(), dryRun)
+      if (result.state) onState(result.state)
+      setContractImport(
+        result.tables
+          .map(
+            (t) =>
+              `${t.new ? '+' : '='} ${t.entity}: ${t.new ? `${t.added.length} column(s), ` : t.added.length ? `${t.added.length} column(s) added, ` : ''}${t.rules} rule(s)` +
+              t.different.map((d) => `\n    differs: ${d}`).join(''),
+          )
+          .join('\n') + (result.written ? '' : '\nNothing written yet.'),
+      )
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(false)
     }
   }
   const importDbt = async (dryRun: boolean) => {
@@ -147,6 +171,80 @@ export function HealthPanel({
           </ul>
         </section>
       )}
+
+      <section>
+        <h4 className="runs__heading">Data contracts</h4>
+        {contracts?.check && !contracts.check.checked && <p className="muted">{contracts.check.reason}</p>}
+        {contracts?.check?.checked && contracts.check.tables.length === 0 && (
+          <p className="muted">No raw table has been loaded yet: nothing to check.</p>
+        )}
+        {contracts?.check?.checked && contracts.check.tables.length > 0 && contracts.check.breaches.length === 0 && (
+          <p className="muted">
+            Every load kept to its contract ({contracts.check.tables.length} table{contracts.check.tables.length === 1 ? '' : 's'}).
+          </p>
+        )}
+        {contracts?.check?.checked && contracts.check.breaches.length > 0 && (
+          <ul className="health__findings">
+            {contracts.check.breaches.map((b, i) => (
+              <li key={i} className={`health__finding health__finding--${b.level}`}>
+                <span className="health__level">{b.level === 'error' ? 'Error' : 'Warning'}</span>
+                <button className="link mono" onClick={() => onModel(b.table)}>
+                  {b.table}
+                </button>
+                <span>{b.message}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {contracts && Object.keys(contracts.contracts).length > 0 && (
+          <div className="health__actions">
+            <select
+              className="input input--auto"
+              aria-label="Download a contract"
+              defaultValue=""
+              onChange={(e) => {
+                const name = e.target.value
+                if (!name) return
+                const link = document.createElement('a')
+                link.href = URL.createObjectURL(new Blob([contracts.contracts[name]], { type: 'application/yaml' }))
+                link.download = `${name}.odcs.yaml`
+                link.click()
+                URL.revokeObjectURL(link.href)
+                e.target.value = ''
+              }}
+            >
+              <option value="">Download a contract (ODCS)…</option>
+              {Object.keys(contracts.contracts)
+                .sort()
+                .map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
+        <p className="muted small">
+          Each table's contract is written from the model (columns, types, keys, rules, freshness) in the Open Data Contract
+          Standard. Bring in a contract a source owner sent you:
+        </p>
+        <input
+          className="input"
+          value={contractPath}
+          aria-label="The contract file"
+          placeholder="/path/to/orders.odcs.yaml"
+          onChange={(e) => setContractPath(e.target.value)}
+        />
+        <div className="health__actions">
+          <button className="button button--small" disabled={busy || !contractPath.trim()} onClick={() => importOdcs(true)}>
+            See what it would add
+          </button>
+          <button className="button button--small button--primary" disabled={busy || !contractPath.trim()} onClick={() => importOdcs(false)}>
+            Import
+          </button>
+        </div>
+        {contractImport && <pre className="small health__import">{contractImport}</pre>}
+      </section>
 
       <section>
         <h4 className="runs__heading">Lineage for a catalog</h4>

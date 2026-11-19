@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.1.0 (unreleased)
+
+Data quality you configure on the canvas and that runs everywhere, data contracts, and a query
+console for every table at every stage. Each has a canvas path, a step in the replication guide,
+and a part in the end-to-end test.
+
+**Added**
+
+- **Quality rules with an action.** New rules: `regex`, `length`, `null_share`,
+  `distinct_count`, `recent`, `row_count`, beside not empty, unique, one of a list, between,
+  an expression and unique together. Each rule says what a failure does: `fail` (stop the run),
+  `warn`, or `quarantine`.
+- **Quarantine.** On a raw table, rows that fail a quarantine rule are set aside in
+  `<staging model>__quarantine`, with the first rule each failed; the rest carry on. Made-up data
+  for `verify` keeps to the rules. MK326 to MK330.
+- **The same rules everywhere.** dbt tests, checks in the PySpark and Polars jobs, and, with
+  `quality.framework`, a Great Expectations suite and Soda checks per table, each with a
+  `run.py` that exits 1 on a failure.
+- **Reconciliation** (`quality.reconciliation`): a test that every raw row reached staging or was
+  set aside.
+- **Write-audit-publish** (`quality.write_audit_publish`): `murakumo build` builds and tests in
+  `wap_` schemas, and publishes only when every test passes.
+- **Data contracts (ODCS v3.0.2).** A contract per table in `generated/contracts/`, validated
+  against the standard's JSON Schema in the tests; `murakumo import odcs` brings one in;
+  `murakumo contract` checks each load against its contract, and `murakumo build` stops on a
+  breach of one that blocks (`contracts.enforce_on: [sources]`). Each table's `contract:` sets its
+  version, status and enforcement.
+- **Monitoring** reports a load that had many rows set aside (**quarantined**).
+- **The query console.** The canvas's **Query** panel runs read-only SQL on the source, what
+  landed, raw, staging, quarantine, marts, snapshots, the audit tables and the Iceberg catalog,
+  and on files in a folder, S3, GCS or Azure (Parquet, CSV, JSON, Excel, Iceberg, Delta). Only
+  reads run; results stop at a row limit and a timeout.
+- **In the canvas:** the inspector's **Quality rules** and **Data contract**, and its **Query**
+  button; **Health → Data contracts**; **Settings → Data quality**. Rules and accepted values can
+  now be edited through the canvas API.
+
+**Fixed**
+
+- `murakumo run --sample` ignored `--data` files for the tables it gave them to.
+- `murakumo run --data` read relative paths from a temporary folder, so they were not found.
+
+**Verified:** quarantine, reconciliation and write-audit-publish with real dbt builds on DuckDB;
+quarantine in the Polars job; the generated Great Expectations (1.25) and Soda Core (3.5)
+checks run against a DuckDB build; every generated contract against the ODCS v3.0.2 JSON Schema;
+a contract round trip; the console against DuckDB and files; the canvas panels in a browser.
+
+**Not verified:** Great Expectations and Soda against the cloud warehouses; the console against a
+source database, cloud storage and an Iceberg catalog; quarantine on warehouses other than
+DuckDB (the SQL is generated for each, and checked in the tests).
+
 ## 1.0.0 (2026-11-14)
 
 The rest of the original plan's Evolution and Breadth phases: more ways to keep history, the Data

@@ -485,6 +485,7 @@ class Monitoring(Section):
 
 
 class Quality(Section):
+    # Where the rules are written: dbt tests (and the Python jobs) always; also great_expectations, soda.
     framework: list[str] = Field(default_factory=lambda: ["dbt_tests"])
     default_tests: list[str] = Field(default_factory=lambda: ["unique_pk", "not_null_pk", "relationships"])
     reconciliation: bool = False

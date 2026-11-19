@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "murakumo"
-version = "1.0.0"
+version = "1.1.0"
 description = "Model-first data engineering: design the logical model, generate the platform."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -72,6 +72,7 @@ dev = [
     "duckdb>=1.1",
     "fastapi>=0.115",
     "httpx>=0.27",
+    "jsonschema>=4.20",  # validates the data contracts against the ODCS JSON Schema
     "pandas>=2.0",
     "polars>=1.0",
     "psycopg[binary]>=3.2",

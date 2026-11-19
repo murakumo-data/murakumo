@@ -7,7 +7,9 @@ for, from what every run already records in the audit schema (``runlog.py``):
 - **late**: a table has not loaded for longer than its freshness setting allows, or, with none
   set, for several times its usual gap between loads;
 - **rejected**: a load refused more than a small share of its rows;
-- **failed**: the latest run failed, or tests failed in it.
+- **failed**: the latest run failed, or tests failed in it;
+- **quarantined**: more than a small share of a table's latest load was set aside by a quarantine
+  rule (those rows are in ``<staging model>__quarantine``, with the rule each failed).
 
 "Usual" is each table's own history: the median of its earlier loads, and how far they spread
 around it. Nothing is trained and nothing leaves the warehouse, unless ``--notify`` is given, which
@@ -35,7 +37,7 @@ MIN_HISTORY = 4  # fewer earlier loads than this say nothing about what is usual
 @dataclass
 class Finding:
     level: str  # error | warn
-    check: str  # volume | late | rejected | failed
+    check: str  # volume | late | rejected | failed | quarantined
     subject: str  # the table, or the run
     message: str
 
@@ -71,6 +73,7 @@ def evaluate(
     now: datetime,
     last_run: dict[str, Any] | None = None,
     failed_tests: list[dict[str, Any]] | None = None,
+    set_aside: list[tuple[str, int, int]] | None = None,
 ) -> list[Finding]:
     """What is unusual in the loads and the latest run. ``freshness`` is each table's (warn, error)
     hours, where the model sets them."""
@@ -155,6 +158,16 @@ def evaluate(
                 f"the test {test.get('test')} failed on {test.get('failures') or 0} row(s)",
             )
         )
+    for table, rows, aside in set_aside or []:
+        if rows and aside / rows > settings.rejected_tolerance:
+            findings.append(
+                Finding(
+                    "warn",
+                    "quarantined",
+                    table,
+                    f"quarantine rules set aside {aside:,} of the latest load's {rows:,} rows ({aside / rows:.0%})",
+                )
+            )
     order = {"error": 0, "warn": 1}
     return sorted(findings, key=lambda f: (order.get(f.level, 2), f.check, f.subject))
 
@@ -198,6 +211,7 @@ def check(
                 f"where run_id = '{runs[0][0]}' and status in ('fail', 'error')",
                 fetch=True,
             )
+        aside = _set_aside(project, connection, placement, warehouse)
     finally:
         connection.close()
     loads = [Load(str(t), _when(at), int(n or 0), int(r or 0)) for t, at, n, r in rows if at is not None]
@@ -213,7 +227,7 @@ def check(
         else None
     )
     tests = [dict(zip(["model", "test", "column", "failures", "severity"], row, strict=False)) for row in failed]
-    findings = evaluate(loads, freshness, settings, now or datetime.now(UTC), last, tests)
+    findings = evaluate(loads, freshness, settings, now or datetime.now(UTC), last, tests, aside)
     return {
         "recorded": True,
         "audit": where,
@@ -221,6 +235,37 @@ def check(
         "loads": len(loads),
         "findings": [f.as_dict() for f in findings],
     }
+
+
+def _set_aside(project: Project, connection, placement, warehouse) -> list[tuple[str, int, int]]:
+    """Each quarantined table's latest load: (raw table, its rows, how many were set aside)."""
+    from murakumo.generate.plan import build_plan
+    from murakumo.generate.targets import target_for
+
+    plan = build_plan(project, target_for(warehouse))
+    raw_schemas = {t.entity.name: g.schema for g in plan.sources for t in g.tables}
+    qualify = "" if warehouse is Warehouse.DUCKDB else f"{connection.database}."
+    found = []
+    for model in plan.models:
+        if model.extra.get("side") != "quarantined":
+            continue
+        raw = f"{qualify}{placement.schema(raw_schemas[model.entity.name])}.{model.entity.name}"
+        aside = f"{qualify}{placement.schema('staging')}.{model.name}"
+        try:
+            latest = connection.execute(
+                f"select _batch_id, count(*) from {raw} group by _batch_id order by max(_ingested_at) desc limit 1",
+                fetch=True,
+            )
+            if not latest:
+                continue
+            batch, rows = latest[0]
+            count = connection.execute(
+                f"select count(*) from {aside} where _batch_id = '{str(batch).replace(chr(39), '')}'", fetch=True
+            )[0][0]
+        except Exception:  # noqa: BLE001 - not built yet
+            continue
+        found.append((model.entity.name, int(rows), int(count)))
+    return found
 
 
 def message(project: Project, findings: list[dict[str, Any]], environment: str | None = None) -> str:

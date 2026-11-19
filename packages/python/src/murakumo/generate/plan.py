@@ -38,6 +38,7 @@ from murakumo.ir.model import (
     Mapping,
     QualityRule,
     Relationship,
+    RuleAction,
     RuleType,
 )
 from murakumo.ir.types import parse_type
@@ -246,8 +247,11 @@ class Planner:
         return _dedupe(tests)
 
     def rule_tests(self, rule: QualityRule, column: str | None, names: dict[str, str] | None = None) -> list[Test]:
+        if rule.effective_action is RuleAction.QUARANTINE and rule.row_level:
+            return []  # the rows that fail it are set aside before the model: see quarantine()
         severity = rule.severity.value
         columns = [names.get(c.lower(), c) if names else c for c in rule.columns]
+        bounds = {k: v for k, v in (("min_value", rule.min), ("max_value", rule.max)) if v is not None}
         match rule.type:
             case RuleType.UNIQUE:
                 return [Test("unique", column, severity=severity)] if column else []
@@ -264,7 +268,74 @@ class Planner:
                 return [Test("murakumo_expression", column, {"expression": rule.sql}, severity)]
             case RuleType.FRESHNESS:
                 return []  # freshness belongs to sources.yml, handled there
+            case RuleType.REGEX | RuleType.LENGTH:
+                if not column:
+                    return []
+                failing = self.row_failure(rule, self.quote(column))
+                return [Test("murakumo_expression", column, {"expression": f"not ({failing})"}, severity)]
+            case RuleType.ROW_COUNT:
+                return [Test("murakumo_row_count", None, bounds, severity)]
+            case RuleType.NULL_SHARE:
+                return [Test("murakumo_null_share", column, {"max_share": rule.max}, severity)] if column else []
+            case RuleType.DISTINCT_COUNT:
+                return [Test("murakumo_distinct_count", column, bounds, severity)] if column else []
+            case RuleType.RECENT:
+                hours = rule.max_age_hours
+                return [Test("murakumo_recent", column, {"max_age_hours": hours}, severity)] if column else []
         return []
+
+    def row_failure(self, rule: QualityRule, column: str | None) -> str:
+        """SQL that is true for a row that fails ``rule`` (a row rule), in the target's dialect.
+        ``column`` is the quoted column the rule is on, or None for a rule on the whole row."""
+        dialect = self.target.dialect
+
+        def number(value: float) -> str:
+            return str(int(value)) if float(value).is_integer() else repr(value)
+
+        def outside(expression: str) -> str:
+            parts = []
+            if rule.min is not None:
+                parts.append(f"{expression} < {number(rule.min)}")
+            if rule.max is not None:
+                parts.append(f"{expression} > {number(rule.max)}")
+            return " or ".join(parts)
+
+        match rule.type:
+            case RuleType.NOT_NULL:
+                return f"{column} is null"
+            case RuleType.ACCEPTED_VALUES:
+                values = ", ".join("'" + str(v).replace("'", "''") + "'" for v in rule.values or [])
+                return f"{column} is not null and {column} not in ({values})"
+            case RuleType.RANGE:
+                return f"{column} is not null and ({outside(column)})"
+            case RuleType.REGEX:
+                pattern = exp.Literal.string(rule.pattern or "")
+                matches = exp.RegexpLike(this=sqlglot.parse_one(column, read=dialect), expression=pattern)
+                return f"{column} is not null and not {matches.sql(dialect=dialect)}"
+            case RuleType.LENGTH:
+                length = exp.Length(this=sqlglot.parse_one(column, read=dialect)).sql(dialect=dialect)
+                return f"{column} is not null and ({outside(length)})"
+            case RuleType.CUSTOM_SQL:
+                return f"not ({rule.sql})"
+        raise ValueError(f"{rule.type.value} is not a row rule")
+
+    def quarantine(self, entity: Entity, names: dict[str, str]) -> list[tuple[str, str]]:
+        """The rules that set rows aside, as (rule name, SQL true for a row that fails it)."""
+        found = []
+        for attribute in entity.attributes:
+            for rule in attribute.tests:
+                if rule.effective_action is RuleAction.QUARANTINE and rule.row_level:
+                    column = self.quote(names[attribute.name.lower()])
+                    found.append(
+                        (f"{names[attribute.name.lower()]}: {rule.type.value}", self.row_failure(rule, column))
+                    )
+        for index, rule in enumerate(entity.tests):
+            if rule.effective_action is RuleAction.QUARANTINE and rule.type is RuleType.CUSTOM_SQL:
+                found.append((rule.description or f"rule {index + 1}: custom_sql", self.row_failure(rule, None)))
+        return found
+
+    def quarantine_name(self, entity: Entity) -> str:
+        return f"{self.staging_name(entity)}__quarantine"
 
     # staging ----------------------------------------------------------------------------------
 
@@ -324,6 +395,15 @@ class Planner:
                 "operation": self.cast(self.quote(operation.name), string) if operation else None,
                 "deletes": [d.lower().replace("'", "''") for d in settings.deletes],
             }
+        rules = self.quarantine(entity, names)
+        if rules:
+            extra["quarantine"] = [(name.replace("'", "''"), failing) for name, failing in rules]
+            extra["side"] = "passed"
+        if self.project.manifest.quality.reconciliation:
+            # Every raw row is in staging or set aside: none lost, none made up.
+            reconcile: dict = {"source": f"source('{snake(entity.source or 'raw')}', '{entity.name}')"}
+            if not extra.get("cdc"):  # a change feed keeps one row per key, on purpose
+                tests.append(Test("murakumo_reconciles", None, reconcile))
         return DbtModel(
             extra=extra,
             name=self.staging_name(entity),
@@ -336,6 +416,32 @@ class Planner:
             materialized="view",
             tests=tests,
             description=entity.description,
+        )
+
+    def plan_quarantine(self, staging: DbtModel) -> DbtModel:
+        """The rows of a raw table that failed a quarantine rule, with the first rule each failed.
+        Rebuilt each run from the raw table, so it always holds what the raw table holds that is bad."""
+        entity = staging.entity
+        string = self.target.physical_name("string")
+        columns = [Column(c.name, c.sql, c.data_type, c.description) for c in staging.columns]
+        columns.append(Column("_failed_rule", "_failed_rule", string, "The first quarantine rule the row failed."))
+        # Reconciliation counts both sides, so it runs once both are built: on this one.
+        tests = []
+        for test in [t for t in staging.tests if t.name == "murakumo_reconciles"]:
+            staging.tests.remove(test)
+            tests.append(Test(test.name, None, {**test.args, "other": f"ref('{staging.name}')"}, test.severity))
+        return DbtModel(
+            tests=tests,
+            extra={**staging.extra, "side": "quarantined"},
+            name=self.quarantine_name(entity),
+            layer="staging",
+            folder=staging.folder,
+            entity=entity,
+            relation=staging.relation,
+            alias=staging.alias,
+            columns=columns,
+            materialized="table",
+            description=f"Rows of {entity.name} set aside by a quarantine rule; staging has the others.",
         )
 
     # modelled layers --------------------------------------------------------------------------
@@ -1006,7 +1112,10 @@ class Planner:
         raw = [e for e in entities if e.layer is Layer.RAW]
         self.plan_sources(raw)
         for entity in raw:
-            self.plan.models.append(self.plan_staging(entity))
+            staging = self.plan_staging(entity)
+            self.plan.models.append(staging)
+            if staging.extra.get("quarantine"):
+                self.plan.models.append(self.plan_quarantine(staging))
         for entity in [e for e in entities if e.layer is not Layer.RAW]:
             try:
                 self.plan.models.extend(self.plan_modelled(entity))
@@ -1042,8 +1151,9 @@ def quote_identifier(name: str, dialect: str) -> str:
 
 
 def is_history(model: DbtModel) -> bool:
-    """An SCD4 dimension's history table: the same entity as the dimension, a table of its own."""
-    return bool(model.extra.get("history"))
+    """A side table of an entity's main model: an SCD4 dimension's history, or a raw table's
+    quarantine. The same entity, a table of its own: never what a ref() to the entity means."""
+    return bool(model.extra.get("history")) or model.extra.get("side") == "quarantined"
 
 
 def build_plan(project: Project, target: Target) -> Plan:

@@ -35,7 +35,10 @@ cases. **Not yet** is a gap, with the milestone it fits.
 | Staging, intermediate and marts layers, each with its job | The model's layers; staging generated one-to-one from each raw table | Done |
 | Sources declared, with freshness | `sources.yml` per source, `loaded_at_field: _ingested_at`, freshness from the model | Done |
 | Every model tested: unique and not-null keys, relationships, accepted values | Generated from keys, relationships and column rules | Done |
-| Model contracts on what others read | Enforced on marts (`contracts.enforce_on`) | Done |
+| Model contracts on what others read | Enforced on marts (`contracts.enforce_on`); every table's contract written in ODCS v3.0.2, contracts from others imported, each load checked against its source's contract (1.1) | Done |
+| Bad rows quarantined, not dropped or let through | Per rule: stop, warn or set rows aside in `<staging>__quarantine` with the rule they failed; reconciliation that every raw row is accounted for (1.1) | Done |
+| Write-audit-publish | `quality.write_audit_publish`: build and test in `wap_` schemas, publish only when every test passes (1.1) | Done |
+| One set of rules, run by the tool a team uses | The same rules as dbt tests, PySpark and Polars checks, Great Expectations suites and Soda checks (1.1) | Done |
 | Groups and access (private, protected, public) | A dbt group per domain, and `access:` per table (0.9) | Done |
 | Incremental models that are idempotent | Replaced by unique key (`delete+insert`, or `merge` on BigQuery and Databricks); load-time increments re-run safely | Done |
 | Snapshots for history | Generated for SCD2 entities | Done |
