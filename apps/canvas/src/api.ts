@@ -3,6 +3,37 @@
 
 export type Layer = 'raw' | 'staging' | 'intermediate' | 'marts' | 'semantic'
 
+// A quality rule: what it checks, its settings, and what a failure does (stop the run, warn, or
+// set the failing rows aside in <table>_quarantine).
+export type RuleType =
+  | 'not_null'
+  | 'unique'
+  | 'accepted_values'
+  | 'range'
+  | 'regex'
+  | 'length'
+  | 'custom_sql'
+  | 'unique_combination'
+  | 'row_count'
+  | 'null_share'
+  | 'distinct_count'
+  | 'recent'
+  | 'freshness'
+export type RuleAction = 'fail' | 'warn' | 'quarantine'
+export type QualityRule = {
+  type: RuleType
+  columns?: string[]
+  severity?: 'error' | 'warn'
+  action?: RuleAction | null
+  values?: string[] | null
+  min?: number | null
+  max?: number | null
+  sql?: string | null
+  pattern?: string | null
+  max_age_hours?: number | null
+  description?: string | null
+}
+
 export type Attribute = {
   id: string
   name: string
@@ -12,6 +43,8 @@ export type Attribute = {
   description: string | null
   pii: boolean
   classification: string | null
+  example?: string | null
+  tests?: QualityRule[]
 }
 
 export type Mapping = { target: string; sources: string[]; expression: string | null }
@@ -43,6 +76,29 @@ export type Entity = {
   access: 'private' | 'protected' | 'public' | null
   // Which rows each role may see (Snowflake): the column that decides, and each role's values.
   row_access: { column: string; allow: Record<string, string[]> } | null
+  tests?: QualityRule[] // rules on the whole table
+  // Its data contract (ODCS): the version, the status, and whether a load that breaks it stops the build.
+  contract?: { version: string; status: string; enforce: 'block' | 'warn' } | null
+}
+
+// The query console: where a query runs, what there is to query, and what came back.
+export type QueryEngine = { engine: string; label: string }
+export type QueryTarget = { label: string; engine: string; stage: string; sql: string; entity: string | null; note: string | null }
+export type QueryResult = {
+  engine: string
+  columns: string[]
+  types: string[]
+  rows: unknown[][]
+  truncated: boolean
+  elapsed_ms: number
+  sql: string
+}
+export type Breach = { table: string; level: 'error' | 'warn'; what: string; message: string }
+export type Contracts = {
+  standard: string
+  enforce_on: string[]
+  contracts: Record<string, string>
+  check?: { checked: boolean; reason?: string; tables: string[]; breaches: Breach[] }
 }
 
 export type Exposure = {
@@ -232,6 +288,10 @@ export type Settings = {
   masking: Record<string, string>
   unmasked_roles: string[]
   lakehouse: Lakehouse | null // which layers are written as open tables, and where
+  quality_tools: string[] // great_expectations, soda: also write the rules for these
+  reconciliation: boolean
+  write_audit_publish: boolean
+  contracts_enforce_on: string[] // sources, marts
   choices: { warehouses: string[]; orchestrators: string[]; patterns: string[]; python_engines: string[] }
   changed?: string[]
   state?: State
@@ -616,6 +676,28 @@ export const api = {
   applySuggestions: (suggestions: Suggestion[]) =>
     request<{ applied: string[]; refused: { text: string; why: string }[]; state: State }>('POST', '/assistant/apply', { suggestions }),
   importDbt: (folder: string, dryRun: boolean) => request<DbtImport>('POST', '/import/dbt', { folder, dry_run: dryRun }),
+  queryTargets: (environment?: string) =>
+    request<{ engines: QueryEngine[]; targets: QueryTarget[]; limit: number }>(
+      'GET',
+      `/query/targets${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`,
+      undefined,
+      false,
+    ),
+  query: (sql: string, engine: string, options: { environment?: string; limit?: number } = {}) =>
+    request<QueryResult>('POST', '/query', { sql, engine, ...options }, false),
+  contracts: (check = false, environment?: string) =>
+    request<Contracts>(
+      'GET',
+      `/contracts?${new URLSearchParams({ check: String(check), ...(environment ? { environment } : {}) })}`,
+      undefined,
+      false,
+    ),
+  importOdcs: (path: string, dryRun: boolean, source?: string) =>
+    request<{ tables: { entity: string; added: string[]; rules: number; different: string[]; new: boolean }[]; written: boolean; state?: State }>(
+      'POST',
+      '/import/odcs',
+      { path, dry_run: dryRun, ...(source ? { source } : {}) },
+    ),
   runs: (environment?: string) =>
     request<RunLog>('GET', `/runs${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`, undefined, false),
   startJob: (kind: string, options: Record<string, unknown> = {}) => request<Job>('POST', '/jobs', { kind, options }, false),

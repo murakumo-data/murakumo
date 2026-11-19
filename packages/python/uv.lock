@@ -2385,7 +2385,7 @@ wheels = [
 
 [[package]]
 name = "murakumo"
-version = "1.0.0"
+version = "1.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
@@ -2467,6 +2467,7 @@ dev = [
     { name = "duckdb" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "jsonschema" },
     { name = "pandas" },
     { name = "polars" },
     { name = "psycopg", extra = ["binary"] },
@@ -2527,6 +2528,7 @@ dev = [
     { name = "duckdb", specifier = ">=1.1" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "jsonschema", specifier = ">=4.20" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "polars", specifier = ">=1.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },

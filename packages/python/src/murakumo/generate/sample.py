@@ -9,6 +9,7 @@ negative. A failing test on this data therefore means the generated code is wron
 from __future__ import annotations
 
 import random
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -72,7 +73,7 @@ def _value(attribute: Attribute, rng: random.Random, index: int) -> Any:
     text = f"{attribute.name.lower()}_{index}"
     if name is T.STRING and logical.params:
         text = text[: logical.params[0]]
-    return text
+    return _fit_length(attribute, text)
 
 
 def _sequence(attribute: Attribute, index: int) -> Any:
@@ -90,6 +91,37 @@ def _sequence(attribute: Attribute, index: int) -> Any:
     if attribute.logical_type.params and name is T.STRING:
         length = attribute.logical_type.params[0]
         text = str(index + 1).zfill(length)[-length:] if len(text) > length else text
+    return text
+
+
+def _allowed(attribute: Attribute) -> list[str]:
+    """The values a column may only take: its accepted values, an accepted_values rule's, or, for a
+    regex rule, its example when that matches (made-up text could not)."""
+    if attribute.accepted_values:
+        return sorted(attribute.accepted_values)
+    for rule in attribute.tests:
+        if rule.type is RuleType.ACCEPTED_VALUES and rule.values:
+            return sorted(rule.values)
+    for rule in attribute.tests:
+        if rule.type is RuleType.REGEX and attribute.example and re.search(rule.pattern or "", attribute.example):
+            return [attribute.example]
+    return []
+
+
+def _may_be_null(attribute: Attribute) -> bool:
+    return attribute.nullable and not any(
+        rule.type in (RuleType.NOT_NULL, RuleType.NULL_SHARE) for rule in attribute.tests
+    )
+
+
+def _fit_length(attribute: Attribute, text: str) -> str:
+    """Made-up text within a length rule's bounds."""
+    for rule in attribute.tests:
+        if rule.type is RuleType.LENGTH:
+            low, high = int(rule.min or 0), int(rule.max) if rule.max is not None else None
+            if high is not None:
+                text = text[-high:]
+            text = text.ljust(low, "x")
     return text
 
 
@@ -169,9 +201,10 @@ def sample_rows(model: Model, entities: list[Entity], rows: int = 200, seed: int
             for attribute in entity.attributes:
                 if attribute.name in row:
                     continue
-                if attribute.accepted_values:
-                    row[attribute.name] = _accepted(attribute, rng.choice(sorted(attribute.accepted_values)))
-                elif attribute.nullable and rng.random() < 0.05:
+                allowed = _allowed(attribute)
+                if allowed:
+                    row[attribute.name] = _accepted(attribute, rng.choice(allowed))
+                elif _may_be_null(attribute) and rng.random() < 0.05:
                     row[attribute.name] = None
                 else:
                     row[attribute.name] = _value(attribute, rng, index)

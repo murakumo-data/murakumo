@@ -39,3 +39,56 @@ from {{ model }}
 where {{ column_name }} is not null
   and {{ converted }} is null
 {% endtest %}
+
+{% test murakumo_row_count(model, min_value=none, max_value=none) %}
+select *
+from (select count(*) as row_count from {{ model }}) as counted
+where
+  {%- if min_value is not none %} row_count < {{ min_value }}{% endif %}
+  {%- if min_value is not none and max_value is not none %} or{% endif %}
+  {%- if max_value is not none %} row_count > {{ max_value }}{% endif %}
+{% endtest %}
+
+{% test murakumo_null_share(model, column_name, max_share) %}
+select *
+from (
+    select count(*) as row_count, sum(case when {{ column_name }} is null then 1 else 0 end) as null_count
+    from {{ model }}
+) as counted
+where row_count > 0 and null_count * 1.0 / row_count > {{ max_share }}
+{% endtest %}
+
+{% test murakumo_distinct_count(model, column_name, min_value=none, max_value=none) %}
+select *
+from (select count(distinct {{ column_name }}) as distinct_count from {{ model }}) as counted
+where
+  {%- if min_value is not none %} distinct_count < {{ min_value }}{% endif %}
+  {%- if min_value is not none and max_value is not none %} or{% endif %}
+  {%- if max_value is not none %} distinct_count > {{ max_value }}{% endif %}
+{% endtest %}
+
+{#- The newest value is no older than max_age_hours; an empty table fails. -#}
+{% test murakumo_recent(model, column_name, max_age_hours) %}
+select *
+from (select max({{ column_name }}) as newest from {{ model }}) as latest
+where newest is null
+   or cast(newest as {{ dbt.type_timestamp() }})
+      < cast({{ dbt.dateadd('hour', -1 * max_age_hours | int, dbt.current_timestamp()) }} as {{ dbt.type_timestamp() }})
+{% endtest %}
+
+{#- Every row of the raw table is in the model, or in `other` (its staging, or its quarantine): none
+    lost, none made up. -#}
+{% test murakumo_reconciles(model, source, other=none) %}
+select *
+from (
+    select
+        (select count(*) from {{ source }}) as raw_rows,
+        (select count(*) from {{ model }}) as model_rows,
+        {%- if other %}
+        (select count(*) from {{ other }}) as other_rows
+        {%- else %}
+        0 as other_rows
+        {%- endif %}
+) as counted
+where raw_rows <> model_rows + other_rows
+{% endtest %}

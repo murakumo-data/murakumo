@@ -103,6 +103,17 @@ Each message type becomes a raw table, its fields columns:
 
 Comments before a message, or before or after a field, become descriptions.
 
+## A data contract (ODCS)
+
+```bash
+murakumo import odcs orders.odcs.yaml --source shop_db --dry-run
+murakumo import odcs orders.odcs.yaml --source shop_db
+```
+
+A contract in the Open Data Contract Standard (v3) becomes a raw table per table it describes:
+its columns and types, which may be empty, its key, and its quality rules. See
+[operating.md](operating.md#data-contracts). In the canvas: **Health → Data contracts**.
+
 ## An existing dbt project
 
 ```bash

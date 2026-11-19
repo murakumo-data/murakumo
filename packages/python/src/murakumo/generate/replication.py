@@ -1361,6 +1361,7 @@ class Writer:
                     ],
                 )
             )
+        steps += self.quality_extras()
         return Chapter(
             7,
             "quality",
@@ -1368,6 +1369,180 @@ class Writer:
             "How you know the data is right and the runs worked.",
             steps,
         )
+
+    def quality_extras(self) -> list[Step]:
+        """Rules and what failing them does, setting rows aside, reconciliation, write-audit-publish,
+        the rules for other tools, the data contracts, and looking at the data at each stage."""
+        from murakumo.generate.plain import LAYER_SCHEMAS
+
+        steps: list[Step] = []
+        rows = []
+        for entity in self.project.model.entities:
+            for attribute in entity.attributes:
+                for rule in attribute.tests:
+                    rows.append([entity.name, attribute.name, rule.type.value, rule.effective_action.value])
+            for rule in entity.tests:
+                rows.append([entity.name, "(table)", rule.type.value, rule.effective_action.value])
+        if rows:
+            steps.append(
+                Step(
+                    "quality-rules",
+                    "Know what each rule does when it fails",
+                    "Each rule says what a failure does: `fail` stops the run (an error test), `warn` records it "
+                    "and carries on (a warning test), `quarantine` sets the failing rows aside before staging, "
+                    "so the rest carry on. The tests above are these rules.",
+                    tables=[Table(["Table", "Column", "Rule", "When it fails"], sorted(rows))],
+                )
+            )
+        aside = [m for m in self.plan.models if m.extra.get("side") == "quarantined"]
+        if aside:
+            first = aside[0]
+            staging = f"{LAYER_SCHEMAS.get(first.layer, first.layer)}.{first.name}"
+            steps.append(
+                Step(
+                    "quality-quarantine",
+                    "Set failing rows aside",
+                    "A raw table with quarantine rules has two models in staging: its staging model, the rows that "
+                    "pass, and `<staging model>__quarantine`, the rows that fail, each with the first rule it failed "
+                    "(`_failed_rule`). Both read the raw table and check the rules the same way (a CASE in the "
+                    "models' SQL, in 5. Transformations), so every raw row is in exactly one of them. Look at "
+                    "what a load set aside:",
+                    [
+                        Block(
+                            "sql",
+                            f"select _batch_id, _failed_rule, count(*) as rows_set_aside\nfrom {staging}\n"
+                            "group by 1, 2 order by 1 desc, 3 desc;",
+                        )
+                    ],
+                    tables=[
+                        Table(
+                            ["Raw table", "Rows that pass", "Rows set aside"],
+                            [[m.entity.name, m.name.removesuffix("__quarantine"), m.name] for m in aside],
+                        )
+                    ],
+                )
+            )
+        if self.manifest.quality.reconciliation:
+            steps.append(
+                Step(
+                    "quality-reconcile",
+                    "Reconcile raw and staging",
+                    "With quality.reconciliation, each raw table (not a change feed) has a test that its rows all "
+                    "reached staging or were set aside: none lost, none made up. The test is the query below "
+                    "for each table; it returns a row when the counts do not add up.",
+                    [
+                        Block(
+                            "sql",
+                            "select *\nfrom (\n    select\n        (select count(*) from <raw schema>.<raw table>) "
+                            "as raw_rows,\n        (select count(*) from staging.<staging model>) as model_rows,\n"
+                            "        (select count(*) from staging.<staging model>__quarantine) as other_rows\n"
+                            ") as counted\n"
+                            "where raw_rows <> model_rows + other_rows;",
+                        )
+                    ],
+                )
+            )
+        if self.manifest.quality.write_audit_publish:
+            steps.append(
+                Step(
+                    "quality-wap",
+                    "Write, audit, publish",
+                    "With quality.write_audit_publish, a build first writes every model into wap_ schemas "
+                    "(wap_staging, wap_marts...) and runs every test there. Only when all pass is it built where "
+                    "people read it, without the tests (they just passed on the same data). When one fails, "
+                    "nothing is published: readers keep the last tables that passed. The generated "
+                    "schema_names macro adds the prefix from MURAKUMO_WAP_PREFIX; sources are read where they are.",
+                    [
+                        Block(
+                            "bash",
+                            "dbt build --project-dir generated/dbt --profiles-dir generated/dbt  # with:\n"
+                            "export MURAKUMO_WAP_PREFIX=wap_\n"
+                            "# when that passes, publish:\n"
+                            "unset MURAKUMO_WAP_PREFIX\n"
+                            "dbt build --project-dir generated/dbt --profiles-dir generated/dbt "
+                            "--exclude-resource-type test --exclude-resource-type unit_test",
+                        )
+                    ],
+                    "The first build passes; the second builds the same models in the usual schemas.",
+                )
+            )
+        tools = [t for t in ("great_expectations", "soda") if t in self.manifest.quality.framework]
+        for tool in tools:
+            folder = f"quality/{tool}"
+            name = "Great Expectations" if tool == "great_expectations" else "Soda"
+            if f"{folder}/run.py" not in self.files:
+                continue
+            steps.append(
+                Step(
+                    f"quality-{tool.replace('_', '-')}",
+                    f"Check the rules with {name}",
+                    f"The same rules, written for {name}: "
+                    + (
+                        "an expectation suite per table (expectations/<table>.json). "
+                        if tool == "great_expectations"
+                        else "SodaCL checks per table (checks/<table>.yml), and the warehouse in configuration.yml. "
+                    )
+                    + "run.py checks every table a build made, and exits 1 when a check fails.",
+                    [
+                        Block(
+                            "bash",
+                            f"pip install -r generated/{folder}/requirements.txt\npython generated/{folder}/run.py",
+                        )
+                    ],
+                    "`0 failed` (Great Expectations) or `0 table(s) with failing checks` (Soda).",
+                    files=[f"{folder}/README.md", f"{folder}/run.py"],
+                )
+            )
+        contracts = sorted(p for p in self.files if p.startswith("contracts/"))
+        if contracts:
+            sources = "sources" in self.manifest.contracts.enforce_on
+            steps.append(
+                Step(
+                    "quality-contracts",
+                    "Agree the data contracts",
+                    "Each table has a data contract in the Open Data Contract Standard (ODCS v3.0.2): its columns "
+                    "and types, which may be empty, its key, its rules as SQL that must return 0, and how fresh it "
+                    "is. Send a raw table's contract to whoever sends that data; a modelled table's to whoever uses "
+                    "it. "
+                    + (
+                        "After each load, check it kept to its contract: every column it promises, of a type that "
+                        "fits, no more rows set aside than allowed, on time. A breach of a contract that blocks "
+                        "stops the build before anything is built from the load."
+                        if sources
+                        else "Run each contract's quality queries after a load to check it kept to it."
+                    ),
+                    [
+                        Block(
+                            "sql",
+                            "-- the columns a raw table has, to compare with its contract's properties\n"
+                            "select column_name, data_type from information_schema.columns\n"
+                            "where table_schema = '<raw schema>' and table_name = '<raw table>';",
+                        )
+                    ],
+                    tables=[Table(["Contract"], [[f"generated/{p}"] for p in contracts])],
+                    files=contracts[:10],
+                )
+            )
+        previews = []
+        for group in self.plan.sources:
+            for table in group.tables[:1]:
+                previews.append(f"select * from {group.schema}.{table.entity.name} limit 100;  -- raw")
+        for model in self.plan.models[:3]:
+            schema = LAYER_SCHEMAS.get(model.layer, model.layer)
+            previews.append(f"select * from {schema}.{model.name} limit 100;  -- {model.layer}")
+        if previews:
+            steps.append(
+                Step(
+                    "quality-look",
+                    "Look at the data at each stage",
+                    "Read a few rows of a table at each stage, in the warehouse's own query editor: what was "
+                    "loaded (raw), what passed the rules (staging), what was set aside (quarantine), and what "
+                    "people read (marts). Files and storage read the same way with DuckDB "
+                    "(`select * from read_parquet('s3://bucket/path/*.parquet')`).",
+                    [Block("sql", "\n".join(previews))],
+                )
+            )
+        return steps
 
     # 8. CI/CD -----------------------------------------------------------------------------------
 

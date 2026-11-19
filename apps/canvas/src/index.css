@@ -4214,3 +4214,165 @@ button.tree-row__label:not(:disabled) {
   font-family: var(--mono);
   font-size: 0.92em;
 }
+
+/* Quality rules and the data contract, in the inspector */
+
+.tabs__action {
+  margin-left: auto;
+  align-self: center;
+}
+
+.quality__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.quality__rule {
+  display: grid;
+  grid-template-columns: minmax(70px, auto) 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.quality__where {
+  font-family: var(--mono);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality__what {
+  overflow-wrap: anywhere;
+}
+
+.quality__form,
+.quality__contract {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.quality__field {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.quality__field > span {
+  color: var(--text-muted);
+}
+
+.quality__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.quality__buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.form-error {
+  color: var(--error);
+  margin: 0;
+}
+
+.input--code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* The query console */
+
+.query {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.query__editor {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+}
+
+.query__result {
+  min-width: 0;
+}
+
+.query__table {
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.query__table table {
+  border-collapse: collapse;
+  font: 12px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.query__table th,
+.query__table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.query__table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.query__table tbody tr:nth-child(even) {
+  background: var(--row-alt);
+}
+
+.query__null {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.query__stage {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.query__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.query__list .link {
+  text-align: left;
+}
+
+.query__past {
+  font-family: var(--mono);
+  text-align: left;
+  overflow-wrap: anywhere;
+}

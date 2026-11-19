@@ -1,5 +1,7 @@
 {{ header }}
 {%- set cdc = model.extra.get('cdc') %}
+{%- set quarantine = model.extra.get('quarantine') %}
+{%- set converted = model.columns | rejectattr('name', 'equalto', '_failed_rule') | list %}
 {%- if cdc %}
 with changes as (
 
@@ -37,11 +39,35 @@ with source as (
 final as (
 
     select
-{%- for column in model.columns %}
+{%- for column in converted %}
         {{ column.sql }} as {{ quote(column.name) }}{{ "," if not loop.last }}
 {%- endfor %}
     from source
 
 )
+{%- if quarantine %},
+
+-- Quarantine rules: a row that fails one is set aside, with the first rule it failed.
+checked as (
+
+    select
+        final.*,
+        case
+{%- for name, failing in quarantine %}
+            when {{ failing }} then '{{ name }}'
+{%- endfor %}
+        end as _failed_rule
+    from final
+
+)
+
+select
+{%- for column in model.columns %}
+    {{ quote(column.name) }}{{ "," if not loop.last }}
+{%- endfor %}
+from checked
+where _failed_rule is {{ "not " if model.extra.get('side') == 'quarantined' }}null
+{%- else %}
 
 select * from final
+{%- endif %}

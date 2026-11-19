@@ -101,6 +101,9 @@ result with a Murakumo build.
 - [ ] 7.1 Run the tests
 - [ ] 7.2 Check the sources are fresh
 - [ ] 7.3 Read the run log
+- [ ] 7.4 Know what each rule does when it fails
+- [ ] 7.5 Agree the data contracts
+- [ ] 7.6 Look at the data at each stage
 
 **8. CI/CD**
 

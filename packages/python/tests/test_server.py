@@ -466,3 +466,54 @@ def test_import_dbt_from_the_canvas(client, project, tmp_path):
     write(generate(project), project.root)
     dry = client.post("/api/import/dbt", json={"folder": "generated/dbt", "dry_run": True}).json()
     assert dry["written"] is False and "fct_trip" in dry["existing"] and dry["compiled"] is False
+
+
+def test_query_console_endpoints(client, project):
+    duckdb = pytest.importorskip("duckdb")
+    with duckdb.connect(str(project.root / "proj.duckdb")) as db:
+        db.execute("create schema raw_nyc_tlc")
+        db.execute('create table raw_nyc_tlc.taxi_zone_lookup as select 1 as "LocationID"')
+    found = client.get("/api/query/targets").json()
+    assert {"warehouse", "files"} <= {e["engine"] for e in found["engines"]}
+    raw = next(t for t in found["targets"] if t["stage"] == "raw" and t["entity"] == "taxi_zone_lookup")
+    result = client.post("/api/query", json={"sql": raw["sql"], "engine": "warehouse"}).json()
+    assert result["columns"] == ["LocationID"] and result["rows"] == [[1]]
+    refused = client.post("/api/query", json={"sql": "drop table raw_nyc_tlc.taxi_zone_lookup"})
+    assert refused.status_code == 400 and "only reads" in refused.json()["message"]
+    assert client.post("/api/query", json={"sql": "select 1", "engine": "elsewhere"}).status_code == 422
+    # A page on another site cannot run queries either.
+    remote = client.post("/api/query", json={"sql": "select 1"}, headers={"Origin": "https://evil.example"})
+    assert remote.status_code == 403
+
+
+def test_contracts_and_odcs_import_endpoints(client, project, tmp_path):
+    found = client.get("/api/contracts").json()
+    assert "taxi_zone_lookup" in found["contracts"] and found["standard"] == "odcs"
+    assert "apiVersion: v3.0.2" in found["contracts"]["taxi_zone_lookup"]
+    path = tmp_path / "zones.odcs.yaml"
+    path.write_text(found["contracts"]["taxi_zone_lookup"].replace("name: taxi_zone_lookup", "name: partner_zones"))
+    preview = client.post("/api/import/odcs", json={"path": str(path), "dry_run": True, "source": "partner"}).json()
+    assert preview["written"] is False and preview["tables"][0]["entity"] == "partner_zones"
+    written = client.post("/api/import/odcs", json={"path": str(path), "source": "partner"}).json()
+    assert written["written"] and any(e["name"] == "partner_zones" for e in written["state"]["model"]["entities"])
+
+
+def test_quality_settings(client, project):
+    from murakumo.project import load_project
+
+    settings = client.get("/api/settings").json()
+    assert settings["quality_tools"] == [] and settings["write_audit_publish"] is False
+    changed = client.put(
+        "/api/settings",
+        json={
+            "quality_tools": ["soda"],
+            "reconciliation": True,
+            "write_audit_publish": True,
+            "contracts_enforce_on": ["sources"],
+        },
+    ).json()
+    assert changed["quality_tools"] == ["soda"] and changed["contracts_enforce_on"] == ["sources"]
+    manifest = load_project(project.root).project.manifest
+    assert manifest.quality.framework == ["dbt_tests", "soda"] and manifest.quality.reconciliation
+    assert manifest.quality.write_audit_publish and manifest.contracts.enforce_on == ["sources"]
+    assert client.put("/api/settings", json={"quality_tools": ["pandera"]}).status_code == 422

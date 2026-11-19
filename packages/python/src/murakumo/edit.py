@@ -207,8 +207,22 @@ ENTITY_FIELDS = {
     "conformed",
     "access",
     "row_access",
+    "contract",
+    "tests",
 }
-COLUMN_FIELDS = {"description", "type", "nullable", "key", "pii", "classification", "unit", "example", "business_term"}
+COLUMN_FIELDS = {
+    "description",
+    "type",
+    "nullable",
+    "key",
+    "pii",
+    "classification",
+    "unit",
+    "example",
+    "business_term",
+    "accepted_values",
+    "tests",
+}
 RELATIONSHIP_FIELDS = {"name", "cardinality", "optional", "role", "description", "keys"}
 
 

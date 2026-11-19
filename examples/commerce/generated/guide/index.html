@@ -4038,6 +4038,26 @@ select table_name, cast(loaded_at as date) as day,
        sum(rows_ingested) as rows_in, sum(rows_rejected) as rejected
 from audit.row_counts group by 1, 2 order by 2 desc, 1;</code></pre>
 <label class="done"><input type="checkbox" data-step="quality-run-log"> Done: Read the run log</label>
+<h3 id="quality-rules">7.4 Know what each rule does when it fails</h3>
+<p><strong>Why:</strong> Each rule says what a failure does: <code>fail</code> stops the run (an error test), <code>warn</code> records it and carries on (a warning test), <code>quarantine</code> sets the failing rows aside before staging, so the rest carry on. The tests above are these rules.</p>
+<div class="table"><table><thead><tr><th>Table</th><th>Column</th><th>Rule</th><th>When it fails</th></tr></thead><tbody><tr><td>dim_part</td><td>retail_price</td><td>range</td><td>fail</td></tr><tr><td>fct_order_line</td><td>net_amount</td><td>range</td><td>fail</td></tr><tr><td>lineitem</td><td>l_discount</td><td>range</td><td>fail</td></tr><tr><td>lineitem</td><td>l_extendedprice</td><td>range</td><td>fail</td></tr></tbody></table></div>
+<label class="done"><input type="checkbox" data-step="quality-rules"> Done: Know what each rule does when it fails</label>
+<h3 id="quality-contracts">7.5 Agree the data contracts</h3>
+<p><strong>Why:</strong> Each table has a data contract in the Open Data Contract Standard (ODCS v3.0.2): its columns and types, which may be empty, its key, its rules as SQL that must return 0, and how fresh it is. Send a raw table's contract to whoever sends that data; a modelled table's to whoever uses it. Run each contract's quality queries after a load to check it kept to it.</p>
+<div class="table"><table><thead><tr><th>Contract</th></tr></thead><tbody><tr><td>generated/contracts/customer.odcs.yaml</td></tr><tr><td>generated/contracts/customer_order_activity.odcs.yaml</td></tr><tr><td>generated/contracts/dim_customer.odcs.yaml</td></tr><tr><td>generated/contracts/dim_part.odcs.yaml</td></tr><tr><td>generated/contracts/fct_order_fulfilment.odcs.yaml</td></tr><tr><td>generated/contracts/fct_order_line.odcs.yaml</td></tr><tr><td>generated/contracts/hub_customer.odcs.yaml</td></tr><tr><td>generated/contracts/hub_order.odcs.yaml</td></tr><tr><td>generated/contracts/lineitem.odcs.yaml</td></tr><tr><td>generated/contracts/link_order_customer.odcs.yaml</td></tr><tr><td>generated/contracts/nation.odcs.yaml</td></tr><tr><td>generated/contracts/orders.odcs.yaml</td></tr><tr><td>generated/contracts/part.odcs.yaml</td></tr><tr><td>generated/contracts/partsupp.odcs.yaml</td></tr><tr><td>generated/contracts/region.odcs.yaml</td></tr><tr><td>generated/contracts/sat_customer.odcs.yaml</td></tr><tr><td>generated/contracts/supplier.odcs.yaml</td></tr><tr><td>generated/contracts/taxi_zone_lookup.odcs.yaml</td></tr><tr><td>generated/contracts/weather_daily.odcs.yaml</td></tr><tr><td>generated/contracts/weather_hourly.odcs.yaml</td></tr><tr><td>generated/contracts/yellow_tripdata.odcs.yaml</td></tr></tbody></table></div>
+<pre><code class="sql">-- the columns a raw table has, to compare with its contract&#x27;s properties
+select column_name, data_type from information_schema.columns
+where table_schema = &#x27;&lt;raw schema&gt;&#x27; and table_name = &#x27;&lt;raw table&gt;&#x27;;</code></pre>
+<label class="done"><input type="checkbox" data-step="quality-contracts"> Done: Agree the data contracts</label>
+<h3 id="quality-look">7.6 Look at the data at each stage</h3>
+<p><strong>Why:</strong> Read a few rows of a table at each stage, in the warehouse's own query editor: what was loaded (raw), what passed the rules (staging), what was set aside (quarantine), and what people read (marts). Files and storage read the same way with DuckDB (<code>select * from read_parquet('s3://bucket/path/*.parquet')</code>).</p>
+<pre><code class="sql">select * from raw_nyc_tlc.taxi_zone_lookup limit 100;  -- raw
+select * from raw_open_meteo.weather_daily limit 100;  -- raw
+select * from raw_tpch_erp.customer limit 100;  -- raw
+select * from staging.stg_tpch_erp__customer limit 100;  -- staging
+select * from staging.stg_tpch_erp__lineitem limit 100;  -- staging
+select * from staging.stg_tpch_erp__nation limit 100;  -- staging</code></pre>
+<label class="done"><input type="checkbox" data-step="quality-look"> Done: Look at the data at each stage</label>
 <h2 id="ch8">8. CI/CD</h2>
 <p>Checking each change, and deploying each environment when its branch changes.</p>
 <h3 id="ci-workflow">8.1 Add the CI workflow</h3>
@@ -4065,7 +4085,7 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
       - name: Install Murakumo
-        run: uv tool install &quot;murakumo[duckdb,verify]==1.0.0&quot;
+        run: uv tool install &quot;murakumo[duckdb,verify]==1.1.0&quot;
       - name: The pull request follows the flow
         if: github.event_name == &#x27;pull_request&#x27;
         env:
@@ -4164,7 +4184,7 @@ jobs:
 <h2 id="ch11">11. Troubleshooting</h2>
 <p>What usually goes wrong, and what to do about it.</p>
 <div class="table"><table><thead><tr><th>You see</th><th>What to do</th></tr></thead><tbody><tr><td><code>No files found that match the pattern</code></td><td>A load ran before anything landed in its folder: fetch first (chapter 3).</td></tr><tr><td>A load runs but adds no rows</td><td>Its files were loaded before: <code>audit.loaded_files</code> remembers each by name.</td></tr><tr><td><code>Contract enforced</code> errors in dbt</td><td>A mart's columns or types changed: the model and the contract must match; generate again.</td></tr><tr><td>Relationship tests fail on -1</td><td>A dimension lost its unknown member: rebuild it before its facts.</td></tr><tr><td>Snowflake: <code>insufficient privileges</code></td><td>The role lacks a grant from chapter 1; run the provisioning as an administrator.</td></tr><tr><td>Snowflake: masking policy errors</td><td>The role needs CREATE MASKING POLICY on the governance schema.</td></tr><tr><td>An incremental table misses rows</td><td>They arrived late: rebuild it with <code>--full-refresh</code>, or set lookback_hours.</td></tr></tbody></table></div>
-<p class="block-title">Generated by Murakumo 1.0.0.</p>
+<p class="block-title">Generated by Murakumo 1.1.0.</p>
 </main>
 <script>
 (function () {

@@ -183,8 +183,22 @@ murakumo canvas path/to/project --port 9000 --no-open
   project**: give its folder, see what it would add, then import.
 - **Assistant** is off until you turn it on. It then suggests descriptions, personal-data marks,
   mappings or new tables; you tick the ones to keep and apply them. See [assistant.md](assistant.md).
+- **Health** also checks each load against its data contract, lets you download each table's
+  contract (ODCS), and brings in a contract someone sent you.
 - The inspector sets a raw table's change feed (**New rows** → `cdc`, **Operation**, **Latest by**)
   and a mart's row access (**Rows by**, **Roles**).
+- The inspector's **Quality rules** lists every rule on the table and its columns, with what a
+  failure does (**Stop the run**, **Warn**, **Set rows aside** on raw tables); change it there, or
+  remove the rule. **Add rule** picks the column (or the whole table), the rule and its settings,
+  and what a failure does. **Data contract** below sets its version, status and, on a raw table,
+  whether a load that breaks it stops the build.
+- **Query** (the terminal icon) runs read-only SQL on any table at any stage: the source itself,
+  what landed, raw, staging, quarantine, marts, snapshots, the audit tables, the Iceberg catalog,
+  and files anywhere (Parquet, CSV, JSON, Excel, Iceberg, Delta; local, S3, GCS, Azure). Click a
+  table to preview it; Ctrl+Enter runs what you typed; results download as CSV. The inspector's
+  **Query** button opens it on the selected table. See [operating.md](operating.md#the-query-console).
+- **Settings → Data quality** writes the rules for Great Expectations and Soda too, turns on
+  reconciliation and write-audit-publish, and says where contracts are enforced.
 
 ## Running the project
 
@@ -354,6 +368,10 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | GET | `/api/entities/{id}/code` | The dbt SQL and DDL generated for one entity |
 | POST | `/api/generate` | Write `generated/` |
 | POST | `/api/migrations` | Write the next migration: `{name}` (optional) |
+| GET | `/api/query/targets` | What the query console can query, at every stage, each with a preview query |
+| POST | `/api/query` | Run one read-only query: `{sql, engine, environment, limit, timeout}` |
+| GET | `/api/contracts?check=` | Each table's data contract (ODCS), and with `check=true` whether the latest loads kept to them |
+| POST | `/api/import/odcs` | Bring in a data contract: `{path, source, dry_run}` |
 
 The generated endpoints take `?warehouse=` to generate for another warehouse than the manifest's.
 

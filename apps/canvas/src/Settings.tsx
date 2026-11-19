@@ -93,7 +93,9 @@ function ProjectSettings({ onState, onMessage }: { onState: (state: State) => vo
       ))}
     </select>
   )
-  const toggle = (key: 'plain_sql' | 'run_log' | 'personal_schemas' | 'raw_text' | 'unknown_members' | 'guide') => (
+  const toggle = (
+    key: 'plain_sql' | 'run_log' | 'personal_schemas' | 'raw_text' | 'unknown_members' | 'guide' | 'reconciliation' | 'write_audit_publish',
+  ) => (
     <input type="checkbox" checked={settings[key]} disabled={saving} onChange={(e) => save({ [key]: e.target.checked })} />
   )
   return (
@@ -140,6 +142,61 @@ function ProjectSettings({ onState, onMessage }: { onState: (state: State) => vo
         <label className="settings__check">
           {toggle('guide')} Write the replication guide (generated/guide): every step to rebuild it all by hand
         </label>
+      </fieldset>
+      <fieldset className="settings__group">
+        <legend>Data quality</legend>
+        <p className="muted small">
+          Rules are always written as dbt tests and as checks in the Python jobs. Also write them for:
+        </p>
+        {(
+          [
+            ['great_expectations', 'Great Expectations: an expectation suite per table'],
+            ['soda', 'Soda: SodaCL checks per table'],
+          ] as const
+        ).map(([tool, label]) => (
+          <label key={tool} className="settings__check">
+            <input
+              type="checkbox"
+              checked={(settings.quality_tools ?? []).includes(tool)}
+              disabled={saving}
+              onChange={(e) => {
+                const tools = new Set(settings.quality_tools ?? [])
+                if (e.target.checked) tools.add(tool)
+                else tools.delete(tool)
+                save({ quality_tools: [...tools].sort() })
+              }}
+            />{' '}
+            {label}
+          </label>
+        ))}
+        <label className="settings__check">
+          {toggle('reconciliation')} Reconcile: every raw row is in staging or set aside, none lost or made up
+        </label>
+        <label className="settings__check">
+          {toggle('write_audit_publish')} Write, audit, publish: build and test in wap_ schemas first, and only publish
+          when every test passes
+        </label>
+        {(
+          [
+            ['sources', 'Check each load against its data contract, and stop on a breach of one that blocks'],
+            ['marts', 'Enforce the marts’ contracts: their columns and types, as dbt contracts'],
+          ] as const
+        ).map(([where, label]) => (
+          <label key={where} className="settings__check">
+            <input
+              type="checkbox"
+              checked={(settings.contracts_enforce_on ?? []).includes(where)}
+              disabled={saving}
+              onChange={(e) => {
+                const on = new Set(settings.contracts_enforce_on ?? [])
+                if (e.target.checked) on.add(where)
+                else on.delete(where)
+                save({ contracts_enforce_on: [...on].sort() })
+              }}
+            />{' '}
+            {label}
+          </label>
+        ))}
       </fieldset>
       <fieldset className="settings__group">
         <legend>Open tables</legend>

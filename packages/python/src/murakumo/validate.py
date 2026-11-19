@@ -46,6 +46,18 @@ def validate_project(project: Project) -> list[Diagnostic]:
     def file_of(obj_id) -> Path | None:
         return project.origins.get(obj_id)
 
+    unknown = sorted(set(manifest.quality.framework) - {"dbt_tests", "great_expectations", "soda"})
+    if unknown:
+        out.append(
+            warning(
+                "MK331",
+                f"quality.framework names {', '.join(unknown)}, which Murakumo does not write rules for: "
+                "dbt_tests, great_expectations and soda",
+                root / "murakumo.yaml",
+                "quality.framework",
+            )
+        )
+
     # Uniqueness ---------------------------------------------------------------------------------
 
     for name in _duplicates(e.name for e in model.entities):
@@ -146,6 +158,7 @@ def validate_project(project: Project) -> list[Diagnostic]:
                     )
                 )
         out.extend(_check_entity(entity, file, declared_sources, declared_domains, manifest.conventions.case))
+        out.extend(_check_quality(entity, file, manifest.targets.warehouse.type.value))
         if entity.load is LoadPattern.STREAMING and entity.layer is Layer.RAW and entity.name.lower() not in streamed:
             out.append(
                 warning(
@@ -311,6 +324,61 @@ def validate_project(project: Project) -> list[Diagnostic]:
                 )
             )
 
+    return out
+
+
+def _check_quality(entity: Entity, file: Path | None, warehouse: str) -> list[Diagnostic]:
+    """Rules that cannot do what they say: quarantine on a rule that judges the whole table, or
+    on a table that is not loaded; regex where the warehouse has none; made-up data a rule refuses."""
+    from murakumo.ir.model import RuleAction, RuleType
+
+    out: list[Diagnostic] = []
+    placed = [(f"tests[{i}]", None, rule) for i, rule in enumerate(entity.tests)]
+    for attribute in entity.attributes:
+        placed += [(f"attributes.{attribute.name}.tests[{i}]", attribute, r) for i, r in enumerate(attribute.tests)]
+    for where, attribute, rule in placed:
+        if rule.effective_action is RuleAction.QUARANTINE:
+            if not rule.row_level or (attribute is None and rule.type is not RuleType.CUSTOM_SQL):
+                out.append(
+                    error(
+                        "MK326",
+                        f"a {rule.type.value} rule judges the whole table, not each row, so it cannot set rows "
+                        "aside; use fail or warn",
+                        file,
+                        where,
+                    )
+                )
+            elif entity.layer is not Layer.RAW:
+                out.append(
+                    error(
+                        "MK327",
+                        "rows are set aside as they are loaded, so quarantine is for raw tables; "
+                        "put the rule on the raw table this one is built from",
+                        file,
+                        where,
+                    )
+                )
+        if rule.type is RuleType.REGEX:
+            if warehouse == "synapse":
+                out.append(
+                    warning("MK328", "Synapse has no regular expressions: this rule cannot run there", file, where)
+                )
+            if rule.pattern:
+                try:
+                    re.compile(rule.pattern)
+                except re.error as exc:
+                    out.append(error("MK329", f"the pattern is not a regular expression: {exc}", file, where))
+                    continue
+            if attribute is not None and not (attribute.example and re.search(rule.pattern or "", attribute.example)):
+                out.append(
+                    warning(
+                        "MK330",
+                        "made-up data cannot match a pattern: give the column an example that does, so "
+                        "`murakumo verify` has one",
+                        file,
+                        where,
+                    )
+                )
     return out
 
 
