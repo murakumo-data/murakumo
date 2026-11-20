@@ -2,6 +2,32 @@
 
 ## Install
 
+On macOS or Linux, one line:
+
+```bash
+curl -fsSL https://murakumo.sh | sh
+```
+
+It finds [uv](https://docs.astral.sh/uv/), or installs it into your home folder, then runs
+`uv tool install "murakumo[canvas,verify,duckdb]"` with Python 3.11 or later (downloading one if
+you have none). No sudo, nothing system-wide; running it again upgrades Murakumo. Options go after
+`sh -s --`:
+
+```bash
+curl -fsSL https://murakumo.sh | sh -s -- --version 1.1.0 --extras snowflake
+```
+
+| Option | Environment variable | What it does |
+| --- | --- | --- |
+| `--version X` | `MURAKUMO_VERSION` | Install that version, not the latest |
+| `--extras A,B` | `MURAKUMO_EXTRAS` | Add extras to `canvas,verify,duckdb`; running it again without them goes back to those three |
+| `--no-uv` | `MURAKUMO_NO_UV=1` | Stop, rather than install uv, if it is missing |
+
+Read it first if you like: [website/home/install.sh](../website/home/install.sh), served from
+[murakumo.sh](https://murakumo.sh). Remove Murakumo with `uv tool uninstall murakumo`.
+
+Or with pip, on any system:
+
 ```bash
 pip install "murakumo[canvas,verify,duckdb]"   # the editor, local builds on DuckDB, and file imports
 murakumo --version

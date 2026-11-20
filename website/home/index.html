@@ -206,11 +206,18 @@
 
       <div class="install" id="install">
         <div class="tabs" role="tablist" aria-label="How to install">
-          <button role="tab" aria-selected="true" data-tab="pip">pip</button>
+          <button role="tab" aria-selected="true" data-tab="script">macOS / Linux</button>
+          <button role="tab" aria-selected="false" data-tab="pip">pip</button>
           <button role="tab" aria-selected="false" data-tab="uv">uv</button>
           <button role="tab" aria-selected="false" data-tab="npm">npm</button>
         </div>
-        <div class="row" data-panel="pip">
+        <div class="row" data-panel="script">
+          <button class="copy" type="button">Copy</button>
+          <pre><span class="prompt">$ </span><span data-copy>curl -fsSL https://murakumo.sh | sh</span>
+<span class="prompt">$ </span>murakumo init my_platform
+<span class="prompt">$ </span>murakumo canvas my_platform   <span class="comment"># the visual editor</span></pre>
+        </div>
+        <div class="row" data-panel="pip" hidden>
           <button class="copy" type="button">Copy</button>
           <pre><span class="prompt">$ </span><span data-copy>pip install "murakumo[canvas,verify,duckdb]"</span>
 <span class="prompt">$ </span>murakumo init my_platform

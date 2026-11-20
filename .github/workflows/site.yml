@@ -34,10 +34,31 @@ jobs:
         with:
           path: _site
 
+  install-script:
+    # The script murakumo.sh serves (website/home/install.sh): lint it, then install with it on a
+    # clean runner, as a new user would, and run the command it installed.
+    name: Install script (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: runner.os == 'Linux'
+        run: shellcheck -s sh website/home/install.sh
+      - name: Install with the script, as it is piped from murakumo.sh
+        run: sh -s -- --extras postgres < website/home/install.sh
+      - name: The installed command runs
+        run: |
+          bin="$(uv tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")"
+          "$bin/murakumo" --version
+          "$bin/murakumo" init "$RUNNER_TEMP/demo" --yes
+          "$bin/murakumo" validate "$RUNNER_TEMP/demo"
+
   deploy:
     name: Publish to GitHub Pages
     if: github.event_name != 'pull_request'
-    needs: build
+    needs: [build, install-script]
     runs-on: ubuntu-latest
     permissions:
       pages: write
