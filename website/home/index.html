@@ -80,7 +80,9 @@
     header.top .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
     .brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 650; font-size: 17px; }
     .brand:hover { text-decoration: none; }
-    .brand img { width: 26px; height: 26px; }
+    .brand { line-height: 0; }
+    .brand img { height: 34px; width: auto; display: block; }
+    footer .brand img { height: 28px; }
     nav.links { display: flex; gap: 22px; margin-left: auto; font-size: 15px; }
     nav.links a { color: var(--muted); }
     nav.links a:hover { color: var(--text); text-decoration: none; }
@@ -226,7 +228,6 @@
 
     footer { border-top: 1px solid var(--border); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
     footer .wrap { display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: center; }
-    footer .brand { font-size: 15px; }
     footer nav { display: flex; flex-wrap: wrap; gap: 18px; margin-left: auto; }
     footer a { color: var(--muted); }
 
@@ -260,7 +261,7 @@
 <body>
   <header class="top">
     <div class="wrap">
-      <a class="brand" href="./"><img src="mark.svg" alt="">Murakumo</a>
+      <a class="brand" href="./" aria-label="Murakumo home"><picture><source srcset="brand/murakumo-dark.svg" media="(prefers-color-scheme: dark)"><img src="brand/murakumo.svg" alt="Murakumo" height="34"></picture></a>
       <nav class="links" aria-label="Main">
         <a href="docs/">Docs</a>
         <a class="optional" href="docs/guide/">Replication guide</a>
@@ -573,7 +574,7 @@ and running it again changes nothing.</div>
 
   <footer>
     <div class="wrap">
-      <a class="brand" href="./"><img src="mark.svg" alt="" width="22" height="22">Murakumo</a>
+      <a class="brand" href="./" aria-label="Murakumo home"><picture><source srcset="brand/murakumo-dark.svg" media="(prefers-color-scheme: dark)"><img src="brand/murakumo.svg" alt="Murakumo" height="28"></picture></a>
       <span>Apache-2.0</span>
       <nav aria-label="Footer">
         <a href="docs/">Docs</a>
