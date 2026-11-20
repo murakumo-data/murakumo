@@ -56,8 +56,10 @@ polars = ["polars>=1.0", "duckdb>=1.1", "pyarrow>=15"]
 pyspark = ["pyspark>=3.5,<4; python_version < '3.13'", "jdk4py>=21,<22", "duckdb>=1.1", "polars>=1.0", "pyarrow>=15"]
 
 [project.urls]
-Homepage = "https://github.com/murakumo-data/murakumo"
+Homepage = "https://murakumo.ai"
+Documentation = "https://murakumo.ai/docs/"
 Repository = "https://github.com/murakumo-data/murakumo"
+Changelog = "https://murakumo.ai/docs/changelog/"
 
 [project.scripts]
 murakumo = "murakumo.cli:app"

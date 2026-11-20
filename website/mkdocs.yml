@@ -1,0 +1,100 @@
+# The documentation site, published at https://murakumo.ai/docs/ by .github/workflows/site.yml.
+# The pages are the Markdown in docs/, unchanged: they read the same on GitHub and on the site.
+#
+#   uv run --with-requirements website/requirements.txt mkdocs serve -f website/mkdocs.yml
+site_name: Murakumo
+site_description: Model-first data engineering. Design the model on a canvas; get the whole platform.
+site_url: https://murakumo.ai/docs/
+repo_url: https://github.com/murakumo-data/murakumo
+repo_name: murakumo-data/murakumo
+edit_uri: edit/main/docs/
+docs_dir: ../docs
+site_dir: ../_site/docs
+copyright: Apache-2.0 licensed
+
+theme:
+  name: material
+  custom_dir: overrides
+  favicon: assets/mark.svg
+  logo: assets/mark.svg
+  font: false
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Follow the system
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+extra_css:
+  - assets/docs.css
+
+hooks:
+  - hooks.py
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Overview: README.md
+  - Start:
+      - Install and set up: setup.md
+      - The end-to-end test: end-to-end-test.md
+  - Design the model:
+      - Model files: model.md
+      - Getting metadata in: importing.md
+      - The canvas: canvas.md
+      - Modelling patterns: modelling-patterns.md
+  - Build the platform:
+      - Generating and verifying: generating.md
+      - Choosing the stack: stack.md
+      - Snowflake: snowflake.md
+      - Schedules, pipelines and CI: orchestration.md
+  - Run it:
+      - Quality, contracts and the query console: operating.md
+      - Working as a team: teamwork.md
+      - The assistant and MCP: assistant.md
+  - Without Murakumo:
+      - The replication guide: guide.md
+      - Against established practice: practices.md
+  - Changelog: changelog.md
+
+validation:
+  links:
+    absolute_links: relative_to_docs
+    anchors: warn

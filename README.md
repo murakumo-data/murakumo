@@ -2,6 +2,8 @@
 
 **Model-first data engineering.** Design the logical model (entities, relationships, mappings) on a canvas, and Murakumo generates and maintains everything downstream: DDL, dbt projects, Spark and Python jobs, streaming configs, tests, audit tables, data contracts and orchestration, on an open lakehouse.
 
+Website and documentation: **[murakumo.ai](https://murakumo.ai)**.
+
 > Status: beta. Version 1.1.0 ([changelog](CHANGELOG.md)):
 > `uv tool install "murakumo[canvas,verify,duckdb]"`, `pip install "murakumo[canvas,verify,duckdb]"`
 > or `npm install -g murakumo`, then `murakumo init my_platform`. The
@@ -16,6 +18,7 @@
 | [apps/canvas](apps/canvas) | Modelling canvas (React + React Flow), served by `murakumo canvas` |
 | [docs](docs) | [Starting a project and setting up](docs/setup.md), [the end-to-end test](docs/end-to-end-test.md), [model files and validation rules](docs/model.md), [importing metadata](docs/importing.md), [generating and verifying](docs/generating.md), [Snowflake](docs/snowflake.md), [the canvas](docs/canvas.md), [schedules, pipelines and CI](docs/orchestration.md), [choosing the stack: connections, streaming, open tables, Terraform and deploying](docs/stack.md), [the replication guide: rebuilding it all by hand](docs/guide.md), [modelling patterns: SCD types, Data Vault, the semantic layer](docs/modelling-patterns.md), [working as a team](docs/teamwork.md), [the assistant and the MCP server](docs/assistant.md), [data quality, data contracts, the query console, monitoring, cost, catalog lineage and Slim CI](docs/operating.md), [Murakumo against established practice](docs/practices.md) |
 | [examples](examples) | Sample data dictionaries, and [commerce](examples/commerce): a full project with its generated dbt code |
+| [website](website) | [murakumo.ai](https://murakumo.ai): the landing page and the documentation site built from [docs](docs) (`website/build.sh --serve`) |
 | [tools](tools) | Developer scripts, including the [install smoke test](tools/smoke_test.sh) |
 
 ## Getting started

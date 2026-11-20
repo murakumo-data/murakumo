@@ -1,0 +1,4 @@
+# The documentation site's build (website/mkdocs.yml).
+mkdocs==1.6.1
+mkdocs-material==9.8.2
+pymdown-extensions==13.1
