@@ -89,6 +89,14 @@ Follow **only your route**.
 uv tool install "murakumo[canvas,verify,duckdb]"
 ```
 
+Or, the same route in one line, which also installs uv if you have not yet:
+
+```bash
+curl -fsSL https://murakumo.sh | sh
+```
+
+It ends with `==> Installed: murakumo 1.1.0`.
+
 You should see `Installed 1 executable: murakumo`. If the next step says
 `command not found: murakumo`, run `uv tool update-shell`, then close Terminal and open a new
 window.

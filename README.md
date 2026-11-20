@@ -5,7 +5,7 @@
 Website and documentation: **[murakumo.ai](https://murakumo.ai)**.
 
 > Status: beta. Version 1.1.0 ([changelog](CHANGELOG.md)):
-> `uv tool install "murakumo[canvas,verify,duckdb]"`, `pip install "murakumo[canvas,verify,duckdb]"`
+> `curl -fsSL https://murakumo.sh | sh` (macOS and Linux), `uv tool install "murakumo[canvas,verify,duckdb]"`, `pip install "murakumo[canvas,verify,duckdb]"`
 > or `npm install -g murakumo`, then `murakumo init my_platform`. The
 > [end-to-end test](docs/end-to-end-test.md) walks through everything.
 
