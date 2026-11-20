@@ -1,0 +1,50 @@
+name: Website
+
+# murakumo.ai: the landing page (website/home) and the documentation (docs/, through
+# website/mkdocs.yml). Pull requests build it, so a broken link fails the check; a push to main
+# publishes it to GitHub Pages.
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "website/**", "CHANGELOG.md", ".github/workflows/site.yml"]
+  pull_request:
+    paths: ["docs/**", "website/**", "CHANGELOG.md", ".github/workflows/site.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - run: website/build.sh
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Publish to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

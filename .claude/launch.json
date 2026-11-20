@@ -4,14 +4,46 @@
     {
       "name": "canvas",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "apps/canvas", "run", "dev", "--", "--port", "5173", "--strictPort"],
+      "runtimeArgs": [
+        "--prefix",
+        "apps/canvas",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5173",
+        "--strictPort"
+      ],
       "port": 5173
     },
     {
       "name": "murakumo-canvas",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "--project", "packages/python", "murakumo", "canvas", "examples/commerce", "--no-open"],
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "packages/python",
+        "murakumo",
+        "canvas",
+        "examples/commerce",
+        "--no-open"
+      ],
       "port": 8765
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--no-project",
+        "python",
+        "-m",
+        "http.server",
+        "8790",
+        "--directory",
+        "_site"
+      ],
+      "port": 8790, "autoPort": false
     }
   ]
 }

@@ -1,0 +1,26 @@
+/* Murakumo's colours on the documentation site: the canvas's accent, and its layer colours. */
+:root,
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #2457d6;
+  --md-primary-fg-color--light: #4a74e0;
+  --md-primary-fg-color--dark: #1b45ad;
+  --md-accent-fg-color: #1b45ad;
+  --md-typeset-a-color: #2457d6;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #1f1f1e;
+  --md-primary-fg-color--light: #282826;
+  --md-primary-fg-color--dark: #141414;
+  --md-accent-fg-color: #8fb1ff;
+  --md-typeset-a-color: #6f9bff;
+  --md-default-bg-color: #141414;
+}
+
+.md-typeset table:not([class]) {
+  font-size: 0.72rem;
+}
+
+.md-typeset table:not([class]) td code {
+  white-space: nowrap;
+}

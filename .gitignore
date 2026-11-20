@@ -11,3 +11,6 @@ node_modules/
 .DS_Store
 local-data/
 src/murakumo/web/
+
+# The website build (website/)
+_site/
