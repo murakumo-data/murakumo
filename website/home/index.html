@@ -84,22 +84,40 @@
     nav.links { display: flex; gap: 22px; margin-left: auto; font-size: 15px; }
     nav.links a { color: var(--muted); }
     nav.links a:hover { color: var(--text); text-decoration: none; }
+    nav.links { align-items: center; }
+    nav.links .gh { display: inline-flex; align-items: center; gap: 6px; }
+    nav.links .gh svg { width: 16px; height: 16px; fill: currentColor; }
+    nav.links a.button.small { padding: 6px 12px; font-size: 14px; color: var(--accent-text); }
 
     /* Hero */
-    .hero { padding-top: 88px; padding-bottom: 56px; }
+    .hero-band { position: relative; overflow: hidden; isolation: isolate; }
+    .hero-band::before {
+      content: ""; position: absolute; inset: 0; z-index: -1;
+      background-image: radial-gradient(circle, color-mix(in srgb, var(--text) 13%, transparent) 1px, transparent 1.4px);
+      background-size: 22px 22px;
+      mask-image: radial-gradient(ellipse 70% 55% at 50% 30%, #000 30%, transparent 75%);
+      -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 30%, #000 30%, transparent 75%);
+    }
+    .hero-band::after {
+      content: ""; position: absolute; z-index: -1; left: 50%; top: 52%; width: min(1100px, 120vw); height: 620px; transform: translateX(-50%);
+      background: radial-gradient(ellipse at center, color-mix(in srgb, var(--accent) 22%, transparent), transparent 65%);
+      filter: blur(20px);
+    }
+    .hero { padding-top: 80px; padding-bottom: 72px; text-align: center; }
     .eyebrow { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); border: 1px solid var(--border); background: var(--surface); padding: 4px 12px; border-radius: 999px; }
     .eyebrow b { color: var(--accent); font-weight: 600; }
-    h1 { font-size: clamp(38px, 6vw, 64px); line-height: 1.04; letter-spacing: -0.025em; margin: 22px 0 20px; max-width: 15ch; font-weight: 720; }
+    .eyebrow:hover { text-decoration: none; border-color: var(--accent); }
+    h1 { font-size: clamp(38px, 6vw, 66px); line-height: 1.04; letter-spacing: -0.03em; margin: 22px auto 20px; max-width: 16ch; font-weight: 740; }
     h1 em { font-style: normal; color: var(--accent); }
-    .lede { font-size: clamp(17px, 2vw, 20px); color: var(--muted); max-width: 62ch; margin: 0 0 32px; }
-    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 36px; }
+    .lede { font-size: clamp(17px, 2vw, 20px); color: var(--muted); max-width: 60ch; margin: 0 auto 32px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 36px; justify-content: center; }
     .button { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 8px; font-weight: 600; font-size: 15px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
     .button:hover { text-decoration: none; border-color: var(--accent); }
     .button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
     .button.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 
     /* Install */
-    .install { max-width: 640px; background: var(--code-bg); color: var(--code-text); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+    .install { max-width: 640px; margin: 0 auto; text-align: left; background: var(--code-bg); color: var(--code-text); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
     .install .tabs { display: flex; gap: 2px; padding: 8px 8px 0; border-bottom: 1px solid rgb(255 255 255 / 8%); }
     .install .tabs button { font: inherit; font-size: 13px; color: rgb(230 232 236 / 60%); background: none; border: 0; padding: 6px 12px 8px; cursor: pointer; border-bottom: 2px solid transparent; }
     .install .tabs button[aria-selected="true"] { color: #fff; border-bottom-color: #6f9bff; }
@@ -109,6 +127,57 @@
     .install .row { position: relative; }
     .copy { position: absolute; top: -33px; right: 8px; font: inherit; font-size: 12px; color: rgb(230 232 236 / 70%); background: rgb(255 255 255 / 8%); border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
     .copy:hover { color: #fff; background: rgb(255 255 255 / 14%); }
+
+    /* Product frame */
+    .product { margin-top: 64px; }
+    .product-tabs { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); margin-bottom: 18px; flex-wrap: wrap; justify-content: center; }
+    .product-tabs button { font: inherit; font-size: 14px; font-weight: 550; color: var(--muted); background: none; border: 0; padding: 7px 16px; border-radius: 999px; cursor: pointer; }
+    .product-tabs button:hover { color: var(--text); }
+    .product-tabs button[aria-selected="true"] { color: var(--accent-text); background: var(--accent); }
+    .window { text-align: left; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); overflow: hidden;
+      box-shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 24px 64px -12px color-mix(in srgb, var(--accent) 30%, rgb(16 24 40 / 30%)); }
+    .window-bar { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+    .window-bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--border); }
+    .window-bar span { margin: 0 auto; font-size: 12px; color: var(--muted); font-family: var(--mono); transform: translateX(-24px); }
+    .window [role="tabpanel"] { aspect-ratio: 1920 / 1147; }
+    .window img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+    .window .term { height: 100%; margin: 0; background: var(--code-bg); color: var(--code-text); font-family: var(--mono); font-size: clamp(11px, 1.35vw, 15px); line-height: 1.75; padding: clamp(16px, 3vw, 36px); overflow: auto; white-space: pre; }
+    .term .p { color: #6f9bff; } .term .dim { color: rgb(230 232 236 / 50%); } .term .ok { color: #4ade80; font-weight: 600; }
+    .caption { color: var(--muted); font-size: 14px; margin: 14px auto 0; max-width: 70ch; }
+
+    /* Steps and proof */
+    .steps { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; margin: 0; padding: 0; list-style: none; }
+    .steps li { display: inline-flex; align-items: center; gap: 10px; padding: 8px 16px 8px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: 15px; font-weight: 550; }
+    .steps li b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 12px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+    .steps .sep { color: var(--muted); padding: 0; border: 0; background: none; }
+    .proof { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 40px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .proof div { padding: 22px 22px 20px; }
+    .proof div + div { border-left: 1px solid var(--border); }
+    .proof b { display: block; font-size: 34px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 720; }
+    .proof span { color: var(--muted); font-size: 14px; }
+
+    /* Section labels */
+    .label { display: block; color: var(--accent); font-size: 13px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+    .more { margin: 28px 0 0; font-weight: 600; }
+
+    /* Before and after */
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .compare h3 { margin: 0 0 14px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+    .compare ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    .compare li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; padding: 12px 14px; border-radius: 8px; background: var(--surface-2); font-size: 15px; }
+    .compare li::before { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; font-weight: 700; margin-top: 1px; }
+    .compare .before li { color: var(--muted); }
+    .compare .before li::before { content: "✕"; color: #c2410c; background: color-mix(in srgb, #c2410c 14%, transparent); }
+    .compare .after { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+    .compare .after li { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+    .compare .after li::before { content: "✓"; color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+    /* Closing call to action */
+    .cta { text-align: center; position: relative; overflow: hidden; isolation: isolate; }
+    .cta::after { content: ""; position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse 60% 70% at 50% 100%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%); }
+    .cta h2 { font-size: clamp(30px, 4.4vw, 46px); }
+    .cta .intro { margin: 0 auto 28px; }
+    .cta .install { margin-bottom: 28px; }
 
     /* Sections */
     section { padding: 64px 0; }
@@ -165,7 +234,10 @@
       .flow { grid-template-columns: 1fr; }
       .arrow { justify-content: center; transform: rotate(90deg); height: 20px; }
       .layer-row { grid-template-columns: repeat(2, 1fr); }
-      .callout, .audience { grid-template-columns: 1fr; }
+      .callout, .audience, .compare { grid-template-columns: 1fr; }
+      .proof { grid-template-columns: 1fr 1fr; }
+      .proof div:nth-child(3) { border-left: 0; }
+      .proof div:nth-child(n+3) { border-top: 1px solid var(--border); }
     }
     @media (max-width: 640px) {
       .wrap { padding: 0 16px; }
@@ -173,6 +245,15 @@
       nav.links { gap: 16px; }
       .hero { padding-top: 56px; padding-bottom: 40px; }
       .features { grid-template-columns: 1fr; }
+      nav.links .gh-text { display: none; }
+      .steps .sep { display: none; }
+      .product { margin-top: 48px; }
+      .product-tabs { flex-wrap: nowrap; gap: 2px; }
+      .product-tabs button { font-size: 13px; padding: 6px 10px; white-space: nowrap; }
+      .steps { gap: 8px; }
+      .steps li { font-size: 14px; padding: 6px 14px 6px 6px; }
+      .window-bar span { display: none; }
+      .proof b { font-size: 28px; }
     }
   </style>
 </head>
@@ -184,14 +265,16 @@
         <a href="docs/">Docs</a>
         <a class="optional" href="docs/guide/">Replication guide</a>
         <a class="optional" href="docs/changelog/">Changelog</a>
-        <a href="https://github.com/murakumo-data/murakumo">GitHub</a>
+        <a class="gh" href="https://github.com/murakumo-data/murakumo"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span class="gh-text">GitHub</span></a>
+        <a class="button primary small" href="docs/setup/">Get started</a>
       </nav>
     </div>
   </header>
 
   <main>
+    <div class="hero-band">
     <div class="wrap hero">
-      <span class="eyebrow"><b>1.1</b> Quality rules on the canvas, data contracts and a query console</span>
+      <a class="eyebrow" href="docs/changelog/"><b>1.1</b> Quality rules on the canvas, data contracts and a query console →</a>
       <h1>Design the model. Get the <em>whole data platform.</em></h1>
       <p class="lede">
         Draw the entities, how they relate and where each column comes from. Choose your warehouse,
@@ -236,10 +319,104 @@
 <span class="prompt">$ </span>murakumo canvas my_platform   <span class="comment"># the visual editor</span></pre>
         </div>
       </div>
+
+      <div class="product">
+        <div class="product-tabs" role="tablist" aria-label="Murakumo at work">
+          <button role="tab" id="tab-model" aria-controls="shot-model" aria-selected="true">Design the model</button>
+          <button role="tab" id="tab-code" aria-controls="shot-code" aria-selected="false" tabindex="-1">Read the code</button>
+          <button role="tab" id="tab-verify" aria-controls="shot-verify" aria-selected="false" tabindex="-1">Prove it works</button>
+        </div>
+        <div class="window">
+          <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>murakumo canvas examples/commerce</span></div>
+          <div role="tabpanel" id="shot-model" aria-labelledby="tab-model">
+            <picture>
+              <source srcset="img/model-dark.webp" media="(prefers-color-scheme: dark)">
+              <img src="img/model-light.webp" width="1920" height="1147" alt="The Murakumo canvas: Data Vault and mart tables joined by relationships, with fct_order_line selected and its layer, kind, schedule and columns in the side panel" fetchpriority="high" decoding="async">
+            </picture>
+          </div>
+          <div role="tabpanel" id="shot-code" aria-labelledby="tab-code" hidden>
+            <picture>
+              <source srcset="img/code-dark.webp" media="(prefers-color-scheme: dark)">
+              <img src="img/code-light.webp" width="1920" height="1147" alt="The Code tab for fct_order_line: the dbt model and the CREATE TABLE statement Murakumo wrote from it" loading="lazy" decoding="async">
+            </picture>
+          </div>
+          <div role="tabpanel" id="shot-verify" aria-labelledby="tab-verify" hidden>
+            <pre class="term"><span class="p">$</span> murakumo verify
+<span class="dim">  loaded customer: 200 rows (synthetic)
+  loaded lineitem: 200 rows (synthetic)
+  loaded orders: 200 rows (synthetic)
+  loaded part: 200 rows (synthetic)
+  ...
+  loaded yellow_tripdata: 200 rows (synthetic)</span>
+<span class="ok">verified:</span> 25 models and snapshots built, 113/113 tests passed,
+incremental rebuild passed on duckdb.
+
+<span class="p">$</span> murakumo guide --check
+Rebuilding from the guide alone, on DuckDB,
+then with Murakumo, twice over...
+The guide rebuilds the project: all 36 tables
+match a Murakumo build, in rows and values, after
+each of 2 runs of new files; every test passes,
+and running it again changes nothing.</pre>
+          </div>
+        </div>
+        <p class="caption">The commerce example from the repository: TPC-H sources, a Data Vault and star-schema marts. Real screens and real output.</p>
+      </div>
     </div>
+    </div>
+
+    <section aria-label="How it works">
+      <div class="wrap">
+        <ol class="steps">
+          <li><b>1</b>Design the model</li><li class="sep" aria-hidden="true">→</li>
+          <li><b>2</b>Choose the stack</li><li class="sep" aria-hidden="true">→</li>
+          <li><b>3</b>Verify on DuckDB</li><li class="sep" aria-hidden="true">→</li>
+          <li><b>4</b>Deploy to your warehouse</li>
+        </ol>
+        <div class="proof">
+          <div><b>8</b><span>warehouses, each in its own SQL dialect</span></div>
+          <div><b>10</b><span>orchestrators, from Airflow to Data Factory</span></div>
+          <div><b>113</b><span>tests written for the example model, passing on DuckDB in seconds</span></div>
+          <div><b>36/36</b><span>tables rebuilt by hand from the guide, row for row</span></div>
+        </div>
+      </div>
+    </section>
 
     <section>
       <div class="wrap">
+        <span class="label">Why model-first</span>
+        <h2>One change, five places to make it</h2>
+        <p class="intro">
+          In a hand-built platform the same table lives in the DDL, the staging model, the mart, the
+          tests and the documentation. Every change has to reach all of them, and sooner or later one
+          is missed.
+        </p>
+        <div class="compare">
+          <div class="card before">
+            <h3>Built by hand</h3>
+            <ul>
+              <li><span>A renamed column is edited in five files, and one of them is forgotten.</span></li>
+              <li><span>Tests and contracts are written after the fact, if at all.</span></li>
+              <li><span>Moving to another warehouse means rewriting the SQL.</span></li>
+              <li><span>The documentation is out of date the week it is written.</span></li>
+            </ul>
+          </div>
+          <div class="card after">
+            <h3>With Murakumo</h3>
+            <ul>
+              <li><span>Rename it once in the model, and every layer, test and contract follows.</span></li>
+              <li><span>Tests, quality rules and contracts come from the same model as the code.</span></li>
+              <li><span>Each warehouse gets its own dialect, and switching is a setting.</span></li>
+              <li><span>The replication guide is written with the code and checked by <code>guide --check</code>.</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <span class="label">How it works</span>
         <h2>One model, every layer</h2>
         <p class="intro">
           The model is the single source of truth. Change a column once and every layer, test,
@@ -274,6 +451,7 @@
 
     <section>
       <div class="wrap">
+        <span class="label">The stack</span>
         <h2>Choose your stack</h2>
         <p class="intro">
           Every part is a choice in <code>murakumo.yaml</code> or on the canvas. Each warehouse gets
@@ -289,11 +467,13 @@
           <div class="card"><h3>Quality</h3><div class="chips"><span class="chip">dbt tests</span><span class="chip">Great Expectations</span><span class="chip">Soda</span><span class="chip">ODCS contracts</span></div></div>
           <div class="card"><h3>Ship</h3><div class="chips"><span class="chip">GitHub Actions</span><span class="chip">GitLab CI</span><span class="chip">Terraform</span><span class="chip">Slim CI</span></div></div>
         </div>
+        <p class="more"><a href="docs/stack/">Choosing the stack →</a></p>
       </div>
     </section>
 
     <section>
       <div class="wrap">
+        <span class="label">Features</span>
         <h2>Everything a platform needs, on the canvas</h2>
         <p class="intro">Each feature works from the canvas and from the command line, and the generated code runs without Murakumo.</p>
         <div class="features">
@@ -328,13 +508,15 @@
             <a href="docs/teamwork/">Working as a team →</a>
           </div>
         </div>
+        <p class="more"><a href="docs/end-to-end-test/">Walk through every feature, from an empty folder →</a></p>
       </div>
     </section>
 
     <section>
       <div class="wrap callout">
         <div>
-          <h2>No lock-in, by design</h2>
+          <span class="label">The replication guide</span>
+        <h2>No lock-in, by design</h2>
           <p class="intro" style="margin-bottom: 18px">
             Murakumo writes a replication guide with every platform: how to build all of it by hand.
             Anyone can rebuild the platform, change it outside Murakumo, or stop using Murakumo, and
@@ -359,12 +541,31 @@ and running it again changes nothing.</div>
 
     <section>
       <div class="wrap">
+        <span class="label">Open source</span>
         <h2>Who it is for</h2>
         <p class="intro">Open source under Apache-2.0. AI features stay off until you turn them on.</p>
         <div class="audience">
           <div class="card"><h3>Consultancies</h3><p>Stand up a client's platform on the stack they already run, and hand it over with a guide they can follow without you.</p></div>
           <div class="card"><h3>In-house data teams</h3><p>Keep the model, the code and the documentation in step as the business changes, with reviews and environments.</p></div>
           <div class="card"><h3>Solo engineers</h3><p>Go from a data dictionary to a tested, scheduled platform on your laptop with DuckDB, then deploy it to a warehouse.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta">
+      <div class="wrap">
+        <h2>Start with one table</h2>
+        <p class="intro">Install it, open the canvas, and have a tested platform running on DuckDB on your laptop before you connect a warehouse.</p>
+        <div class="install">
+          <div class="tabs" aria-hidden="true"><button tabindex="-1" aria-selected="true">macOS / Linux</button></div>
+          <div class="row">
+            <button class="copy" type="button">Copy</button>
+            <pre><span class="prompt">$ </span>curl -fsSL https://murakumo.sh | sh</pre>
+          </div>
+        </div>
+        <div class="actions">
+          <a class="button primary" href="docs/setup/">Get started</a>
+          <a class="button" href="https://github.com/murakumo-data/murakumo"><svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Star on GitHub</a>
         </div>
       </div>
     </section>
@@ -386,15 +587,36 @@ and running it again changes nothing.</div>
   </footer>
 
   <script>
-    const tabs = document.querySelectorAll('.install [role="tab"]')
+    const tabs = document.querySelectorAll('#install [role="tab"]')
     tabs.forEach((tab) =>
       tab.addEventListener('click', () => {
         tabs.forEach((t) => t.setAttribute('aria-selected', String(t === tab)))
-        document.querySelectorAll('.install [data-panel]').forEach((panel) => {
+        document.querySelectorAll('#install [data-panel]').forEach((panel) => {
           panel.hidden = panel.dataset.panel !== tab.dataset.tab
         })
       }),
     )
+
+    // The product screenshots: click, or the arrow keys, to switch.
+    const shots = [...document.querySelectorAll('.product-tabs [role="tab"]')]
+    const show = (tab) => {
+      shots.forEach((t) => {
+        const on = t === tab
+        t.setAttribute('aria-selected', String(on))
+        t.tabIndex = on ? 0 : -1
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on
+      })
+    }
+    shots.forEach((tab, i) => {
+      tab.addEventListener('click', () => show(tab))
+      tab.addEventListener('keydown', (event) => {
+        const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key]
+        if (!step) return
+        const next = shots[(i + step + shots.length) % shots.length]
+        show(next)
+        next.focus()
+      })
+    })
     document.querySelectorAll('.copy').forEach((button) =>
       button.addEventListener('click', async () => {
         const text = [...button.parentElement.querySelectorAll('pre')]
