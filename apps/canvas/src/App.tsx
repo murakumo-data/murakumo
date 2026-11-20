@@ -20,7 +20,6 @@ import {
   BookOpenCheck,
   CalendarClock,
   CircleHelp,
-  Cloud,
   Database,
   FileCode2,
   GitBranch,
@@ -999,7 +998,7 @@ function Canvas() {
       <header className="topbar">
         <div className="topbar__project">
           <span className="logo" aria-hidden>
-            <Cloud size={18} />
+            <img src="/favicon.svg" alt="" width={20} height={20} />
           </span>
           <strong>{state.project}</strong>
           <span className="muted small">

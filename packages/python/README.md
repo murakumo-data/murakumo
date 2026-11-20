@@ -1,4 +1,4 @@
-# Murakumo
+<h1><img src="https://murakumo.ai/brand/murakumo.svg" alt="Murakumo" height="56"></h1>
 
 **Model-first data engineering.** Design the logical model (entities, relationships, mappings) on a canvas, and Murakumo generates and maintains everything downstream: DDL, dbt projects, Spark and Python jobs, streaming configs, tests, audit tables, data contracts and orchestration, on an open lakehouse.
 
