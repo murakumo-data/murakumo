@@ -21,6 +21,7 @@ export type EntityData = {
   faded?: boolean // not part of the lineage being shown
   columnIssues?: Map<string, { level: 'error' | 'warning'; text: string }> // by column id
   flash?: string | null // a column to point out: jumped to from a problem or a search
+  picked?: string | null // the column clicked, shown in the inspector
 }
 
 export type EntityNodeType = Node<EntityData, 'entity'>
@@ -85,11 +86,13 @@ export function EntityNode({ data, selected }: NodeProps<EntityNodeType>) {
             return (
               <li
                 key={column.id}
-                title={issue?.text}
+                data-column={column.id}
+                title={issue?.text ?? 'Click for its details'}
                 className={[
                   'entity__column',
                   issue ? `entity__column--${issue.level}` : '',
                   data.flash === column.id ? 'entity__column--flash' : '',
+                  data.picked === column.id ? 'entity__column--picked' : '',
                   linked?.has(column.id) ? 'entity__column--linked' : '',
                   lineage?.has(column.id) ? `entity__column--lineage entity__column--${lineage.get(column.id)}` : '',
                   lineage && !lineage.has(column.id) ? 'entity__column--faded' : '',

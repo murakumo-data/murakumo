@@ -2,6 +2,7 @@ import {
   Background,
   BackgroundVariant,
   ConnectionMode,
+  ControlButton,
   Controls,
   MiniMap,
   Panel,
@@ -31,7 +32,10 @@ import {
   Layers,
   LayoutGrid,
   ListTree,
+  Map as MapIcon,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   RectangleHorizontal,
   Redo2,
   Rows3,
@@ -128,7 +132,8 @@ const CARDINALITY: Record<string, string> = {
   many_to_many: 'N:N',
 }
 
-type Selection = { kind: 'entity' | 'relationship'; id: string } | null
+// A table (and maybe one of its columns, clicked on the canvas) or a relationship.
+type Selection = { kind: 'entity' | 'relationship'; id: string; column?: string | null } | null
 type Side =
   | 'explorer'
   | 'issues'
@@ -175,17 +180,20 @@ function savedTheme(): Theme {
   return saved === 'light' || saved === 'dark' ? saved : 'system'
 }
 
+/** A button on the tool rail: its icon, and its name beside it when the rail is open. Closed, the
+ * name shows on hover. */
 function RailButton(props: { label: string; active?: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       className={props.active ? 'rail__button rail__button--active' : 'rail__button'}
-      title={props.label}
+      data-tip={props.label}
       aria-label={props.label}
       aria-pressed={props.active}
       disabled={props.disabled}
       onClick={props.onClick}
     >
       {props.children}
+      <span className="rail__label">{props.label}</span>
     </button>
   )
 }
@@ -221,7 +229,11 @@ function Canvas() {
   const [saving, setSaving] = useState(false)
   const [hovered, setHovered] = useState<string | null>(null)
   const [legend, setLegend] = useState(false)
+  const [railOpen, setRailOpen] = useState(() => recall('murakumo.rail') === 'open')
+  const [minimap, setMinimap] = useState(() => recall('murakumo.minimap') === '1')
   const [panelWidth, setPanelWidth] = useState(savedPanelWidth)
+  // The column clicked on the canvas, as entity:column, so its row stays marked.
+  const picked = selection?.kind === 'entity' && selection.column ? `${selection.id}:${selection.column}` : null
   const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([])
   const tableNodes = useMemo(() => nodes.filter(isTable), [nodes])
   const [diagram, setDiagram] = useState<string | null>(() => recall('murakumo.diagram') || null)
@@ -393,6 +405,13 @@ function Canvas() {
         return
       }
       if (document.querySelector('.dialog-backdrop')) return
+      if (event.key === 'Escape') {
+        // Let go of whatever is selected, and close an open menu.
+        setMenu(null)
+        setSelection(null)
+        setNodes((all) => (all.some((n) => n.selected) ? all.map((n) => (n.selected ? { ...n, selected: false } : n)) : all))
+        return
+      }
       if (event.key === '?' || (event.key === '/' && event.shiftKey)) {
         event.preventDefault()
         setShortcuts(true)
@@ -424,7 +443,18 @@ function Canvas() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [run, chooseView])
+  }, [run, chooseView, setNodes])
+
+  // An open menu closes on a click anywhere outside it, the rail's other buttons included.
+  useEffect(() => {
+    if (!menu) return
+    const onDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      if (!target?.closest('.popover-anchor--open')) setMenu(null)
+    }
+    document.addEventListener('pointerdown', onDown)
+    return () => document.removeEventListener('pointerdown', onDown)
+  }, [menu])
 
   // Pick up changes made in an editor or with the CLI.
   useEffect(() => {
@@ -534,6 +564,7 @@ function Canvas() {
             view,
             columnIssues: columnIssues.get(entity.id),
             flash: flash?.entity === entity.id ? flash.column : null,
+            picked: picked?.startsWith(`${entity.id}:`) ? picked.slice(entity.id.length + 1) : null,
             collapsed: isCollapsed(entity, canvas),
             onToggleCollapsed: state.editable ? toggleCollapsed : undefined,
             labelName: canvas.colours?.[entity.id],
@@ -544,7 +575,7 @@ function Canvas() {
       return [...notes, ...tables]
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- saveNote and removeNote read canvasRef
-  }, [state, entities, relationships, diagnostics, hidden, domainFilter, labelFilter, diagram, showDomains, setNodes, view, run, flash])
+  }, [state, entities, relationships, diagnostics, hidden, domainFilter, labelFilter, diagram, showDomains, setNodes, view, run, flash, picked])
 
   // A column pointed out stays marked for a moment.
   useEffect(() => {
@@ -1119,7 +1150,11 @@ function Canvas() {
       )}
 
       <div className="workspace">
-        <nav className="rail" aria-label="Tools and panels">
+        <nav
+          className={railOpen ? 'rail rail--open' : 'rail'}
+          aria-label="Tools and panels"
+          style={{ '--rail-items': 5 + panels.length + 5 } as CSSProperties}
+        >
           <div className="rail__group">
             <RailButton label="Add table (T)" disabled={!state.editable} onClick={() => setAdding({ name: '', layer: 'raw', source: '' })}>
               <SquarePlus size={18} />
@@ -1130,7 +1165,7 @@ function Canvas() {
             <RailButton label="Add note (N)" disabled={!state.editable} onClick={addNote}>
               <StickyNote size={18} />
             </RailButton>
-            <span className="popover-anchor">
+            <span className={menu === 'arrange' ? 'popover-anchor popover-anchor--open' : 'popover-anchor'}>
               <RailButton label="Arrange tables" active={menu === 'arrange'} disabled={tableNodes.length < 2} onClick={() => setMenu(menu === 'arrange' ? null : 'arrange')}>
                 <LayoutGrid size={18} />
               </RailButton>
@@ -1147,7 +1182,7 @@ function Canvas() {
                 </div>
               )}
             </span>
-            <span className="popover-anchor">
+            <span className={menu === 'export' ? 'popover-anchor popover-anchor--open' : 'popover-anchor'}>
               <RailButton label="Export as an image" active={menu === 'export'} disabled={tableNodes.length === 0} onClick={() => setMenu(menu === 'export' ? null : 'export')}>
                 <ImageDown size={18} />
               </RailButton>
@@ -1184,13 +1219,14 @@ function Canvas() {
             <RailButton label="Settings" active={side === 'settings'} onClick={() => toggleSide('settings')}>
               <Settings2 size={18} />
             </RailButton>
-            <a className="rail__button" href="/api/pipeline-docs" target="_blank" rel="noreferrer" title="Pipeline docs" aria-label="Pipeline docs">
+            <a className="rail__button" href="/api/pipeline-docs" target="_blank" rel="noreferrer" data-tip="Pipeline docs" aria-label="Pipeline docs">
               <BookOpen size={18} />
+              <span className="rail__label">Pipeline docs</span>
             </a>
             <RailButton label={`Theme: ${theme}`} onClick={cycleTheme}>
               {theme === 'dark' ? <Moon size={18} /> : theme === 'light' ? <Sun size={18} /> : <SunMoon size={18} />}
             </RailButton>
-            <span className="popover-anchor">
+            <span className={menu === 'help' ? 'popover-anchor popover-anchor--open' : 'popover-anchor'}>
               <RailButton label="Help" active={menu === 'help' || legend} onClick={() => setMenu(menu === 'help' ? null : 'help')}>
                 <CircleHelp size={18} />
               </RailButton>
@@ -1208,6 +1244,15 @@ function Canvas() {
                 </div>
               )}
             </span>
+            <RailButton
+              label={railOpen ? 'Hide the names' : 'Show the names'}
+              onClick={() => {
+                remember('murakumo.rail', railOpen ? '' : 'open')
+                setRailOpen(!railOpen)
+              }}
+            >
+              {railOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+            </RailButton>
           </div>
         </nav>
 
@@ -1414,7 +1459,17 @@ function Canvas() {
             onNodesChange={onNodesChange}
             onNodeDragStop={savePositions}
             onConnect={state.editable ? connect : undefined}
-            onNodeClick={(_, node) => node.type === 'entity' && setSelection({ kind: 'entity', id: node.id })}
+            onNodeClick={(event, node) => {
+              if (node.type !== 'entity') return
+              // ⌘, Ctrl or Shift and a click add the table to (or take it out of) the selection, to
+              // move several at once: the inspector stays shut.
+              if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                setSelection(null)
+                return
+              }
+              const row = event.target instanceof Element ? event.target.closest('[data-column]') : null
+              setSelection({ kind: 'entity', id: node.id, column: row?.getAttribute('data-column') ?? null })
+            }}
             onEdgeClick={(_, edge) => {
               if (edge.type === 'lineage') return
               setSelection({ kind: 'relationship', id: edge.id })
@@ -1433,8 +1488,20 @@ function Canvas() {
             colorMode={theme}
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} />
-            <Controls position="bottom-left" showInteractive={false} />
-            <MiniMap pannable zoomable position="bottom-right" />
+            <Controls position="bottom-left" showInteractive={false}>
+              <ControlButton
+                onClick={() => {
+                  remember('murakumo.minimap', minimap ? '0' : '1')
+                  setMinimap(!minimap)
+                }}
+                title={minimap ? 'Hide the map' : 'Show a map of the whole canvas'}
+                aria-label={minimap ? 'Hide the map' : 'Show a map of the whole canvas'}
+                aria-pressed={minimap}
+              >
+                <MapIcon size={12} />
+              </ControlButton>
+            </Controls>
+            {minimap && <MiniMap pannable zoomable position="bottom-right" className="minimap" ariaLabel="Map of the canvas" />}
             {legend && (
               <Panel position="top-left" className="legend-panel">
                 <Legend onClose={() => setLegend(false)} />
@@ -1501,6 +1568,8 @@ function Canvas() {
                 key={selectedEntity.id}
                 state={state}
                 entity={selectedEntity}
+                column={selection?.column ?? null}
+                onColumn={(column) => selection && setSelection({ ...selection, column })}
                 run={run}
                 diagnostics={diagnostics}
                 generatedRevision={generated?.revision ?? ''}

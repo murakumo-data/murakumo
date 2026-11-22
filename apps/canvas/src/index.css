@@ -3063,6 +3063,7 @@ button.tree-row__label:not(:disabled) {
   position: fixed;
   inset: 0;
   z-index: 40;
+  pointer-events: none; /* what a card points at can be tried while it is open */
 }
 
 .tour__spotlight {
@@ -3077,6 +3078,7 @@ button.tree-row__label:not(:disabled) {
 .tour__card {
   position: fixed;
   width: 320px;
+  pointer-events: auto;
   padding: 14px 16px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -4379,4 +4381,367 @@ button.tree-row__label:not(:disabled) {
   font-family: var(--mono);
   text-align: left;
   overflow-wrap: anywhere;
+}
+
+/* The page itself never scrolls: the bars stay put, and only the canvas and each panel move. ---- */
+
+html,
+body,
+#root {
+  overflow: hidden;
+}
+
+.app {
+  height: 100dvh;
+}
+
+/* The heads of the drawer, the diagram tabs and the inspector's tabs line up, 40px each. */
+.drawer__head,
+.stage > .tabs,
+.inspector__tabs {
+  height: 40px;
+}
+
+.stage > .tabs {
+  margin: 0; /* not the inspector's old tab margins */
+}
+
+.inspector {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.inspector > .panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+}
+
+.inspector__tabs {
+  flex: none;
+  align-items: stretch;
+  margin: 0;
+  padding: 0 44px 0 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.inspector__tabs .tabs__action {
+  align-self: center;
+}
+
+.inspector .panel__close {
+  top: 6px;
+  z-index: 3;
+}
+
+.inspector .panel__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  float: none;
+  height: auto;
+  margin: 0;
+}
+
+/* The rail fits the window without scrolling: its buttons shrink on short screens. Open, it shows
+   each button's name; closed, the name shows on hover. */
+
+.rail {
+  position: relative;
+  z-index: 20;
+  gap: 6px;
+  padding: 6px 0;
+  transition: width 0.15s ease;
+}
+
+.rail__group {
+  gap: 1px;
+  padding-bottom: 6px;
+}
+
+.rail__group--end {
+  padding-top: 6px;
+}
+
+.rail__button {
+  height: clamp(22px, calc((100dvh - 48px - 64px) / var(--rail-items, 25) - 1px), 36px);
+  text-decoration: none;
+}
+
+.rail__label {
+  display: none;
+}
+
+.rail--open {
+  width: 188px;
+}
+
+.rail--open .rail__group {
+  justify-items: stretch;
+  padding-inline: 6px;
+}
+
+.rail--open .rail__button {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 0 9px;
+}
+
+.rail--open .rail__button > svg {
+  flex: none;
+}
+
+.rail--open .rail__label {
+  display: block;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail--open .rail__button--active::before {
+  left: -6px;
+}
+
+.rail:not(.rail--open) .rail__button[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 10px);
+  z-index: 40;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--surface);
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--text);
+  border-radius: 5px;
+  transform: translateY(-50%);
+}
+
+.rail .popover-anchor--open .rail__button::after {
+  display: none;
+}
+
+.rail--open .popover-anchor {
+  display: flex;
+}
+
+/* A text box with its own list of choices. */
+
+.combo {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.combo__list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 50;
+  min-width: 100%;
+  max-height: 220px;
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+.combo__option {
+  padding: 3px 10px;
+  font: 12px var(--mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.combo__option[aria-selected='true'] {
+  font-weight: 700;
+}
+
+.combo__option--active {
+  background: var(--info-bg);
+}
+
+/* A mapping's sources: the first in full, a count of the rest; a click lists them all. */
+
+button.mapping__sources {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 6px 4px 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button.mapping__sources:hover:not(:disabled),
+button.mapping__sources[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+
+button.mapping__sources code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapping__sources--empty code {
+  color: var(--text-muted);
+}
+
+.mapping__more {
+  flex: none;
+  padding: 0 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+
+.picker__group--used legend {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.picker__full {
+  overflow-wrap: anywhere;
+}
+
+/* A column clicked on the canvas. */
+
+.column-details {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+
+.column-details__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.column-details__close {
+  margin-left: auto;
+}
+
+.column-details__facts {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: baseline;
+  margin: 0;
+  font-size: 13px;
+}
+
+.column-details__facts dt {
+  color: var(--text-muted);
+}
+
+.column-details__facts dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.column-details__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.column-details__list code,
+.column-details__expression {
+  overflow-wrap: anywhere;
+}
+
+.column-details__expression {
+  display: block;
+  margin-top: 4px;
+  padding: 4px 6px;
+  background: var(--code-bg);
+  border-radius: 4px;
+}
+
+.column-details__missing {
+  color: var(--warning);
+}
+
+.column-details > .button {
+  justify-self: start;
+}
+
+.entity__column {
+  cursor: pointer;
+}
+
+.entity__column--picked,
+.entity__column--picked:hover {
+  background: var(--info-bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* The map of the canvas: small and quiet, and only when asked for. */
+
+.minimap.react-flow__minimap {
+  width: 150px;
+  height: 96px;
+  margin: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  opacity: 0.85;
+}
+
+.minimap.react-flow__minimap svg {
+  width: 150px;
+  height: 96px;
+}
+
+.react-flow__controls-button[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+/* The query console fits its drawer: its bars wrap instead of running off the edge. */
+
+.query .runs__bar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.query .runs__bar > select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.query__hint {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
 }

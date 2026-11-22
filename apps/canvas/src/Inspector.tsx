@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 
-import { api, impactText, previewOf, type Diagnostic, type Entity, type ImpactReport, type Relationship, type State } from './api'
+import { api, impactText, previewOf, type Attribute, type Diagnostic, type Entity, type ImpactReport, type Relationship, type State } from './api'
 import { EntityCodeView } from './Code'
 import { ExpressionEditor } from './ExpressionEditor'
-import { Row, SelectField, TextField } from './Field'
+import { ComboInput, Row, SelectField, TextField } from './Field'
 import { DiagramChips } from './Diagrams'
 import { LabelSelect } from './Labels'
 import { QualitySection } from './Rules'
@@ -45,6 +46,8 @@ type LineageTarget = { entity: string; column: string | null } | null
 type EntityProps = {
   state: State
   entity: Entity
+  column?: string | null // the id of a column clicked on the canvas: its details show first
+  onColumn?: (column: string | null) => void
   run: Run
   diagnostics: Diagnostic[]
   generatedRevision: string
@@ -54,12 +57,15 @@ type EntityProps = {
   onQuery?: (entity: string) => void // preview the table's data in the query console
 }
 
-export function EntityPanel({ state, entity, run, diagnostics, generatedRevision, lineageOf, onLineage, onJob, onQuery }: EntityProps) {
+export function EntityPanel(props: EntityProps) {
+  const { state, entity, column, onColumn, run, diagnostics, generatedRevision, lineageOf, onLineage, onJob, onQuery } = props
   const [tab, setTab] = useState<'model' | 'code'>('model')
   const issues = diagnostics.filter((d) => d.entity_id === entity.id)
+  const picked = column ? entity.attributes.find((a) => a.id === column) : undefined
   return (
-    <div className={tab === 'code' ? 'panel__body panel__body--wide' : 'panel__body'}>
-      <div className="tabs" role="tablist">
+    <>
+      {/* The tabs stay at the top while the panel scrolls. */}
+      <div className="tabs inspector__tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'model'} className="tab" onClick={() => setTab('model')}>
           Model
         </button>
@@ -72,19 +78,174 @@ export function EntityPanel({ state, entity, run, diagnostics, generatedRevision
           </button>
         )}
       </div>
-      {tab === 'model' ? (
-        <EntityForm state={state} entity={entity} run={run} issues={issues} lineageOf={lineageOf} onLineage={onLineage} onJob={onJob} />
-      ) : (
-        <>
-          <div className="panel__heading">
-            <span className={`dot dot--${entity.layer}`} />
-            <code className="panel__title">{entity.name}</code>
-          </div>
-          <Issues diagnostics={issues} />
-          <EntityCodeView entityId={entity.id} revision={`${generatedRevision}:${state.revision}`} />
-        </>
-      )}
-    </div>
+      <div className={tab === 'code' ? 'panel__body panel__body--wide' : 'panel__body'}>
+        {tab === 'model' ? (
+          <>
+            {picked && (
+              <ColumnDetails
+                key={picked.id}
+                state={state}
+                entity={entity}
+                column={picked}
+                run={run}
+                diagnostics={issues.filter((d) => d.column_id === picked.id)}
+                lineageOf={lineageOf}
+                onLineage={onLineage}
+                onClose={() => onColumn?.(null)}
+              />
+            )}
+            <EntityForm state={state} entity={entity} run={run} issues={issues} lineageOf={lineageOf} onLineage={onLineage} onJob={onJob} />
+          </>
+        ) : (
+          <>
+            <div className="panel__heading">
+              <span className={`dot dot--${entity.layer}`} />
+              <code className="panel__title">{entity.name}</code>
+            </div>
+            <Issues diagnostics={issues} />
+            <EntityCodeView entityId={entity.id} revision={`${generatedRevision}:${state.revision}`} />
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+/** One column, clicked on the canvas: what it is, where it comes from, what joins on it, what
+ * checks it and what is made from it. */
+function ColumnDetails(props: {
+  state: State
+  entity: Entity
+  column: Attribute
+  run: Run
+  diagnostics: Diagnostic[]
+  lineageOf: LineageTarget
+  onLineage: (target: LineageTarget) => void
+  onClose: () => void
+}) {
+  const { state, entity, column, run, diagnostics, lineageOf, onLineage, onClose } = props
+  const disabled = !state.editable
+  const saveColumn = (changes: Record<string, unknown>) => careful(run, () => api.updateColumn(entity.id, column.id, changes))
+  const lower = column.name.toLowerCase()
+  const mapping = entity.mappings.find((m) => m.target.toLowerCase() === lower)
+  const ref = `${entity.name}.${column.name}`.toLowerCase()
+  const usedBy = (state.model?.entities ?? []).flatMap((e) =>
+    e.mappings.filter((m) => m.sources.some((source) => source.toLowerCase() === ref)).map((m) => `${e.name}.${m.target}`),
+  )
+  const joins = (state.model?.relationships ?? []).flatMap((r) =>
+    r.keys
+      .filter(
+        (k) =>
+          (r.from.toLowerCase() === entity.name.toLowerCase() && k.from.toLowerCase() === lower) ||
+          (r.to.toLowerCase() === entity.name.toLowerCase() && k.to.toLowerCase() === lower),
+      )
+      .map((k) => `${r.from}.${k.from} → ${r.to}.${k.to}${r.role ? ` (${r.role})` : ''}`),
+  )
+  const key = column.key ? `${column.key} key` : null
+  const rules = (column.tests ?? []).map((rule) => rule.type.replace(/_/g, ' '))
+  const showing = lineageOf?.entity === entity.name && lineageOf.column === column.name
+  return (
+    <section className="column-details" aria-label={`Column ${column.name}`}>
+      <div className="column-details__head">
+        <code className="panel__title">{column.name}</code>
+        <span className="muted small">in {entity.name}</span>
+        <button className="icon-button column-details__close" aria-label="Close the column's details" title="Close" onClick={onClose}>
+          ×
+        </button>
+      </div>
+      <Issues diagnostics={diagnostics} />
+      <dl className="column-details__facts">
+        <dt>Type</dt>
+        <dd>
+          <TextField label={`${column.name} type`} value={column.type} options={state.choices.types} disabled={disabled} onSave={(type) => type && saveColumn({ type })} />
+        </dd>
+        <dt>Key</dt>
+        <dd>{key ?? <span className="muted">none</span>}</dd>
+        <dt>Empty</dt>
+        <dd>{column.nullable ? 'allowed' : 'never (not null)'}</dd>
+        {(column.pii || column.classification) && (
+          <>
+            <dt>Sensitive</dt>
+            <dd>{[column.pii ? 'personal data' : null, column.classification].filter(Boolean).join(' · ')}</dd>
+          </>
+        )}
+        {column.example && (
+          <>
+            <dt>Example</dt>
+            <dd>
+              <code>{column.example}</code>
+            </dd>
+          </>
+        )}
+        {entity.layer !== 'raw' && (
+          <>
+            <dt>Comes from</dt>
+            <dd>
+              {mapping?.sources.length ? (
+                <ul className="column-details__list">
+                  {mapping.sources.map((source) => (
+                    <li key={source}>
+                      <code>{source}</code>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="column-details__missing">nothing yet: it will be empty</span>
+              )}
+              {mapping?.expression && <code className="column-details__expression">{mapping.expression}</code>}
+            </dd>
+          </>
+        )}
+        <dt>Joins</dt>
+        <dd>
+          {joins.length ? (
+            <ul className="column-details__list">
+              {joins.map((j) => (
+                <li key={j}>
+                  <code>{j}</code>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <span className="muted">none</span>
+          )}
+        </dd>
+        <dt>Checks</dt>
+        <dd>{rules.length ? rules.join(', ') : <span className="muted">none</span>}</dd>
+        <dt>Used by</dt>
+        <dd>
+          {usedBy.length ? (
+            <ul className="column-details__list">
+              {usedBy.map((u) => (
+                <li key={u}>
+                  <code>{u}</code>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <span className="muted">no other column yet</span>
+          )}
+        </dd>
+        <dt>Description</dt>
+        <dd>
+          <TextField
+            label={`${column.name} description`}
+            value={column.description}
+            multiline
+            placeholder="What it means"
+            disabled={disabled}
+            onSave={(description) => saveColumn({ description })}
+          />
+        </dd>
+      </dl>
+      <button
+        className={showing ? 'button button--small button--active' : 'button button--small'}
+        aria-pressed={showing}
+        onClick={() => onLineage(showing ? null : { entity: entity.name, column: column.name })}
+      >
+        ⇄ {showing ? 'Hide its lineage' : 'Show its lineage on the canvas'}
+      </button>
+    </section>
   )
 }
 
@@ -600,7 +761,7 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
               <TextField
                 label={`${a.name} type`}
                 value={a.type}
-                list="logical-types"
+                options={choices.types}
                 disabled={disabled}
                 onSave={(type) => type && saveColumn(a.id, { type })}
               />
@@ -664,12 +825,11 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
                 value={column.name}
                 onChange={(e) => setColumn({ ...column, name: e.target.value })}
               />
-              <input
-                className="input"
-                list="logical-types"
+              <ComboInput
                 aria-label="New column type"
                 value={column.type}
-                onChange={(e) => setColumn({ ...column, type: e.target.value })}
+                options={choices.types}
+                onChange={(type) => setColumn({ ...column, type })}
               />
               <button className="button button--small" type="submit" disabled={!column.name.trim()}>
                 Add
@@ -677,11 +837,6 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
             </form>
           )}
         </div>
-        <datalist id="logical-types">
-          {choices.types.map((t) => (
-            <option key={t} value={t} />
-          ))}
-        </datalist>
       </section>
 
       {entity.layer !== 'raw' && <Mappings state={state} entity={entity} run={run} filter={matches} />}
@@ -739,13 +894,12 @@ function CalculatedColumn({ state, entity, run, onDone }: { state: State; entity
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <input
-          className="input"
-          list="logical-types"
+        <ComboInput
           placeholder="type (from the expression)"
           aria-label="Calculated column type"
           value={type}
-          onChange={(e) => setType(e.target.value)}
+          options={state.choices.types}
+          onChange={setType}
         />
       </div>
     </ExpressionEditor>
@@ -757,7 +911,6 @@ function Mappings({ state, entity, run, filter }: { state: State; entity: Entity
   const [picking, setPicking] = useState<string | null>(null) // the column whose sources are being picked
   const [editing, setEditing] = useState<string | null>(null) // the column whose expression is open
   const others = (state.model?.entities ?? []).filter((e) => e.id !== entity.id)
-  const upstream = others.flatMap((e) => e.attributes.map((a) => `${e.name}.${a.name}`))
   const mappingFor = (name: string) => entity.mappings.find((m) => m.target.toLowerCase() === name.toLowerCase())
   const save = (columnId: string, sources: string[], expression: string | null) =>
     run(() => api.setMapping(entity.id, columnId, { sources, expression }))
@@ -768,9 +921,8 @@ function Mappings({ state, entity, run, filter }: { state: State; entity: Entity
         Mappings <span className="muted">{entity.mappings.length} of {entity.attributes.length}</span>
       </h3>
       <p className="muted small">
-        Where each column comes from: type <code>entity.column</code> (several separated by commas) or click{' '}
-        <strong>☰</strong> to tick them in a list. Add an expression in DuckDB SQL to combine or calculate; it is
-        translated for your warehouse.
+        Where each column comes from: click its box to see the columns it uses, in full, and tick others. Add
+        an expression in DuckDB SQL to combine or calculate; it is translated for your warehouse.
       </p>
       <div className="mappings">
         {entity.attributes.filter((a) => filter(a.name)).map((a) => {
@@ -781,27 +933,18 @@ function Mappings({ state, entity, run, filter }: { state: State; entity: Entity
             <div key={a.id} className="mapping-block">
               <div className={mapping ? 'mapping' : 'mapping mapping--missing'}>
                 <code className="mapping__target">{a.name}</code>
-                <div className="mapping__sources">
-                  <TextField
-                    label={`${a.name} sources`}
-                    value={sources.join(', ') || null}
-                    list="upstream-columns"
-                    placeholder="entity.column"
-                    disabled={disabled}
-                    onSave={(text) => save(a.id, (text ?? '').split(',').map((t) => t.trim()).filter(Boolean), expression)}
-                  />
-                  {!disabled && (
-                    <button
-                      className="icon-button"
-                      title={`Pick the sources of ${a.name}`}
-                      aria-label={`Pick the sources of ${a.name}`}
-                      aria-expanded={picking === a.id}
-                      onClick={() => setPicking(picking === a.id ? null : a.id)}
-                    >
-                      ☰
-                    </button>
-                  )}
-                </div>
+                <button
+                  className={sources.length ? 'mapping__sources' : 'mapping__sources mapping__sources--empty'}
+                  disabled={disabled && !sources.length}
+                  aria-expanded={picking === a.id}
+                  aria-label={`The sources of ${a.name}: ${sources.join(', ') || 'none yet'}`}
+                  title={sources.join('\n') || 'Pick the columns it comes from'}
+                  onClick={() => setPicking(picking === a.id ? null : a.id)}
+                >
+                  <code>{sources.length ? sources[0] : 'entity.column'}</code>
+                  {sources.length > 1 && <span className="mapping__more">+{sources.length - 1}</span>}
+                  <ChevronDown size={13} aria-hidden />
+                </button>
                 <button
                   className={expression ? 'expression-button' : 'expression-button expression-button--empty'}
                   disabled={disabled && !expression}
@@ -832,6 +975,8 @@ function Mappings({ state, entity, run, filter }: { state: State; entity: Entity
                 <ColumnPicker
                   entities={others}
                   initial={sources}
+                  showTicked
+                  readOnly={disabled}
                   doneLabel="Use these"
                   onCancel={() => setPicking(null)}
                   onDone={async (picked) => {
@@ -843,11 +988,6 @@ function Mappings({ state, entity, run, filter }: { state: State; entity: Entity
           )
         })}
       </div>
-      <datalist id="upstream-columns">
-        {upstream.map((ref) => (
-          <option key={ref} value={ref} />
-        ))}
-      </datalist>
     </section>
   )
 }
@@ -934,8 +1074,12 @@ function ColumnPicker({
   doneLabel,
   suggested = 0,
   existing,
+  showTicked = false,
+  readOnly = false,
 }: {
   entities: Entity[]
+  showTicked?: boolean // list what is ticked now first, in full
+  readOnly?: boolean // show the list without changing it
   suggested?: number // the first this many tables are where it most likely reads from
   existing?: Set<string> // lower-case names the table already has: shown, not tickable
   initial: string[]
@@ -974,6 +1118,28 @@ function ColumnPicker({
         onChange={(e) => setSearch(e.target.value)}
       />
       <div className="picker__list">
+        {showTicked && !query && initial.length > 0 && (
+          <fieldset className="picker__group picker__group--used">
+            <legend>Used now</legend>
+            {initial.map((ref) => {
+              const key = ref.toLowerCase()
+              const found = all.find((c) => c.key === key)
+              return (
+                <label key={key} className="picker__item">
+                  <input
+                    type="checkbox"
+                    aria-label={`${ref} (used now)`}
+                    checked={ticked.has(key)}
+                    disabled={readOnly}
+                    onChange={(e) => toggle([key], e.target.checked)}
+                  />
+                  <code className="picker__full">{found ? `${found.entity}.${found.column}` : ref}</code>
+                  <span className="muted">{found?.type ?? 'not found'}</span>
+                </label>
+              )
+            })}
+          </fieldset>
+        )}
         {groups.length === 0 && <p className="muted small">No columns match.</p>}
         {groups.map((group) => {
           const columns = shown.filter((c) => c.entity === group)
@@ -1007,7 +1173,7 @@ function ColumnPicker({
                     type="checkbox"
                     aria-label={`${c.entity}.${c.column}`}
                     checked={has(c.column) || ticked.has(c.key)}
-                    disabled={has(c.column)}
+                    disabled={has(c.column) || readOnly}
                     onChange={(e) => toggle([c.key], e.target.checked)}
                   />
                   <span>{c.column}</span>
@@ -1026,6 +1192,7 @@ function ColumnPicker({
         </button>
         <button
           className="button button--primary button--small"
+          disabled={readOnly}
           onClick={() => onDone(all.filter((c) => ticked.has(c.key)).map(({ entity, column, type }) => ({ entity, column, type })))}
         >
           {doneLabel}
