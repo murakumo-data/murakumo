@@ -181,6 +181,25 @@ export function QueryPanel({
           {error}
         </p>
       )}
+      {error && /build the project first/.test(error) && (
+        <div className="query__hint">
+          <p className="muted small">
+            Nothing is built yet, but you can still look at the data: DuckDB here reads a file wherever it is, Parquet,
+            CSV, JSON or Excel. Put its path in the query.
+          </p>
+          <button
+            className="button button--small"
+            onClick={() => {
+              setEngine('files')
+              setError(null)
+              setSql("select * from read_parquet('/path/to/your/file.parquet') limit 100\n\n-- a CSV: read_csv('/path/to/file.csv')")
+              editor.current?.focus()
+            }}
+          >
+            Query a file instead
+          </button>
+        </div>
+      )}
       {result && (
         <div className="query__result">
           <p className="muted small">

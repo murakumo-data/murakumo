@@ -21,13 +21,20 @@ murakumo canvas path/to/project --port 9000 --no-open
   Bus matrix, Team, CI, Runs, Health, Assistant, Guide, Activity, Changes, Problems), settings, the
   pipeline docs,
   light or dark, and help.
-  Hover an icon for its name.
+  It always fits the window. Hover an icon for its name, or click **Show the names** at its
+  bottom to show every name beside its icon. Only one of its menus is open at a time; Esc closes
+  it. The page never scrolls: the top bar and the rail stay put, and the canvas and each panel
+  scroll on their own.
 - **The Explorer** lists every table by domain, layer, colour label and source, each opening to
   its tables and their columns; its search box finds tables and columns. Click a table to go to
   it; click a domain to show only its tables; the eye beside a layer hides it.
 - **Diagram tabs**, above the canvas: **All tables**, and any diagrams saved for a part of the
   model.
-- **The inspector**, on the right, opens when you click a table or a line.
+- **The inspector**, on the right, opens when you click a table or a line; its **Model** and
+  **Code** tabs stay at its top as it scrolls. Click a column on the canvas and a card at the top
+  shows its details: type, key, whether it may be empty, where it comes from (with its
+  expression), the joins it is in, its checks, what is made from it, and its description, with a
+  button for its lineage. Esc, or a click on the background, lets go.
 - **Help** (the ? at the bottom of the rail): a short tour, which also opens the first time, the
   keyboard shortcuts (press ?), and the notation.
 
@@ -39,8 +46,9 @@ murakumo canvas path/to/project --port 9000 --no-open
   its layer's colour (or its colour label's), with key icons for primary and foreign keys and ƒ
   for calculated columns. Drag boxes to arrange them; positions are saved to `model/layout.yaml`,
   keyed by entity id, so a rename keeps its place. Commit the file to share the layout.
-  **Shift**+drag on the background selects several tables (⌘/Ctrl+click adds one), and dragging
-  any of them moves them all.
+  **Shift**+drag on the background selects several tables (⌘/Ctrl+click adds one, and only
+  selects: the inspector stays shut), and dragging any of them moves them all. The map button
+  under the zoom buttons shows a small map of the whole canvas.
 - **Undo anything.** Every change is saved to the model files as you make it, and **⌘Z** (or ↶ in
   the top bar) takes it back; **⇧⌘Z** redoes it. The button says what it would undo: "table
   dim_zone removed". A removed table comes back with its columns, mappings, relationships and
@@ -97,9 +105,10 @@ murakumo canvas path/to/project --port 9000 --no-open
   give it a role (needed when two relationships join the same tables, like pickup and drop-off
   zones).
 - **Map columns.** For entities in staging, intermediate, marts and semantic, the inspector lists
-  every column with where it comes from: `entity.column` sources (suggested as you type, or
-  ticked in a list with **☰**) and an optional SQL expression (**ƒx**), in DuckDB SQL and
-  translated for your warehouse. Columns without a mapping are highlighted.
+  every column with where it comes from: its `entity.column` sources (the box shows the first and
+  how many more; click it to see them all in full and tick others in a list) and an optional SQL
+  expression (**ƒx**), in DuckDB SQL and translated for your warehouse. Columns without a mapping
+  are highlighted. A column's type box opens the list of types on a click, whatever it holds.
 - **Calculate columns.** **ƒx** opens the expression editor, and **+ Calculated** in the Columns
   section adds a new column with its expression in one step. The editor highlights the SQL,
   suggests tables, their columns and functions as you type (type a table name and a dot; Tab or
@@ -196,7 +205,8 @@ murakumo canvas path/to/project --port 9000 --no-open
   what landed, raw, staging, quarantine, marts, snapshots, the audit tables, the Iceberg catalog,
   and files anywhere (Parquet, CSV, JSON, Excel, Iceberg, Delta; local, S3, GCS, Azure). Click a
   table to preview it; Ctrl+Enter runs what you typed; results download as CSV. The inspector's
-  **Query** button opens it on the selected table. See [operating.md](operating.md#the-query-console).
+  **Query** button opens it on the selected table. Before anything is built, **Query a file
+  instead** reads your data files directly, so you can look at the raw data while modelling it. See [operating.md](operating.md#the-query-console).
 - **Settings → Data quality** writes the rules for Great Expectations and Soda too, turns on
   reconciliation and write-audit-publish, and says where contracts are enforced.
 

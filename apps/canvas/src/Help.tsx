@@ -11,10 +11,11 @@ const SHORTCUTS: [string, string][] = [
   ['⌘Z', 'Undo'],
   ['⇧⌘Z', 'Redo'],
   ['⌘1 – ⌘4', 'All columns, keys only, names only, descriptions'],
-  ['⌘ click', 'Add a table to the selection'],
+  ['⌘ click', 'Add a table to the selection, to move several (the inspector stays shut)'],
+  ['Click a column', 'Its details: type, where it comes from, joins, checks, what uses it'],
   ['⇧ drag', 'Select the tables in a box'],
   ['?', 'These shortcuts'],
-  ['Esc', 'Close a dialog'],
+  ['Esc', 'Close a dialog or menu, or let go of what is selected'],
 ]
 
 export function Shortcuts({ onClose }: { onClose: () => void }) {
@@ -54,7 +55,7 @@ const STEPS: Step[] = [
   {
     target: '.rail',
     title: 'Tools and panels',
-    text: 'Add tables, relationships and notes from the top of this rail; open the Explorer, sources, schedules, team, CI, changes and problems below. Hover any icon for its name.',
+    text: 'Add tables, relationships and notes from the top of this rail; open the Explorer, sources, schedules, team, CI, changes and problems below. Hover any icon for its name, or show every name with the button at the bottom of the rail.',
     side: 'right',
   },
   {
@@ -70,7 +71,7 @@ const STEPS: Step[] = [
     side: 'bottom',
   },
   {
-    target: '.tabs',
+    target: '.stage > .tabs',
     title: 'Diagrams',
     text: 'Save a view of some tables, like “Finance”, as a tab: select tables, then + Diagram. All tables is always there.',
     side: 'bottom',
@@ -93,6 +94,12 @@ export function Tour({ onClose }: { onClose: () => void }) {
     const element = step && document.querySelector(step.target)
     setBox(element ? element.getBoundingClientRect() : null)
   }, [step])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   if (!step || !box) return null
   const place =

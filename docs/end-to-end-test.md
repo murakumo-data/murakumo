@@ -338,20 +338,32 @@ commands.
 ☐ The canvas opens in the browser.
 
 **5.1a The tour.** The first time, a short tour opens: a card points at each part of the canvas
-in turn (the tool rail, the Explorer, how tables show, diagrams, undo) while the rest dims. Read
-each and click **Next**, then **Done**. (It does not open again; **?** at the bottom left of the
-canvas, then **Tour of the canvas**, starts it again.)
+in turn while the rest dims, and says *1 of 5*, *2 of 5* and so on. (With the Explorer closed it
+skips that card, so there are four.) Read each card, try what it says, then click **Next**:
 
-☐ The tour walks through the canvas.
+1. **Tools and panels** points at the rail of icons on the left.
+2. **Explorer** points at the panel next to it.
+3. **How tables show** points at the four view buttons in the top bar. Try them while the card is
+   open: press **⌘2**: every table shows only its key columns, with **+N columns** under them.
+   Press **⌘3** (names only), **⌘4** (descriptions), then **⌘1** (every column again). Each press
+   also lights the matching view button. Click the ▾ at the left of `yellow_tripdata`'s header: it
+   collapses to its name; click ▸ to open it again.
+4. **Diagrams** points at the **All tables** tab above the canvas.
+5. **Undo anything** points at the undo and redo arrows.
+
+**Back** goes to the card before; **Skip** ends the tour at once. On the last card, click
+**Done**. The tour does not open again by itself; **?** at the bottom of the rail, then
+**Tour of the canvas**, starts it again.
+
+☐ The tour walks through the canvas, and the view keys work while it is open.
 
 **5.2** Look around. You should see:
 
 - the top bar: **taxi_platform**, `4 tables · 4 relationships`, a **Find a table or column** box,
   four small view buttons, undo and redo arrows (greyed: nothing to undo yet), a blue chip like
   **15 files to write** and a green **Valid** chip;
-- a narrow rail of icons down the left edge (hover one for its name), and next to it the
-  **Explorer**: **Domains** (`mobility 4`), **Layers** (`raw 2`, `marts 2`), **Colour labels** and
-  **Sources**;
+- a narrow rail of icons down the left edge, and next to it the **Explorer**: **Domains**
+  (`mobility 4`), **Layers** (`raw 2`, `marts 2`), **Colour labels** and **Sources**;
 - above the canvas, a tab **All tables** and **+ Diagram**;
 - two raw tables with dark grey headers on the left (`yellow_tripdata`, `taxi_zone_lookup`) and two
   marts with blue headers on the right (`fct_trip`, `dim_taxi_zone`), joined by dashed lines. Keys
@@ -359,10 +371,32 @@ canvas, then **Tour of the canvas**, starts it again.)
   many end, and a circle and bar (*zero or one*) at the other end.
 
 Zoom with the scroll wheel or the **+/−** buttons at the bottom left; drag the background to move
-around. The sun/moon icon near the bottom of the rail switches between light, dark and your
-computer's setting.
+around. Under **+/−**, the map button shows a small map of the whole canvas at the bottom right;
+click it again to hide it. The sun/moon icon near the bottom of the rail switches between light,
+dark and your computer's setting.
 
 ☐ Four tables and four lines.
+
+**5.2b The rail.** Every icon on the rail fits in the window, from the **+** at the top to the
+last button at the bottom, with no scrolling, even if you make the browser window shorter. Hover
+any icon: its name shows beside it at once. Click the last button on the rail, **Show the names**:
+the rail widens and shows every name beside its icon. Click it again (**Hide the names**) to go
+back to icons. The rail remembers which you chose.
+
+Only one thing opens at a time. Click the grid icon (**Arrange tables**, the fourth from the top):
+a menu opens beside it. Now click the image icon below it (**Export as an image**): the arrange
+menu closes and the export menu opens. Click **Sources** in the rail: the export menu closes and
+the Sources panel replaces the Explorer. Click **Explorer** to bring it back. Press **Esc** to close
+any menu that is open.
+
+Now arrange every table: open **Arrange tables** again and click **Left to right**. The tables line
+up in layers, raw on the left and marts on the right, and a banner offers **Put them back**: click
+it, and they return where they were.
+
+The page itself never scrolls: whatever you do in the panels and on the canvas, the top bar and the
+rail stay where they are.
+
+☐ The rail fits the window, shows its names, and its menus close when another opens.
 
 **5.2a Read the lines.** Click **?** at the bottom of the rail, then **Notation and tips**. A panel
 explains each symbol: ‖ exactly one, ○| zero or one, a crow's foot for many, and a dashed line for optional.
@@ -375,9 +409,11 @@ background to clear it.
 
 **5.3** In the Explorer, under **Layers**, click the eye beside **marts**. The two marts disappear;
 click it again to bring them back. Click the ▸ beside **marts**: it opens to its two tables; click
-`dim_taxi_zone`, and the canvas moves to it and selects it. Press Esc or click the background.
+`dim_taxi_zone`, and the canvas moves to it and selects it, and the inspector opens on the right.
+Press **Esc**: the blue outline goes and the inspector closes. Click `dim_taxi_zone` on the canvas
+again, then click the empty background: the same.
 
-☐ Layers hide and show, and the Explorer finds tables.
+☐ Layers hide and show, the Explorer finds tables, and Esc lets go of them.
 
 **5.4** Drag `dim_taxi_zone` somewhere else. Reload the page (Cmd+R): it stays where you put it.
 In the first Terminal tab:
@@ -392,7 +428,12 @@ You should see `positions:` with an id and `x`/`y` numbers.
 
 **5.5 Move several tables at once.** Hold **Shift** and drag a box on the empty background around
 `fct_trip` and `dim_taxi_zone`: both get a blue outline. Drag one of them: both move together.
-(**⌘**+click also adds a table to the selection.)
+Press **Esc** to let go of both.
+
+Now the same with clicks. Click `fct_trip` (the inspector opens on it), then hold **⌘** and click
+`dim_taxi_zone`: both are outlined, the inspector closes, and a bar above the canvas says
+*2 tables*. **⌘**+click only selects: it never opens a table. Drag one: both move. **⌘**+click
+`dim_taxi_zone` again to take it out of the selection, then press **Esc**.
 
 **5.6** Drag `dim_taxi_zone` straight above `fct_trip`, so one sits over the other. The lines between
 them go round the right-hand side of the tables instead of disappearing behind them. Put it back
@@ -437,7 +478,26 @@ Above the columns there is a **Find a column** box (it appears once a table has 
 columns). Type `zone`: only `pickup_zone_id` and `dropoff_zone_id` are left, in **Columns** and in
 **Mappings**. Clear the box.
 
-☐ The inspector shows columns, mappings and relationships; it resizes, and the search filters.
+Scroll down the inspector to the bottom: the **Model** and **Code** tabs stay at the top of the
+panel, and the top bar, the rail and the **All tables** tab stay where they are. The heads of the
+Explorer, the diagram tabs and the inspector's tabs line up in one row.
+
+☐ The inspector shows columns, mappings and relationships; it resizes, the search filters, and its
+tabs stay in view.
+
+**6.1a A column's details.** On the canvas, click the `pickup_zone_id` row in the `fct_trip` box
+(the row, not the table's header). The row is marked blue, and a card opens at the top of the
+inspector: `pickup_zone_id in fct_trip`, with its **Type** (`integer`), **Key**, whether it may be
+**Empty**, where it **Comes from** (`yellow_tripdata.PULocationID`), what it **Joins**
+(`fct_trip.pickup_zone_id → dim_taxi_zone.zone_id (pickup)`), its **Checks**, what is **Used by**
+it, and a **Description** box.
+
+Type `Where the trip started` in **Description** and click elsewhere: it is saved. Click
+**Show its lineage on the canvas**: its lineage shows, as in 6.12; click **Hide its lineage**.
+Click `trip_id`'s row instead: the card shows its seven sources and its `md5(...)` expression in
+full. Close the card with its **×**: the rest of the inspector stays.
+
+☐ Clicking a column shows its details.
 
 **6.2 See its code.** Click the **Code** tab. You should see the dbt SQL generated for `fct_trip`
 (`select ... from yellow_tripdata left join ...`) and its `CREATE TABLE` statement. Click
@@ -446,7 +506,10 @@ columns). Type `zone`: only `pickup_zone_id` and `dropoff_zone_id` are left, in 
 ☐ The Code tab shows SQL.
 
 **6.3 Add a column.** In the **Columns** list, in the empty row at the bottom, type `trip_minutes`
-in the name box, replace `string` with `integer` in the type box, and click **Add**.
+in the name box. Click the type box, which says `string`: a list of every type opens straight away,
+`string` in bold, without deleting anything first. Typing narrows the list (type `int`: `smallint`,
+`integer`, `bigint`); click `integer`, or use ↓ and **Enter**. Then click **Add**.
+(The type box of every existing column, and of a calculated column, opens the same list.)
 
 You should see `trip_minutes` in the columns and in the box on the canvas, and the chip in the top
 bar turns yellow: **1 warning**. On the canvas, the `trip_minutes` row in `fct_trip` is tinted
@@ -487,12 +550,15 @@ yellow_tripdata.tpep_dropoff_datetime · returns bigint*.
 Click **Preview**. A small table shows a dozen made-up pickup and drop-off times and, in bold, the
 minutes between them. (*Made-up rows, run in DuckDB on this computer*: no warehouse is involved.)
 
-Click **Save**. The editor closes; the middle box (*sources*) now lists the two columns the
-expression reads, and the chip says **Valid**. On the **Code** tab, the SQL has a line with
-`DATE_DIFF('MINUTE', ...) as trip_minutes`.
+Click **Save**. The editor closes; the middle box (*sources*) now shows
+`yellow_tripdata.tpep_pickup_datetime` and **+1**, and the chip says **Valid**. On the **Code** tab,
+the SQL has a line with `DATE_DIFF('MINUTE', ...) as trip_minutes`.
 
-(The **☰** button next to the sources box still ticks sources in a list, for a column that copies
-one column as it is.)
+Click that sources box: a list opens under it. At the top, **Used now** shows both columns the
+expression reads, in full, each with its type; below are every other table's columns, with a
+search box. Ticking columns here and clicking **Use these** sets the sources of a column that copies
+one as it is. Click **Cancel**. In `trip_id`'s row, the box shows `yellow_tripdata.VendorID` and
+**+6**; click it to see all seven in full, then **Cancel**.
 
 ☐ The expression is checked, previewed and saved, and appears in the SQL.
 
@@ -526,9 +592,13 @@ are not snake_case (MK307), which you could fix by renaming them here.
 
 Now take it all back: press **⌘Z** (with nothing selected; or the ↶ in the top bar, which says
 *Undo: int_taxi_zone_lookup: new column ... (+3 more)*). The four columns go, in one step.
-Press **⌘Z** again: the table goes too.
+Press **⌘Z** again: the table goes too. Press **⇧⌘Z** (redo): the table comes back, and the ↷ in
+the top bar says what it will redo next. Press **⌘Z** once more to take it away again.
 
-☐ Columns come from the likely source, mapped, and undo takes them back.
+Press **?**: the keyboard shortcuts open in a list (⌘K, T, R, N, ⌘Z, ⇧⌘Z, ⌘1 to ⌘4, ⌘+click,
+clicking a column, ⇧+drag, Esc). Press **Esc** to close it.
+
+☐ Columns come from the likely source, mapped; undo takes them back and redo returns them.
 
 **6.7 Add a relationship.** Click `fhv_tripdata`, scroll down the inspector to
 **Relationships** and click **+ Relationship**. Choose:
@@ -555,7 +625,11 @@ a table and drag from the small round handle at the end of a column to a column 
 canvas. Type `pickup` in **Role** and press **Enter**; hover over the line and its label reads
 `pickup · N:1`.
 
-☐ The role is saved.
+Now remove it and bring it back: scroll to the bottom of the inspector and click
+**Remove relationship**. The line goes, the top bar says **4 relationships**, and
+`pickup_location_id` loses its link icon. Press **⌘Z**: the line is back, role `pickup` included.
+
+☐ The role is saved; a relationship is removed and undone.
 
 **6.9 Check the files changed.** In the first Terminal tab:
 
@@ -575,7 +649,20 @@ Drag `trip_minutes` by its handle up to just below `dropoff_at` (a blue line sho
 go) and let go. The column moves there, in the inspector and in the box on the canvas. (With the
 keyboard: Tab to a handle and press Alt+↑ or Alt+↓.)
 
-☐ The column moved.
+The same from the command line, with the canvas in view. In the first Terminal tab:
+
+```bash
+murakumo move column fct_trip trip_minutes --after total_amount
+```
+
+Within two seconds `trip_minutes` moves to the end of `fct_trip`'s columns on the canvas. Put it
+back:
+
+```bash
+murakumo move column fct_trip trip_minutes --after dropoff_at
+```
+
+☐ The column moved, on the canvas and from the command line.
 
 **6.11 Add a calculated column.** Still on `fct_trip`, click **+ Calculated** (next to
 **Columns**). Type `amount_per_mile` in the name box and leave the type box empty. In the
@@ -799,6 +886,29 @@ generated files updated. The canvas chip shows **Code up to date** again.
 
 ☐ Migration 0003 written.
 
+**9.3 Editor help and the docs page.** Editors such as VS Code can check the YAML files as you
+type, from a JSON Schema. Print the one for entity files:
+
+```bash
+murakumo schema entity | head -20
+murakumo schema manifest | head -5
+```
+
+You should see JSON starting with `{` and `"$defs"`, describing an entity's fields (`name`,
+`layer`, `attributes`...) and then `murakumo.yaml`'s.
+
+Then show the pipeline docs for the model as it is now, without writing anything:
+
+```bash
+murakumo docs
+```
+
+It prints `Docs: ` and a path in your temporary folder, and your browser opens that page: the
+domains, schedules, sources and a section per table, including `fhv_tripdata`'s `pickup_zone_id`.
+`git status` shows nothing new: the page lives outside the project.
+
+☐ The schema prints, and the docs page opens without writing files.
+
 ---
 
 ## Part 10: Import a data dictionary
@@ -912,6 +1022,28 @@ ls -lh ~/murakumo-e2e/data
 You should see a file of about 48 MB and a small CSV.
 
 ☐ Both files downloaded.
+
+**13.1a Look at the data before modelling it.** Nothing is built yet, but you can already query
+the files. In the canvas, click **Query** on the rail. Under **Tables**, click
+`yellow_tripdata (raw)`, then **Run**. It says *taxi_platform.duckdb does not exist yet: build the
+project first*, and under it **Query a file instead**: click it. The engine switches to
+**Files and storage (DuckDB here)** and the box holds a `read_parquet(...)` query. Replace it with
+(use your own home folder in the path; `echo $HOME` prints it):
+
+```sql
+select VendorID, count(*) as trips, round(avg(total_amount), 2) as avg_amount
+from read_parquet('/Users/<you>/murakumo-e2e/data/yellow_tripdata_2024-01.parquet')
+group by 1 order by 1
+```
+
+Press **Ctrl+Enter**. About four rows come back in well under a second, one per vendor, with
+nearly 3 million trips between them. Try the zones too:
+`select * from read_csv('/Users/<you>/murakumo-e2e/data/taxi_zone_lookup.csv') limit 20`.
+
+The panel fits its drawer: the engine and environment pickers and the **Rows** picker wrap onto
+new lines rather than being cut off at the edge.
+
+☐ The raw files can be queried before anything is built.
 
 **13.2** Build and test with them. One command, on one line:
 
@@ -1742,7 +1874,13 @@ why: the stack changes, and *sources.open_meteo.connection* with *Hourly weather
 demand*.
 
 Add one of your own: type `Weather is fetched for one week only` in **Add a decision**, a reason,
-and click **Record it**. Then:
+and click **Record it**. Add another from the command line:
+
+```bash
+murakumo decisions add "Zones are refreshed daily" --why "The TLC changes them rarely"
+```
+
+Then:
 
 ```bash
 murakumo decisions
@@ -1750,7 +1888,7 @@ murakumo generate
 sed -n '/## Decisions/,$p' generated/docs/stack.md
 ```
 
-The decision is listed in the terminal, and in the platform page of the pipeline docs.
+Both decisions are listed in the terminal, and in the platform page of the pipeline docs.
 
 ☐ Decisions are recorded, with their reasons.
 
