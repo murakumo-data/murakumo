@@ -1,6 +1,6 @@
-# End-to-end test: Murakumo 1.1.0
+# End-to-end test: Murakumo 1.1.1
 
-A step-by-step test of Murakumo 1.1.0 exactly as a new user meets it: install it with one command,
+A step-by-step test of Murakumo 1.1.1 exactly as a new user meets it: install it with one command,
 create a project folder, go into it, and build a data model on real data. It assumes no
 experience with Python, dbt or warehouses: every command is given in full, along with what you
 should see.
@@ -95,7 +95,7 @@ Or, the same route in one line, which also installs uv if you have not yet:
 curl -fsSL https://murakumo.sh | sh
 ```
 
-It ends with `==> Installed: murakumo 1.1.0`.
+It ends with `==> Installed: murakumo 1.1.1`.
 
 You should see `Installed 1 executable: murakumo`. If the next step says
 `command not found: murakumo`, run `uv tool update-shell`, then close Terminal and open a new
@@ -133,10 +133,10 @@ murakumo --version
 murakumo info
 ```
 
-You should see `murakumo 1.1.0`, then a short description that mentions `murakumo init` and
+You should see `murakumo 1.1.1`, then a short description that mentions `murakumo init` and
 `murakumo setup`.
 
-☐ Version 1.1.0.
+☐ Version 1.1.1.
 
 ---
 

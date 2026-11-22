@@ -1,6 +1,39 @@
 # Changelog
 
-## 1.1.0 (unreleased)
+## 1.1.1 (2026-11-22)
+
+Fixes for the canvas found while running the end-to-end test, and a test that now covers every
+feature.
+
+**Fixed**
+
+- **Esc** lets go of the selected tables, closes the inspector, and closes any open menu and the
+  tour.
+- **⌘/Ctrl+click** only adds a table to the selection, so several can be moved without the
+  inspector opening.
+- **Type boxes** open the whole list of types on a click, whatever they hold; typing narrows it.
+- **The page never scrolls.** The tool rail fits the window on short screens, the inspector's
+  Model and Code tabs stay at its top, and the heads of the panels line up.
+- **The rail's menus** close when another opens or anything else is clicked.
+- **The query console** fits its drawer; its pickers wrap instead of being cut off.
+- **The tour** lets you try what each card points at while it is open.
+
+**Added**
+
+- **A column's details.** Click a column on the canvas: the inspector shows its type, key,
+  whether it may be empty, where it comes from and its expression, its joins, checks and what
+  uses it, its description, and its lineage.
+- **A mapping's sources in full.** Its box shows the first and how many more; a click lists them
+  all, then every other column to tick.
+- **Show the names** on the rail, to see every button's name beside its icon.
+- **Query a file before building.** With nothing built yet, the query console offers to read the
+  data files directly, so the raw data can be explored while modelling.
+- **The minimap** is behind a map button under the zoom buttons, off by default, and smaller.
+- **The end-to-end test** walks the tour card by card and adds steps for the above, redo, the
+  shortcuts list, removing a relationship, arranging from the rail, and the commands it never
+  ran: `murakumo move column`, `schema`, `docs` and `decisions add`.
+
+## 1.1.0 (2026-11-19)
 
 Data quality you configure on the canvas and that runs everywhere, data contracts, and a query
 console for every table at every stage. Each has a canvas path, a step in the replication guide,
