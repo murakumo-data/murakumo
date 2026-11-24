@@ -789,7 +789,8 @@ def build(
     ``load_only`` creates and loads the raw tables, and stops before dbt (``murakumo load``).
     """
     warehouse = Warehouse(warehouse or project.manifest.targets.warehouse.type)
-    _need_dbt(warehouse, "build")
+    if not load_only:  # loading the raw tables alone runs no dbt
+        _need_dbt(warehouse, "build")
 
     from murakumo.environments import EnvError, placement_for
 

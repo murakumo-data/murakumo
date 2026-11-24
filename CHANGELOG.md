@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+Exploring the data before modelling it: load the raw tables alone, look at a table before it is
+built, ask it the right questions, and find which tables a column joins, cheaply. And a Simple view
+for people who are not data engineers.
+
+**Added**
+
+- **Load the raw data only.** `murakumo build --raw-only` creates and loads the raw tables and stops:
+  no dbt (which need not be installed), the cheapest build. On the canvas, a hint above the canvas
+  offers it while no raw table holds data, and says what loaded when it is done; the Build dialog has
+  **Load raw data only**.
+- **Preview a table before it is built** (`murakumo preview TABLE`, the inspector's new **Data**
+  tab): its model runs as one query, with the models it reads folded in down to the raw tables,
+  each read as a sample of 10,000 rows, so the cost does not grow with the data. `--full` (**On all
+  the data**) says what it would read first.
+- **Questions to ask a table** (`murakumo suggest TABLE`, the Data tab, under the query editor):
+  queries written from the model (its key, dates, categories and joins) from templates, with no AI.
+- **Related columns** (`murakumo relations TABLE.COLUMN`, the column's card): where a column
+  appears again, found in tiers to keep compute down. Names and types first, with no query; then
+  column summaries from samples, cached until a table's row count changes; then the overlap of
+  values on samples, only for candidates whose ranges can meet. **Add relationship** adds what it
+  found. `murakumo find VALUE` (**Look for a value**) searches only the id columns a value can be in.
+- **Simple or Full**, in the top bar: Simple uses plain words, opens tables on their data, keeps
+  how tables load and who sees what under **Advanced**, and leaves the platform's panels off the
+  rail. The model and the generated code are the same either way.
+- `/api/explore/*` endpoints for all of the above.
+
 ## 1.1.1 (2026-11-22)
 
 Fixes for the canvas found while running the end-to-end test, and a test that now covers every

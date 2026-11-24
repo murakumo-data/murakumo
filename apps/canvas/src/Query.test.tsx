@@ -63,3 +63,28 @@ describe('QueryPanel', () => {
     expect(asCsv(result)).toBe('id,name\n1,"a, b"\n2,\n')
   })
 })
+
+describe('QueryPanel and exploring', () => {
+  it('runs a query the inspector sent, and lists the questions for its table', async () => {
+    vi.spyOn(api, 'queryTargets').mockResolvedValue(targets)
+    vi.spyOn(api, 'suggested').mockResolvedValue({
+      queries: [{ title: 'Duplicate keys', plain: 'Keys that appear twice.', sql: 'select id from raw.orders group by id having count(*) > 1' }],
+    })
+    const query = vi.spyOn(api, 'query').mockResolvedValue(result)
+    render(<QueryPanel environments={environments} focus={{ entity: 'orders', sql: 'select count(*) from raw.orders', at: 2 }} />)
+    await screen.findByText('2 rows in 4 ms')
+    expect(query).toHaveBeenCalledWith('select count(*) from raw.orders', 'warehouse', expect.anything())
+    fireEvent.click(await screen.findByText('Duplicate keys'))
+    expect(query).toHaveBeenLastCalledWith('select id from raw.orders group by id having count(*) > 1', 'warehouse', expect.anything())
+  })
+
+  it('offers to load the raw data when a table is missing', async () => {
+    vi.spyOn(api, 'queryTargets').mockResolvedValue(targets)
+    vi.spyOn(api, 'query').mockRejectedValue(new Error('Catalog Error: Table with name orders does not exist!'))
+    const load = vi.fn()
+    render(<QueryPanel environments={environments} focus={null} onLoadRaw={load} />)
+    fireEvent.click(await screen.findByText('orders (raw)'))
+    fireEvent.click(await screen.findByText('Load raw data…'))
+    expect(load).toHaveBeenCalled()
+  })
+})

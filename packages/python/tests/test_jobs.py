@@ -41,6 +41,10 @@ def test_commands_are_built_from_checked_options(project, tmp_path):
         "--run-date",
         "2024-01-31",
     ]
+    assert command(root, "build", {"sample": 20, "raw_only": True}) == (
+        "Load raw data into dev",
+        ["build", "--sample", "20", "--raw-only"],
+    )
     assert command(root, "backfill", {"table": "zone_activity", "from": "2024-01-01", "to": "2024-01-07"})[1] == [
         "backfill",
         "zone_activity",

@@ -109,7 +109,8 @@ export function BuildDialog(props: {
         <h2>Build</h2>
         <p className="muted small">
           Loads the raw tables, then builds every model and runs every test, into the warehouse ({state.project}'s{' '}
-          <strong>{options.environment}</strong> environment). The tables are kept.
+          <strong>{options.environment}</strong> environment). The tables are kept. New to the data? Load the raw data
+          only, query it, then model the rest.
         </p>
 
         <fieldset className="build__group">
@@ -217,6 +218,24 @@ export function BuildDialog(props: {
         <div className="dialog__actions">
           <button type="button" className="button" onClick={onClose}>
             Cancel
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={!prefixOk || raw.length === 0}
+            title="murakumo build --raw-only: create and load the raw tables, and stop. Query them before modelling the rest."
+            onClick={() =>
+              onStart({
+                environment: options.environment === state.environments.personal ? undefined : options.environment,
+                sample: options.sample || undefined,
+                data: loaded ? options.data : undefined,
+                prefix: options.prefix || undefined,
+                ingest: options.ingest || undefined,
+                raw_only: true,
+              })
+            }
+          >
+            Load raw data only
           </button>
           <button type="submit" className="button button--primary" disabled={!prefixOk}>
             Build

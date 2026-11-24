@@ -84,6 +84,48 @@ export type Entity = {
 // The query console: where a query runs, what there is to query, and what came back.
 export type QueryEngine = { engine: string; label: string }
 export type QueryTarget = { label: string; engine: string; stage: string; sql: string; entity: string | null; note: string | null }
+// Exploring before modelling: what is loaded, a table before it is built, and what a column joins.
+export type RawStatus = {
+  tables: Record<string, { exists: boolean; rows: number | null }>
+  built?: Record<string, boolean> // each model: whether it is in the warehouse yet
+  reason: string | null
+  warehouse: string
+}
+export type Suggested = { title: string; plain: string; sql: string }
+export type Estimate = { known: boolean; free?: boolean; bytes?: number; text: string; reads: string[] }
+export type RelatedCandidate = {
+  entity: string
+  column: string
+  layer: string
+  type: string
+  why: string
+  strength: 'related' | 'name' | 'maybe'
+  unique: boolean
+  overlap: {
+    here_in_there: number
+    there_in_here: number
+    sampled: number
+    cardinality: string | null
+    kind: string
+    likely: boolean
+    chance: boolean
+    shared: boolean
+  } | null
+}
+export type RelatedNames = { entity: string; column: string; canonical: string | null; unique: boolean; candidates: RelatedCandidate[] }
+export type RelatedCheck = {
+  entity: string
+  column: string
+  unique: boolean
+  matches: RelatedCandidate[]
+  ruled_out: (RelatedCandidate & { reason: string })[]
+  not_checked: RelatedCandidate[]
+  sample: number
+  wide: boolean
+  others: number
+}
+export type FoundValue = { value: string; found: { entity: string; column: string }[]; searched: number; skipped: number }
+
 export type QueryResult = {
   engine: string
   columns: string[]
@@ -685,6 +727,24 @@ export const api = {
     ),
   query: (sql: string, engine: string, options: { environment?: string; limit?: number } = {}) =>
     request<QueryResult>('POST', '/query', { sql, engine, ...options }, false),
+  exploreStatus: (environment?: string) =>
+    request<RawStatus>('GET', `/explore/status${environment ? `?environment=${encodeURIComponent(environment)}` : ''}`, undefined, false),
+  previewTable: (entity: string, full = false) =>
+    request<QueryResult & { sampled: boolean; sample: number | null; reads: string[] }>('POST', '/explore/preview', { entity, full }, false),
+  estimate: (entity: string) => request<Estimate>('POST', '/explore/estimate', { entity }, false),
+  suggested: (entity: string) =>
+    request<{ queries: Suggested[] }>('GET', `/explore/suggested?entity=${encodeURIComponent(entity)}`, undefined, false),
+  relatedNames: (entity: string, column: string) =>
+    request<RelatedNames>(
+      'GET',
+      `/explore/relations?${new URLSearchParams({ entity, column })}`,
+      undefined,
+      false,
+    ),
+  relatedCheck: (entity: string, column: string, wide = false) =>
+    request<RelatedCheck>('POST', '/explore/relations', { entity, column, wide }, false),
+  findValue: (value: string, everyColumn = false) =>
+    request<FoundValue>('POST', '/explore/find', { value, every_column: everyColumn }, false),
   contracts: (check = false, environment?: string) =>
     request<Contracts>(
       'GET',

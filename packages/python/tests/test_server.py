@@ -486,6 +486,30 @@ def test_query_console_endpoints(client, project):
     assert remote.status_code == 403
 
 
+def test_explore_endpoints(client, project):
+    duckdb = pytest.importorskip("duckdb")
+    before = client.get("/api/explore/status").json()
+    assert not before["tables"]["taxi_zone_lookup"]["exists"] and "does not exist yet" in before["reason"]
+    with duckdb.connect(str(project.root / "proj.duckdb")) as db:
+        db.execute("create schema raw_nyc_tlc")
+        db.execute(
+            "create table raw_nyc_tlc.taxi_zone_lookup as select * from (values (1, 'EWR', 'Newark', 'EWR'), "
+            "(2, 'Queens', 'Jamaica Bay', 'Boro Zone')) t(\"LocationID\", \"Borough\", \"Zone\", service_zone)"
+        )
+    status = client.get("/api/explore/status").json()
+    assert status["tables"]["taxi_zone_lookup"] == {"exists": True, "rows": 2}
+    preview = client.post("/api/explore/preview", json={"entity": "taxi_zone_lookup"}).json()
+    assert preview["sampled"] and len(preview["rows"]) == 2
+    questions = client.get("/api/explore/suggested", params={"entity": "taxi_zone_lookup"}).json()["queries"]
+    assert questions[0]["title"] == "First rows"
+    names = client.get("/api/explore/relations", params={"entity": "yellow_tripdata", "column": "PULocationID"}).json()
+    assert any(c["entity"] == "taxi_zone_lookup" and c["column"] == "LocationID" for c in names["candidates"])
+    found = client.post("/api/explore/find", json={"value": "2"}).json()
+    assert {"entity": "taxi_zone_lookup", "column": "LocationID"} in found["found"]
+    missing = client.post("/api/explore/preview", json={"entity": "nothing"})
+    assert missing.status_code == 400 and "no table" in missing.json()["message"]
+
+
 def test_contracts_and_odcs_import_endpoints(client, project, tmp_path):
     found = client.get("/api/contracts").json()
     assert "taxi_zone_lookup" in found["contracts"] and found["standard"] == "odcs"
