@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 (2026-11-24)
 
 Exploring the data before modelling it: load the raw tables alone, look at a table before it is
 built, ask it the right questions, and find which tables a column joins, cheaply. And a Simple view

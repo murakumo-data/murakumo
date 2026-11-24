@@ -14,7 +14,7 @@ you have none). No sudo, nothing system-wide; running it again upgrades Murakumo
 `sh -s --`:
 
 ```bash
-curl -fsSL https://murakumo.sh | sh -s -- --version 1.1.1 --extras snowflake
+curl -fsSL https://murakumo.sh | sh -s -- --version 1.2.0 --extras snowflake
 ```
 
 | Option | Environment variable | What it does |
