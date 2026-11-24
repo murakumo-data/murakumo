@@ -40,7 +40,7 @@ murakumo canvas my_platform
 ## Run it
 
 - [Quality, contracts and the query console](operating.md): quality rules, quarantine, data
-  contracts, monitoring, cost, lineage and Slim CI.
+  contracts, exploring the raw data before modelling it, monitoring, cost, lineage and Slim CI.
 - [Working as a team](teamwork.md): staying in sync, environments, your own schema, the git
   flow, and testing a change before it is merged.
 - [The assistant and MCP](assistant.md): optional, and off until you turn it on.
