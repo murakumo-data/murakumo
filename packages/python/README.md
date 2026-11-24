@@ -55,6 +55,11 @@ murakumo run --engine pyspark --sample 200             # the pipeline as PySpark
 murakumo verify                                        # build and test it all on DuckDB, twice
 murakumo verify --warehouse snowflake                  # or on Snowflake, in throwaway schemas
 murakumo build --sample 200                            # build into the project's warehouse and keep the tables
+murakumo build --raw-only                              # load only the raw tables, to explore them first
+murakumo preview fct_order_line                        # a table's rows before it is built, on samples
+murakumo relations orders.o_custkey --check            # which tables a column joins, by name then by value
+murakumo find 12345                                    # which tables hold a value
+murakumo suggest fct_order_line                        # questions worth asking a table, as SQL
 murakumo config --target snowflake                     # change the answers you gave init
 murakumo --help                                        # every command, with what it does
 ```
