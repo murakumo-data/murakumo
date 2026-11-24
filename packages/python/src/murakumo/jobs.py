@@ -99,6 +99,9 @@ def command(root: Path, kind: str, options: dict[str, Any]) -> tuple[str, list[s
             args += ["--run-date", _day(options["run_date"], "the run date")]
         if options.get("ingest"):
             args.append("--ingest")
+        if options.get("raw_only"):
+            args.append("--raw-only")
+            return f"Load raw data into {options.get('environment') or 'dev'}", args
         what = f"Build {options.get('environment') or 'dev'}"
         if options.get("schedule"):
             what += f": {options['schedule']}"

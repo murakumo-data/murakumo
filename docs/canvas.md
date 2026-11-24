@@ -13,7 +13,8 @@ murakumo canvas path/to/project --port 9000 --no-open
 
 ## Finding your way around
 
-- **The top bar**: the project, **Find a table or column** (⌘K), how tables show (all columns,
+- **The top bar**: the project, **Find a table or column** (⌘K), **Simple** or **Full** (see
+  [below](#simple-or-full)), how tables show (all columns,
   keys only, names only, descriptions: ⌘1 to ⌘4, and when tables collapse), **undo** and
   **redo**, whether the generated code is up to date, and the problems.
 - **The tool rail**, on the left: add a table (T), a relationship (R) or a note (N), arrange the
@@ -30,13 +31,32 @@ murakumo canvas path/to/project --port 9000 --no-open
   it; click a domain to show only its tables; the eye beside a layer hides it.
 - **Diagram tabs**, above the canvas: **All tables**, and any diagrams saved for a part of the
   model.
-- **The inspector**, on the right, opens when you click a table or a line; its **Model** and
-  **Code** tabs stay at its top as it scrolls. Click a column on the canvas and a card at the top
-  shows its details: type, key, whether it may be empty, where it comes from (with its
-  expression), the joins it is in, its checks, what is made from it, and its description, with a
-  button for its lineage. Esc, or a click on the background, lets go.
+- **The inspector**, on the right, opens when you click a table or a line; its **Model**, **Data**
+  and **Code** tabs stay at its top as it scrolls. **Data** shows the raw tables it reads and
+  whether each is loaded (with **Load raw data…** when not), **Preview its rows** before it is built,
+  and questions to ask it, each opening in the query console (see
+  [exploring the data](operating.md#exploring-the-data-before-modelling-it)). Click a column on
+  the canvas and a card at the top shows its details: type, key, whether it may be empty, where it
+  comes from (with its expression), the joins it is in, its checks, what is made from it, and its
+  description, with a button for its lineage; **Related columns**, at its bottom, finds where the
+  column appears again and adds the relationship. Esc, or a click on the background, lets go.
 - **Help** (the ? at the bottom of the rail): a short tour, which also opens the first time, the
   keyboard shortcuts (press ?), and the notation.
+
+## Simple or Full
+
+The top bar's **Simple** and **Full** set how much of the engineering shows, for you alone (the
+browser remembers it):
+
+- **Simple** puts the data first: a table opens on its **Data** tab, layers and kinds of table say
+  what they hold in plain words ("Holds: events or transactions, one row each"), and the settings
+  that decide how a table loads and who sees which rows (new rows, each run, change capture, row
+  access) sit under a closed **Advanced**. The rail leaves out Stack, Bus matrix, Team, CI and
+  Changes.
+- **Full** shows everything, as for an engineer.
+
+Either way the model and the code generated from it are the same, nothing is ever hidden that is
+wrong (problems always show), and every setting is a click away.
 
 ## What you can do
 
@@ -205,8 +225,14 @@ murakumo canvas path/to/project --port 9000 --no-open
   what landed, raw, staging, quarantine, marts, snapshots, the audit tables, the Iceberg catalog,
   and files anywhere (Parquet, CSV, JSON, Excel, Iceberg, Delta; local, S3, GCS, Azure). Click a
   table to preview it; Ctrl+Enter runs what you typed; results download as CSV. The inspector's
-  **Query** button opens it on the selected table. Before anything is built, **Query a file
-  instead** reads your data files directly, so you can look at the raw data while modelling it. See [operating.md](operating.md#the-query-console).
+  **Query** button opens it on the selected table, and **Questions to ask** lists queries written
+  from the model for the table you are on. When a table is not loaded yet, **Load raw data…** opens
+  the Build dialog to load the raw tables only; before anything is built, **Query a file instead** reads your data files
+  directly. See [operating.md](operating.md#the-query-console).
+- **Load the raw data first.** While no raw table holds data, a hint above the canvas offers
+  **Load raw data…**, which opens the Build dialog: pick the data, then **Load raw data only** loads
+  the raw tables and builds nothing else (`murakumo build --raw-only`). When it is done, the hint says what loaded and opens
+  **Query**, so you can look at the data before modelling the rest.
 - **Settings → Data quality** writes the rules for Great Expectations and Soda too, turns on
   reconciliation and write-audit-publish, and says where contracts are enforced.
 
@@ -380,6 +406,13 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | POST | `/api/migrations` | Write the next migration: `{name}` (optional) |
 | GET | `/api/query/targets` | What the query console can query, at every stage, each with a preview query |
 | POST | `/api/query` | Run one read-only query: `{sql, engine, environment, limit, timeout}` |
+| GET | `/api/explore/status?environment=` | Which raw tables exist and their rows, from the warehouse's catalog |
+| POST | `/api/explore/preview` | A table's rows before it is built: `{entity, full, environment}` |
+| POST | `/api/explore/estimate` | What previewing a table on all its data would read: `{entity}` |
+| GET | `/api/explore/suggested?entity=` | Queries to start from on a table, written from the model |
+| GET | `/api/explore/relations?entity=&column=` | Where a column probably appears again, from names and types (no query) |
+| POST | `/api/explore/relations` | Compare a column's values with its candidates', on samples: `{entity, column, wide, only}` |
+| POST | `/api/explore/find` | Which id columns hold a value: `{value, every_column}` |
 | GET | `/api/contracts?check=` | Each table's data contract (ODCS), and with `check=true` whether the latest loads kept to them |
 | POST | `/api/import/odcs` | Bring in a data contract: `{path, source, dry_run}` |
 

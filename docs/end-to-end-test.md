@@ -461,12 +461,28 @@ Click **Expand all**, then clear the box and press **Enter**. In the first Termi
 
 ☐ ⌘K finds tables and columns.
 
+**5.9 Simple or Full.** Above the canvas, a hint says *The raw tables have no data yet...* with
+**Load raw data…**: nothing is loaded until Part 13, so click its **×** for now. (It stays away in
+this browser; Part 13 loads the data another way.)
+
+In the top bar, beside the view buttons, click **Simple**. The rail loses **Stack**, **Bus
+matrix**, **Team**, **CI** and **Changes**. Click `yellow_tripdata`: the inspector opens on its
+**Data** tab. Click **Model**: under **Layer** a line says *The data as it arrives from its
+source.*, **Kind** is now **Holds**, with *Rows as they are.* under it, and **New rows** sits under a
+closed **Advanced: how it loads and who sees it**; click it to open it. Click `fct_trip`: *The tables
+people report from.* and *Events or transactions, one row each (an order, a trip).*
+
+Click **Full**: every panel is back on the rail, and the settings are in the open again. Reload the
+page: **Full** is still chosen. Leave it on **Full** for the rest of the test.
+
+☐ Simple uses plain words and keeps the engineering under Advanced; Full shows everything.
+
 ---
 
 ## Part 6: Edit the model on the canvas
 
-**6.1 Look at an entity.** Click `fct_trip`. A panel opens on the right with two tabs, **Model**
-and **Code**. **Model** shows its layer, kind, domain and description, its columns (name, type,
+**6.1 Look at an entity.** Click `fct_trip`. A panel opens on the right with three tabs, **Model**,
+**Data** and **Code** (**Data** is tried in 13.3a). **Model** shows its layer, kind, domain and description, its columns (name, type,
 **PK**, **NN** = not null) and **Mappings**: where each column comes from, such as
 `yellow_tripdata.tpep_pickup_datetime`, and **Relationships**: the two that join it to
 `dim_taxi_zone`.
@@ -478,7 +494,7 @@ Above the columns there is a **Find a column** box (it appears once a table has 
 columns). Type `zone`: only `pickup_zone_id` and `dropoff_zone_id` are left, in **Columns** and in
 **Mappings**. Clear the box.
 
-Scroll down the inspector to the bottom: the **Model** and **Code** tabs stay at the top of the
+Scroll down the inspector to the bottom: the **Model**, **Data** and **Code** tabs stay at the top of the
 panel, and the top bar, the rail and the **All tables** tab stay where they are. The heads of the
 Explorer, the diagram tabs and the inspector's tabs line up in one row.
 
@@ -495,7 +511,13 @@ it, and a **Description** box.
 Type `Where the trip started` in **Description** and click elsewhere: it is saved. Click
 **Show its lineage on the canvas**: its lineage shows, as in 6.12; click **Hide its lineage**.
 Click `trip_id`'s row instead: the card shows its seven sources and its `md5(...)` expression in
-full. Close the card with its **×**: the rest of the inspector stays.
+full.
+
+At the bottom of the card, **Related columns** says where a column probably appears again, from
+names and types alone (no query runs). Click the `PULocationID` row in the `yellow_tripdata` box:
+it lists `taxi_zone_lookup.LocationID` (*the model joins them*) and `yellow_tripdata.DOLocationID`
+(*both name a location id*). **Compare the values** needs data, so leave it for 13.3a. Close the card
+with its **×**: the rest of the inspector stays.
 
 ☐ Clicking a column shows its details.
 
@@ -1083,6 +1105,83 @@ You should see four `applied migrations/duckdb/000N_...sql` lines, then a list t
 
 ☐ Migrations apply in order; the rename took.
 
+**13.3a Load the raw data only, and explore it before modelling.** The usual order is to load a
+source's raw tables, look at the data, and only then model what is built from it. Loading the raw
+tables alone builds nothing else, so it is quick and cheap.
+
+Reload the canvas. If you skipped 5.9, click **Load raw data…** on the hint above it; if not, open
+**Activity** → **Build…**. The Build dialog opens. **Add a file…** adds each downloaded file (they go to `data/`); pick each raw table's
+file in its list, leave **Made-up rows** at 0, and click **Load raw data only** (not **Build**).
+**Activity** shows `murakumo build --data ... --raw-only`, the two `loaded ...` lines
+(`2964624 rows` for `yellow_tripdata`), and *loaded: the raw tables are in .../taxi_platform.duckdb*;
+no dbt output, and it takes a few seconds. The same in a terminal:
+
+```bash
+murakumo build --raw-only --data yellow_tripdata=$HOME/murakumo-e2e/data/yellow_tripdata_2024-01.parquet --data taxi_zone_lookup=$HOME/murakumo-e2e/data/taxi_zone_lookup.csv
+```
+
+Above the canvas the hint now says *Raw data loaded (yellow_tripdata: 2,964,624 rows,
+taxi_zone_lookup: 265 rows)* with **Open Query**.
+
+☐ The raw tables load alone, and the canvas says so.
+
+**Questions to ask a table.** Click `yellow_tripdata`, then its **Data** tab. It shows
+`yellow_tripdata` with a green dot and *2,964,624 rows*, and **Explore it in the query console**.
+Under **Questions to ask it**: *First rows*, *How many rows*, *Rows per day, by
+tpep_pickup_datetime*, *Empty values per column*, *PULocationID with no match in taxi_zone_lookup*,
+and more. Click *Rows per day, by tpep_pickup_datetime*: **Query** opens and runs it. You should see
+the days of January 2024 with about 50,000 to 110,000 trips each, and a few stray days outside
+January (bad clocks in the source data). Under the editor, **Questions to ask yellow_tripdata**
+lists the same questions. Click *PULocationID with no match in taxi_zone_lookup*: no rows, as every
+pickup zone is in the zone list.
+
+In a terminal, `murakumo suggest yellow_tripdata` prints the same questions with their SQL.
+
+☐ The questions come from the model and run as written.
+
+**Preview a table before it is built.** Click `fct_trip`, then **Data**. It lists the raw tables it
+is built from, both loaded. Click **Preview its rows**: 100 rows of `fct_trip` come back in about a
+second, *from the first 10,000 rows of yellow_tripdata, taxi_zone_lookup*, though `fct_trip` does
+not exist yet. Click **On all the data…**: *Runs on this computer: no cost.* Click **Run it on all
+the data**: 100 rows again, now *from all the data*, a little slower. In a terminal:
+
+```bash
+murakumo preview fct_trip --rows 5
+murakumo preview fct_trip --sql | head -20
+```
+
+The first prints 5 rows *on samples of 10,000 rows of ...*; the second shows the one query it ran,
+with each model it reads folded in as `with __stg_...`.
+
+☐ A table can be previewed before it is built, on samples or on all the data.
+
+**Which tables a column relates to.** Click the `PULocationID` row in the `yellow_tripdata` box.
+Under **Related columns**, click **Compare the values**. After a second or two:
+
+- **likely** `taxi_zone_lookup.LocationID`: *100% of PULocationID found there*, *many
+  yellow_tripdata rows to one taxi_zone_lookup row*, and *Already a relationship*;
+- **shared values** `yellow_tripdata.DOLocationID`: the same zones, unique on neither side, so
+  neither joins the other (both point at the zone list).
+
+Click **Also ... ids with other names**: `VendorID`, `RatecodeID` and the others are compared too;
+any that overlap say **by chance?** (small whole numbers overlap whatever they mean), never
+**likely**. In **Look for a value**, type `132` (JFK Airport's zone) and click **Find**: *132 is in
+taxi_zone_lookup.LocationID, yellow_tripdata.PULocationID, yellow_tripdata.DOLocationID*. In a
+terminal:
+
+```bash
+murakumo relations yellow_tripdata.PULocationID
+murakumo relations yellow_tripdata.PULocationID --check
+murakumo find 132
+```
+
+The first reads only the model and runs no query. `ls .murakumo` shows `profiles.json`, the
+column summaries kept until a table's row count changes, so **Compare the values** is quicker the
+second time; git ignores the folder.
+
+☐ Related columns are found from names first, then confirmed from the data on samples; a value is
+found where it can be.
+
 **13.4 Build for real, and keep the tables.** `verify` builds in a throwaway database and deletes
 it. `murakumo build` builds into the project's own warehouse (here `taxi_platform.duckdb`, which
 the migrations above just brought up to date) and keeps everything:
@@ -1091,7 +1190,8 @@ the migrations above just brought up to date) and keeps everything:
 murakumo build --data yellow_tripdata=$HOME/murakumo-e2e/data/yellow_tripdata_2024-01.parquet --data taxi_zone_lookup=$HOME/murakumo-e2e/data/taxi_zone_lookup.csv
 ```
 
-You should see the two `loaded ...` lines, then
+You should see the two `loaded ...` lines (if you loaded them in 13.3a, *nothing new (1 file(s)
+already loaded)* for each instead: a file is never loaded twice), then
 `built: ... models and snapshots, N/N tests passed. Tables are in .../taxi_platform.duckdb.`
 Look inside (routes A and C: start with `uv run --with duckdb `, as in 13.3):
 
@@ -2758,7 +2858,7 @@ output or a screenshot.
 | 2 Create the project folder | | |
 | 3 Look at the project | | |
 | 4 Setup checklist | | |
-| 5 Canvas: tour, view, find, view modes, collapse | | |
+| 5 Canvas: tour, view, find, view modes, collapse, Simple and Full | | |
 | 6 Canvas: edit, map, relate, calculate, lineage, domains, undo, organise | | |
 | 7 Generate and diff | | |
 | 8 Migrations on the canvas | | |
@@ -2766,7 +2866,7 @@ output or a screenshot.
 | 10 Import a dictionary | | |
 | 11 Fix by hand in a text editor | | |
 | 12 Verify with made-up data | | |
-| 13 Verify with real data, build, browse as a source | | |
+| 13 Verify with real data, load raw only, questions, preview, related columns, build, browse as a source | | |
 | 14 Generated code, schedules, pipelines, docs, plain SQL, cumulative, run log, Polars and PySpark, new files only, schedules here | | |
 | 15 CI checks, CI from the canvas, git flow with a teammate, impact | | |
 | 16 Snowflake (optional): environments, own schema, pull-request clone | | |

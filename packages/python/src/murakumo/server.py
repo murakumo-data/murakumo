@@ -151,6 +151,21 @@ class QueryBody(BaseModel):
     timeout: int = Field(default=30, ge=1, le=600)
 
 
+class ExploreBody(BaseModel):
+    entity: str = Field(min_length=1, max_length=200)
+    column: str | None = Field(default=None, max_length=200)
+    environment: str | None = Field(default=None, pattern=r"^[\w-]{1,64}$")
+    full: bool = False
+    wide: bool = False
+    only: list[str] | None = Field(default=None, max_length=50)
+
+
+class FindBody(BaseModel):
+    value: str = Field(min_length=1, max_length=500)
+    environment: str | None = Field(default=None, pattern=r"^[\w-]{1,64}$")
+    every_column: bool = False
+
+
 class OdcsImportBody(BaseModel):
     path: str = Field(min_length=1, max_length=1000)
     source: str | None = Field(default=None, pattern=r"^[A-Za-z_][\w]{0,99}$")
@@ -1493,6 +1508,68 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             return query.run(loaded(), body.sql, body.engine, body.environment, body.limit, body.timeout).as_dict()
         except query.QueryError as exc:
             raise HTTPException(400, {"message": str(exc)}) from None
+
+    def explored(action: Callable[[], Any]) -> Any:
+        from murakumo.explore import ExploreError
+        from murakumo.query import QueryError
+
+        try:
+            return action()
+        except (ExploreError, QueryError) as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.get("/api/explore/status")
+    def get_explore_status(environment: str | None = None) -> dict[str, Any]:
+        """Which raw tables exist in the warehouse and their rows, from its catalog alone."""
+        from murakumo import explore
+
+        return explored(lambda: explore.status(loaded(), environment))
+
+    @app.post("/api/explore/preview")
+    def post_explore_preview(body: ExploreBody) -> dict[str, Any]:
+        """A table's rows before it is built: its model run on samples of the raw tables (or all)."""
+        from murakumo import explore
+
+        return explored(lambda: explore.preview(loaded(), body.entity, body.environment, full=body.full))
+
+    @app.post("/api/explore/estimate")
+    def post_explore_estimate(body: ExploreBody) -> dict[str, Any]:
+        """What previewing a table on all its data would read, before running it."""
+        from murakumo import explore
+
+        return explored(lambda: explore.estimate(loaded(), body.entity, body.environment))
+
+    @app.get("/api/explore/suggested")
+    def get_explore_suggested(entity: str, environment: str | None = None) -> dict[str, Any]:
+        """Queries to start from on a table, written from the model (no AI)."""
+        from murakumo import explore
+
+        return {"queries": explored(lambda: explore.suggested(loaded(), entity, environment))}
+
+    @app.get("/api/explore/relations")
+    def get_explore_relations(entity: str, column: str) -> dict[str, Any]:
+        """Where a column probably appears again, from names and types alone: no query runs."""
+        from murakumo import relations
+
+        return explored(lambda: relations.candidates(loaded(), entity, column))
+
+    @app.post("/api/explore/relations")
+    def post_explore_relations(body: ExploreBody) -> dict[str, Any]:
+        """Compare a column's values with its candidates' on the warehouse, on samples."""
+        from murakumo import relations
+
+        if not body.column:
+            raise HTTPException(400, {"message": "say which column"})
+        return explored(
+            lambda: relations.check(loaded(), body.entity, body.column, body.environment, body.only, body.wide)
+        )
+
+    @app.post("/api/explore/find")
+    def post_explore_find(body: FindBody) -> dict[str, Any]:
+        """Which raw and staging columns hold a value, searching only where it can be."""
+        from murakumo import relations
+
+        return explored(lambda: relations.find(loaded(), body.value, body.environment, ids_only=not body.every_column))
 
     @app.get("/api/contracts")
     def get_contracts(environment: str | None = None, check: bool = False) -> dict[str, Any]:

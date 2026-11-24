@@ -112,7 +112,99 @@ Only one statement that reads runs: `SELECT` (with `WITH`, `UNION`...), `DESCRIB
 refused before reaching the warehouse; on DuckDB files the connection is read-only too, and
 elsewhere the session is never committed. Results stop at the row limit (100 to 10,000), and a
 query at 30 seconds. Masking and row-access policies apply as for anyone with the same role. The
-inspector's **Query** button opens it on the selected table. Results download as CSV.
+inspector's **Query** button opens it on the selected table. Results download as CSV. Under the
+editor, **Questions to ask** lists the [suggested queries](#questions-to-ask-a-table) for the table
+you are on.
+
+## Exploring the data before modelling it
+
+The usual order: bring in a source, load its raw tables, look at the data, then model the tables
+built from it. Murakumo makes each step cheap.
+
+### Load the raw tables only
+
+```bash
+murakumo build --raw-only                 # create and load the raw tables, and stop: no dbt
+murakumo build --raw-only --sample 500    # made-up rows, to try the pipeline
+murakumo build --raw-only --data orders=data/orders.parquet
+```
+
+It loads exactly as `murakumo build` would (the same `--data`, `--sample`, `--ingest`, `--env`
+and `--prefix`), and builds nothing after: no staging, no marts, no tests. dbt need not be
+installed. On the canvas, **Load raw data…** (on the hint above the canvas, shown while no raw table
+holds data, on a table's **Data** tab, and in the query console when a table is missing) opens the
+Build dialog: pick the files, made-up rows or fetching from the sources, then click **Load raw data
+only**. When it is
+done, the hint says what loaded and opens **Query**.
+
+Whether a raw table holds data is asked of the warehouse's catalog alone, never of the table:
+DuckDB counts (free, on this computer), Snowflake's `SHOW TABLES` needs no running warehouse,
+other warehouses list the tables.
+
+### Preview a table before it is built
+
+```bash
+murakumo preview fct_order_line           # 20 rows, on samples of its raw tables
+murakumo preview fct_order_line --full    # on every row, after saying what that reads
+murakumo preview fct_order_line --sql     # the query, to run elsewhere
+```
+
+A preview runs the table's model as one query: the models it reads are folded in as CTEs, all the
+way down to the raw tables, so only those need be loaded. A history (SCD2) table, whose snapshot
+only a build has, is previewed as the snapshot's first run: every row current.
+
+Adding `LIMIT 100` to a model would not keep it cheap: a join or a `group by` reads every input row
+before the limit applies. So each raw table is read as a sample of its first 10,000 rows, and a
+preview costs the same on a billion rows as on a thousand. On BigQuery, where `LIMIT` does not lower
+the bytes billed, the sample is a 1% block sample first. Joins on samples can find fewer matches
+than the whole tables: **On all the data** (`--full`) shows what it would read first (the bytes on
+Snowflake, from `EXPLAIN`; free on DuckDB), then runs under the console's 30-second limit.
+
+On the canvas, a table's **Data** tab shows which raw tables it reads and whether each is loaded,
+**Preview its rows**, and the questions below.
+
+### Questions to ask a table
+
+```bash
+murakumo suggest orders
+```
+
+Queries written from the model itself, from templates (no AI): the first rows, the row count,
+rows per day by its first date column, its oldest and newest date, empty values per column, the
+most common values of its category columns, the range of a measure, duplicate keys (its key or
+grain), and, for each relationship it points along, the rows with no match on the other side
+(those a join would lose). They are in the warehouse's SQL, and nothing runs until you run one.
+On the canvas they are on a table's **Data** tab and under the query editor. With the
+[assistant](assistant.md) turned on, it can write SQL for a question in your own words.
+
+### Which tables a column relates to
+
+You have a customer id in one table and want to know where else it appears, and how the tables
+join. Searching every table for the id is the expensive way. Murakumo works in tiers, each running
+only on what the one before could not rule out:
+
+| Tier | What it does | What it costs |
+| --- | --- | --- |
+| Names and types | Columns of the raw and staging tables whose names mean the same id once normalised (`customer_id`, `CustomerID`, `cust_id`, `c_custkey`, `customer_key`, a customer table's `id`) and whose types join, and the relationships the model already has | Nothing: it reads the model |
+| Column summaries | Each candidate's smallest and largest value, distinct values and empty share, from a sample of its table. Kept in `.murakumo/profiles.json` (git ignores it) and asked again only when the table's row count changes | One query per table, rarely |
+| Overlap | For each candidate whose range can meet the column's, the share of a sample of distinct values on each side found on the other; with which side is unique, the direction and cardinality | Bounded by the samples; candidates whose ranges cannot meet are never compared |
+| One value | Which id columns hold a given value: only columns of a type it can be and whose range reaches it, each searched until its first match | One query, never every column of every table |
+
+```bash
+murakumo relations orders.o_custkey             # names and types: no query
+murakumo relations orders.o_custkey --check     # and compare the values, on samples
+murakumo relations orders.o_custkey --check --wide   # also ids with other names (slower)
+murakumo find 12345                              # where does this value appear?
+```
+
+By default only the columns named like it, and those the model already joins it to, are
+compared. `--wide` adds every id column of a type that joins, whatever its name; small
+whole-number ids (1, 2, 3...) overlap by chance, so a match between columns whose names differ is
+marked **by chance?** rather than **likely**: check it before relying on it.
+
+On the canvas, click a column: **Related columns**, at the bottom of its card, lists what its name
+finds, **Compare the values** runs the overlap, and **Add relationship** adds the join it found,
+pointing from the many side to the one side. **Look for a value** finds a value's columns.
 
 
 ## Monitoring: what is unusual

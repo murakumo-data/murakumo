@@ -390,6 +390,13 @@ app.add_typer(cli_ai.catalog_app, name="catalog")
 app.command("ingest")(cli_stack.ingest_command)
 app.command("load")(cli_stack.load_command)
 
+from murakumo import cli_explore  # noqa: E402
+
+app.command("preview")(cli_explore.preview_command)
+app.command("relations")(cli_explore.relations_command)
+app.command("find")(cli_explore.find_command)
+app.command("suggest")(cli_explore.suggest_command)
+
 
 @app.command()
 def canvas(

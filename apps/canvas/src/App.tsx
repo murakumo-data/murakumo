@@ -64,7 +64,7 @@ import {
   type ReactNode,
 } from 'react'
 
-import { api, ApiError, type Entity, type Job, type RunLog, type Generated, type Layer, type LineageResult, type Note, type Position, type State } from './api'
+import { api, ApiError, type Entity, type Job, type RunLog, type Generated, type Layer, type LineageResult, type Note, type Position, type RawStatus, type State } from './api'
 import { CIPanel } from './CI'
 import { GitPanel } from './Git'
 import { ChangesPanel } from './Code'
@@ -80,6 +80,8 @@ import { Shortcuts, Tour } from './Help'
 import { EntityPanel, RelationshipPanel } from './Inspector'
 import { QueryPanel } from './Query'
 import { recall, remember } from './storage'
+import { ENGINEERING_PANELS, MODE_KEY, ModeContext, savedMode, type Mode } from './mode'
+import { rowsText } from './Explore'
 import {
   domainColour,
   ends,
@@ -216,7 +218,16 @@ function Canvas() {
   const [displayOpen, setDisplayOpen] = useState(false)
   const [scheduleShown, setScheduleShown] = useState<{ name: string; entities: string[] } | null>(null)
   const shownSchedule = side === 'schedules' ? scheduleShown : null // only while its panel is open
-  const [queryFocus, setQueryFocus] = useState<{ entity: string; at: number } | null>(null)
+  const [queryFocus, setQueryFocus] = useState<{ entity: string; sql?: string; at: number } | null>(null)
+  const [mode, setMode] = useState<Mode>(savedMode)
+  const chooseMode = (next: Mode) => {
+    setMode(next)
+    remember(MODE_KEY, next)
+  }
+  // Which raw tables hold data: asked of the warehouse's catalog when the canvas opens and after
+  // each job, so the canvas can say when to load the raw data and explore it before modelling.
+  const [rawStatus, setRawStatus] = useState<RawStatus | null>(null)
+  const [rawHint, setRawHint] = useState(() => recall('murakumo.rawHint') ?? '')
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
   const [domainFilter, setDomainFilter] = useState<string | null>(null)
   const [layoutUndo, setLayoutUndo] = useState<Record<string, Position> | null>(null)
@@ -337,10 +348,12 @@ function Canvas() {
       return null
     }
   }, [])
+  const [justLoaded, setJustLoaded] = useState(false)
   const jobFinished = useCallback(
     (job: Job) => {
       setJobRunning(false)
       setJobsDone((n) => n + 1)
+      if (job.kind === 'build' && job.title.startsWith('Load raw data') && job.state === 'succeeded') setJustLoaded(true)
       if (job.kind === 'generate' || job.kind === 'export') loadGenerated()
     },
     [loadGenerated],
@@ -351,6 +364,12 @@ function Canvas() {
       .then((r) => setJobRunning(r.jobs.some((j) => j.state === 'running')))
       .catch(() => {})
   }, [])
+
+  const hasRaw = (state?.model?.entities ?? []).some((e) => e.layer === 'raw')
+  useEffect(() => {
+    if (!hasRaw) return
+    api.exploreStatus().then(setRawStatus, () => setRawStatus(null))
+  }, [hasRaw, jobsDone])
 
   // When each schedule last ran, for the Schedules panel, and whether they run on this computer:
   // read while it is open (the scheduler's runs finish on their own).
@@ -1016,6 +1035,18 @@ function Canvas() {
       badge: errors.length ? <span className="rail__dot rail__dot--error" /> : warnings.length ? <span className="rail__dot rail__dot--warning" /> : null,
     },
   ]
+  const rawLoaded = Object.entries(rawStatus?.tables ?? {})
+    .filter(([, t]) => t.exists && t.rows !== 0) // an empty table, as a migration leaves it, is not loaded
+    .map(([name, t]) => ({ name, rows: t.rows }))
+  const rawUnreachable = rawStatus?.reason && !/does not exist yet/.test(rawStatus.reason)
+  const rawHintShown: 'load' | 'explore' | null =
+    rawStatus && !rawUnreachable && rawLoaded.length === 0 && rawHint !== 'load'
+      ? 'load'
+      : justLoaded && rawLoaded.length > 0
+        ? 'explore'
+        : null
+  // Simple leaves out the panels for running the platform; one already open stays until closed.
+  const shownPanels = mode === 'simple' ? panels.filter((p) => !ENGINEERING_PANELS.has(p.id) || side === p.id) : panels
   const toggleSide = (id: Side) => {
     const next = side === id ? null : id
     setSide(next)
@@ -1025,6 +1056,7 @@ function Canvas() {
   const drawerTitle = side === 'domains' ? 'Domains' : side === 'settings' ? 'Settings' : panels.find((p) => p.id === side)?.label
 
   return (
+    <ModeContext.Provider value={mode}>
     <div className="app">
       <header className="topbar">
         <div className="topbar__project">
@@ -1052,6 +1084,23 @@ function Canvas() {
           <kbd className="kbd">⌘K</kbd>
         </button>
         <div className="topbar__actions">
+          <div className="segmented" role="group" aria-label="How much to show">
+            {(['simple', 'full'] as const).map((m) => (
+              <button
+                key={m}
+                className={mode === m ? 'segmented__button segmented__button--on segmented__button--text' : 'segmented__button segmented__button--text'}
+                aria-pressed={mode === m}
+                title={
+                  m === 'simple'
+                    ? 'Simple: plain words, the data first; how tables load and who sees what under Advanced'
+                    : 'Full: every setting and every panel, for engineers'
+                }
+                onClick={() => chooseMode(m)}
+              >
+                {m === 'simple' ? 'Simple' : 'Full'}
+              </button>
+            ))}
+          </div>
           <div className="segmented" role="group" aria-label="Show">
             {VIEW_MODES.map((mode, i) => (
               <button
@@ -1153,7 +1202,7 @@ function Canvas() {
         <nav
           className={railOpen ? 'rail rail--open' : 'rail'}
           aria-label="Tools and panels"
-          style={{ '--rail-items': 5 + panels.length + 5 } as CSSProperties}
+          style={{ '--rail-items': 5 + shownPanels.length + 5 } as CSSProperties}
         >
           <div className="rail__group">
             <RailButton label="Add table (T)" disabled={!state.editable} onClick={() => setAdding({ name: '', layer: 'raw', source: '' })}>
@@ -1208,7 +1257,7 @@ function Canvas() {
             </span>
           </div>
           <div className="rail__group">
-            {panels.map((p) => (
+            {shownPanels.map((p) => (
               <RailButton key={p.id} label={p.label} active={side === p.id} onClick={() => toggleSide(p.id)}>
                 {p.icon}
                 {p.badge && typeof p.badge === 'number' ? <span className="rail__count">{p.badge}</span> : p.badge}
@@ -1333,7 +1382,13 @@ function Canvas() {
                   }}
                 />
               )}
-              {side === 'query' && <QueryPanel environments={state.environments} focus={queryFocus} />}
+              {side === 'query' && (
+                <QueryPanel
+                  environments={state.environments}
+                  focus={queryFocus}
+                  onLoadRaw={state.editable ? () => setBuilding(true) : undefined}
+                />
+              )}
               {side === 'health' && (
                 <HealthPanel
                   refresh={jobsDone}
@@ -1428,6 +1483,46 @@ function Canvas() {
         )}
 
         <main className="stage">
+          {rawHintShown && (
+            <div className="canvas-hint" role="status">
+              {rawHintShown === 'load' ? (
+                <>
+                  <span>
+                    The raw tables have no data yet. Load them to look at the data before you model the rest: only the raw
+                    tables, nothing else is built.
+                  </span>
+                  <button className="button button--small button--primary" onClick={() => setBuilding(true)} disabled={!state.editable}>
+                    Load raw data…
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span>
+                    Raw data loaded ({rawLoaded.map((t) => `${t.name}: ${rowsText(t.rows)}`).slice(0, 3).join(', ')}
+                    {rawLoaded.length > 3 ? `, and ${rawLoaded.length - 3} more` : ''}). Click a raw table, then Data, to preview it
+                    and see questions to ask it.
+                  </span>
+                  <button className="button button--small button--primary" onClick={() => toggleSide('query')}>
+                    Open Query
+                  </button>
+                </>
+              )}
+              <button
+                className="icon-button"
+                aria-label="Dismiss"
+                title="Dismiss"
+                onClick={() => {
+                  setJustLoaded(false)
+                  if (rawHintShown === 'load') {
+                    setRawHint('load')
+                    remember('murakumo.rawHint', 'load')
+                  }
+                }}
+              >
+                ×
+              </button>
+            </div>
+          )}
           {(state.canvas?.diagrams?.length || state.editable) && (
             <DiagramTabs
               diagrams={state.canvas?.diagrams ?? []}
@@ -1576,10 +1671,11 @@ function Canvas() {
                 lineageOf={lineageOf}
                 onLineage={setLineageOf}
                 onJob={startJob}
-                onQuery={(entity) => {
-                  setQueryFocus({ entity, at: Date.now() })
+                onQuery={(entity, sql) => {
+                  setQueryFocus({ entity, sql, at: Date.now() })
                   setSide('query')
                 }}
+                onLoadRaw={() => setBuilding(true)}
               />
             )}
             {selectedRelationship && (
@@ -1702,6 +1798,7 @@ function Canvas() {
         </div>
       )}
     </div>
+    </ModeContext.Provider>
   )
 }
 

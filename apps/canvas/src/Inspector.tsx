@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 import { api, impactText, previewOf, type Attribute, type Diagnostic, type Entity, type ImpactReport, type Relationship, type State } from './api'
@@ -6,6 +6,8 @@ import { EntityCodeView } from './Code'
 import { ExpressionEditor } from './ExpressionEditor'
 import { ComboInput, Row, SelectField, TextField } from './Field'
 import { DiagramChips } from './Diagrams'
+import { DataTab, RelatedColumns } from './Explore'
+import { KIND_WORDS, LAYER_WORDS, useMode } from './mode'
 import { LabelSelect } from './Labels'
 import { QualitySection } from './Rules'
 
@@ -54,12 +56,14 @@ type EntityProps = {
   lineageOf: LineageTarget
   onLineage: (target: LineageTarget) => void
   onJob: (kind: string, options: Record<string, unknown>) => void // start a long command (backfill)
-  onQuery?: (entity: string) => void // preview the table's data in the query console
+  onQuery?: (entity: string, sql?: string) => void // open the table (or a query on it) in the query console
+  onLoadRaw?: () => void // open the Build dialog to load the raw tables only
 }
 
 export function EntityPanel(props: EntityProps) {
-  const { state, entity, column, onColumn, run, diagnostics, generatedRevision, lineageOf, onLineage, onJob, onQuery } = props
-  const [tab, setTab] = useState<'model' | 'code'>('model')
+  const { state, entity, column, onColumn, run, diagnostics, generatedRevision, lineageOf, onLineage, onJob, onQuery, onLoadRaw } = props
+  const simple = useMode() === 'simple'
+  const [tab, setTab] = useState<'model' | 'data' | 'code'>(simple ? 'data' : 'model')
   const issues = diagnostics.filter((d) => d.entity_id === entity.id)
   const picked = column ? entity.attributes.find((a) => a.id === column) : undefined
   return (
@@ -68,6 +72,9 @@ export function EntityPanel(props: EntityProps) {
       <div className="tabs inspector__tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'model'} className="tab" onClick={() => setTab('model')}>
           Model
+        </button>
+        <button role="tab" aria-selected={tab === 'data'} className="tab" onClick={() => setTab('data')}>
+          Data
         </button>
         <button role="tab" aria-selected={tab === 'code'} className="tab" onClick={() => setTab('code')}>
           Code
@@ -79,7 +86,15 @@ export function EntityPanel(props: EntityProps) {
         )}
       </div>
       <div className={tab === 'code' ? 'panel__body panel__body--wide' : 'panel__body'}>
-        {tab === 'model' ? (
+        {tab === 'data' ? (
+          <>
+            <div className="panel__heading">
+              <span className={`dot dot--${entity.layer}`} />
+              <code className="panel__title">{entity.name}</code>
+            </div>
+            <DataTab state={state} entity={entity} onLoadRaw={onLoadRaw} onQuery={onQuery} />
+          </>
+        ) : tab === 'model' ? (
           <>
             {picked && (
               <ColumnDetails
@@ -245,7 +260,19 @@ function ColumnDetails(props: {
       >
         ⇄ {showing ? 'Hide its lineage' : 'Show its lineage on the canvas'}
       </button>
+      <RelatedColumns state={state} entity={entity} column={column.name} run={run} />
     </section>
+  )
+}
+
+/** Settings an engineer sets: shown as they are in Full, kept under a closed Advanced in Simple. */
+function Advanced({ what, children }: { what: string; children: ReactNode }) {
+  if (useMode() !== 'simple') return <>{children}</>
+  return (
+    <details className="advanced">
+      <summary className="advanced__summary">Advanced: {what.toLowerCase()}</summary>
+      {children}
+    </details>
   )
 }
 
@@ -261,6 +288,7 @@ type FormProps = {
 
 function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }: FormProps) {
   const { choices, editable } = state
+  const simple = useMode() === 'simple'
   const disabled = !editable
   const save = (changes: Record<string, unknown>) => careful(run, () => api.updateEntity(entity.id, changes))
   const saveColumn = (columnId: string, changes: Record<string, unknown>) =>
@@ -326,9 +354,11 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
         <Row label="Layer">
           <SelectField label="Layer" value={entity.layer} options={choices.layers} disabled={disabled} onSave={(layer) => save({ layer })} />
         </Row>
-        <Row label="Kind">
+        {simple && LAYER_WORDS[entity.layer] && <p className="muted small inspector__hint">{LAYER_WORDS[entity.layer]}.</p>}
+        <Row label={simple ? 'Holds' : 'Kind'}>
           <SelectField label="Kind" value={entity.kind} options={choices.kinds} disabled={disabled} onSave={(kind) => save({ kind })} />
         </Row>
+        {simple && KIND_WORDS[entity.kind] && <p className="muted small inspector__hint">{KIND_WORDS[entity.kind]}.</p>}
         <Row label="Source">
           <SelectField
             label="Source"
@@ -339,6 +369,7 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
             onSave={(source) => save({ source })}
           />
         </Row>
+        <Advanced what="How it loads and who sees it">
         {entity.layer === 'raw' && (
           <Row label="New rows">
             <SelectField
@@ -466,6 +497,7 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
             )}
           </>
         )}
+        </Advanced>
         <Row label="Domain">
           <SelectField
             label="Domain"

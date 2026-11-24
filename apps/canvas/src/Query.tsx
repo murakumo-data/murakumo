@@ -1,7 +1,7 @@
-import { Download, Play, RotateCcw } from 'lucide-react'
+import { Download, Lightbulb, Play, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { api, type QueryEngine, type QueryResult, type QueryTarget } from './api'
+import { api, type QueryEngine, type QueryResult, type QueryTarget, type Suggested } from './api'
 import { recall, remember } from './storage'
 
 // The query console: read-only SQL on any table at any stage (the source itself, what landed,
@@ -34,9 +34,11 @@ function history(): { sql: string; engine: string }[] {
 export function QueryPanel({
   environments,
   focus,
+  onLoadRaw,
 }: {
   environments: { personal: string; shared: string[] }
-  focus: { entity: string; at: number } | null // a table the inspector asked to preview
+  focus: { entity: string; sql?: string; at: number } | null // a table (or a query on it) the inspector asked for
+  onLoadRaw?: () => void // load the raw tables, when a query finds them missing
 }) {
   const [environment, setEnvironment] = useState(environments.personal)
   const [engines, setEngines] = useState<QueryEngine[]>([])
@@ -50,6 +52,12 @@ export function QueryPanel({
   const [filter, setFilter] = useState('')
   const [past, setPast] = useState(history)
   const editor = useRef<HTMLTextAreaElement>(null)
+  const [about, setAbout] = useState<string | null>(null) // the table the query is on: its questions show
+  const [questions, setQuestions] = useState<Suggested[]>([])
+  useEffect(() => {
+    if (!about) return setQuestions([])
+    api.suggested(about).then((r) => setQuestions(r.queries), () => setQuestions([]))
+  }, [about])
 
   useEffect(() => {
     api.queryTargets(environment).then(
@@ -86,6 +94,7 @@ export function QueryPanel({
   const pick = (target: QueryTarget, now = false) => {
     setSql(target.sql)
     setEngine(target.engine)
+    if (target.engine === 'warehouse' && target.entity) setAbout(target.entity)
     editor.current?.focus()
     if (now) void run(target.sql, target.engine)
   }
@@ -95,6 +104,14 @@ export function QueryPanel({
   useEffect(() => {
     if (!focus || focus.at === handled.current || !targets.length) return
     handled.current = focus.at
+    setAbout(focus.entity)
+    if (focus.sql) {
+      setFilter(focus.entity)
+      setSql(focus.sql)
+      setEngine('warehouse')
+      void run(focus.sql, 'warehouse')
+      return
+    }
     const own = targets.filter((t) => t.entity?.toLowerCase() === focus.entity.toLowerCase())
     const best = own.find((t) => t.stage === 'marts' || t.stage === 'intermediate') ?? own.find((t) => t.stage === 'staging') ?? own[0]
     if (best) {
@@ -181,6 +198,17 @@ export function QueryPanel({
           {error}
         </p>
       )}
+      {error && onLoadRaw && /does not exist|not found|no such table|catalog error|build the project first/i.test(error) && (
+        <div className="query__hint">
+          <p className="muted small">
+            The table may not be loaded yet. Load the raw tables (only those, nothing else is built) and query them before
+            you model the rest.
+          </p>
+          <button className="button button--small button--primary" onClick={onLoadRaw}>
+            Load raw data…
+          </button>
+        </div>
+      )}
       {error && /build the project first/.test(error) && (
         <div className="query__hint">
           <p className="muted small">
@@ -231,6 +259,30 @@ export function QueryPanel({
             </table>
           </div>
         </div>
+      )}
+      {questions.length > 0 && (
+        <section className="query__questions">
+          <h4 className="runs__heading">
+            <Lightbulb size={12} /> Questions to ask {about}
+          </h4>
+          <ul className="query__list">
+            {questions.map((q) => (
+              <li key={q.title}>
+                <button
+                  className="link"
+                  title={q.plain}
+                  onClick={() => {
+                    setSql(q.sql)
+                    setEngine('warehouse')
+                    void run(q.sql, 'warehouse')
+                  }}
+                >
+                  {q.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       <section className="query__targets">
         <div className="runs__bar">

@@ -294,10 +294,17 @@ def build_command(
     ingest: bool = typer.Option(
         False, "--ingest", help="Fetch what is new from the sources first, and load everything that has landed."
     ),
+    raw_only: bool = typer.Option(
+        False,
+        "--raw-only",
+        help="Create and load the raw tables, and stop: no dbt. The cheapest build, to explore the data before "
+        "modelling it.",
+    ),
 ) -> None:
     """Build the project into the warehouse and keep it: raw tables, then every dbt model and test.
 
-    Unlike `verify`, nothing is dropped afterwards; the tables are there to query.
+    Unlike `verify`, nothing is dropped afterwards; the tables are there to query. With --raw-only,
+    only the raw tables are created and loaded, so they can be queried before anything is modelled.
     """
     from murakumo.generate.verify import build
     from murakumo.importers.database import SourceUnavailable
@@ -348,7 +355,8 @@ def build_command(
         fail(str(exc))
         raise typer.Exit(1) from None
     console.print(f"Building {placement.describe()}.")
-    with console.status(f"Building on {target}: raw tables, then dbt build..."):
+    doing = "loading the raw tables" if raw_only else "raw tables, then dbt build"
+    with console.status(f"Building on {target}: {doing}..."):
         try:
             result = build(
                 project,
@@ -360,10 +368,23 @@ def build_command(
                 schedule=schedule,
                 schema_prefix=prefix,
                 dbt_vars={"run_date": run_date} if run_date else None,
+                load_only=raw_only,
             )
         except SourceUnavailable as exc:
             fail(str(exc))
             raise typer.Exit(1) from None
+
+    if raw_only:
+        _report(result, files)
+        if result.error:
+            fail(result.error)
+            raise typer.Exit(1)
+        console.print(
+            f"[green]loaded[/green]: the raw tables are in {result.location}. Query them with "
+            "[bold]murakumo query[/bold] or the canvas's Query panel, preview a model with "
+            "[bold]murakumo preview TABLE[/bold], then build the rest with [bold]murakumo build[/bold]."
+        )
+        return
 
     for breach in result.breaches:
         mark = "[red]error[/red]" if breach["level"] == "error" else "[yellow]warn[/yellow] "
