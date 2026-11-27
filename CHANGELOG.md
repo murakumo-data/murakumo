@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 (2026-11-27)
 
 Connecting a source without the fiddly parts: secrets typed once and kept out of git, Microsoft
 Dynamics 365 from four fields, any other API from a request that already works, and one button to
