@@ -195,6 +195,17 @@ def _load_landed(project, environment: str | None, prefix: str | None) -> None:
     from murakumo.cli_generate import _report
     from murakumo.generate.verify import build
     from murakumo.importers.database import SourceUnavailable
+    from murakumo.project import load_project
+
+    made = ingest.make_missing(project)
+    for table, columns in made:
+        console.print(f"  made the raw table {table} from what landed ({columns} columns): check its types")
+    if made:
+        project = load_project(project.root).project
+    for declaration, table in ingest.missing_tables(project):
+        console.print(
+            f"  [yellow]{declaration.name}.{table} is not in the model[/yellow]: nothing landed to make it from"
+        )
 
     files = ingest.landed(project)
     if not files:

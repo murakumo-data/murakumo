@@ -264,6 +264,7 @@ murakumo ingest                  # fetch what is new from every connected source
 murakumo ingest --source weather --table readings
 murakumo load --env dev          # load what has landed into the raw tables, without running dbt
 murakumo ingest --source crm --load   # fetch, then load what landed: query it straight away
+# A fetched table with no raw table in the model yet gets one, made from the records that landed.
 murakumo build --ingest          # fetch, load everything landed, then build
 ```
 

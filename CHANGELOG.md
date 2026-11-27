@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**Fixed**
+
+- **Fetched data that never became a table.** A source whose requests had no raw table in the
+  model (set up before **Add tables**, or by hand) was fetched, but the load skipped it and said
+  it had loaded. Its data showed in Query → Landed and nowhere on the canvas. **Fetch and load**,
+  `murakumo load` and `murakumo build --ingest` now make each missing raw table from the records
+  that landed (a Dynamics table with its id as key, merged by it), then load it.
+- The Dynamics table list showed such tables as *fetched* and would not let them be ticked. They
+  now say **not a table yet**, and can be added.
+
 ## 1.3.0 (2026-11-27)
 
 Connecting a source without the fiddly parts: secrets typed once and kept out of git, Microsoft
