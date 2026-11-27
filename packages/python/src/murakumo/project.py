@@ -159,6 +159,10 @@ def load_project(root: Path) -> LoadResult:
         diagnostics.append(error("MK000", f"no {MANIFEST_FILE} here; run `murakumo init` to create a project", root))
         return LoadResult(None, diagnostics)
 
+    from murakumo import secret_file
+
+    secret_file.load(root)  # the project's .env: secrets nobody has to export by hand
+
     raw_manifest = _read_yaml(manifest_path, diagnostics)
     if raw_manifest is None and not diagnostics:
         diagnostics.append(error("MK003", "the manifest is empty", manifest_path))

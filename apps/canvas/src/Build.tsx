@@ -59,13 +59,14 @@ export function BuildDialog(props: {
   state: State
   onStart: (options: Record<string, unknown>) => void
   onClose: () => void
+  connected?: string[] // sources Murakumo fetches: fetched first, by default
 }) {
-  const { state, onStart, onClose } = props
+  const { state, onStart, onClose, connected = [] } = props
   const raw = useMemo(() => (state.model?.entities ?? []).filter((e) => e.layer === 'raw'), [state])
   const cumulative = (state.model?.entities ?? []).some((e) => e.kind === 'cumulative')
   const schedules = state.orchestration?.implicit ? [] : (state.orchestration?.schedules ?? [])
   const [files, setFiles] = useState<Upload[]>([])
-  const [options, setOptions] = useState<Options>({ environment: state.environments.personal, sample: 0, data: {}, schedule: '', run_date: '', prefix: '', ingest: false })
+  const [options, setOptions] = useState<Options>({ environment: state.environments.personal, sample: 0, data: {}, schedule: '', run_date: '', prefix: '', ingest: connected.length > 0 })
   const [advanced, setAdvanced] = useState(false)
   useEffect(() => {
     api.uploads().then((r) => setFiles(r.files), () => {})
@@ -222,8 +223,12 @@ export function BuildDialog(props: {
           <button
             type="button"
             className="button"
-            disabled={!prefixOk || raw.length === 0}
-            title="murakumo build --raw-only: create and load the raw tables, and stop. Query them before modelling the rest."
+            disabled={!prefixOk || raw.length === 0 || !(loaded || options.sample > 0 || options.ingest)}
+            title={
+              loaded || options.sample > 0 || options.ingest
+                ? 'murakumo build --raw-only: create and load the raw tables, and stop. Query them before modelling the rest.'
+                : 'Nothing to load yet: choose a file for a table, fetch from the sources, or add made-up rows'
+            }
             onClick={() =>
               onStart({
                 environment: options.environment === state.environments.personal ? undefined : options.environment,

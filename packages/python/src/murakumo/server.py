@@ -348,6 +348,34 @@ class RequestBody(BaseModel):
     endpoint: dict[str, Any]
 
 
+class SecretBody(BaseModel):
+    value: str = Field(min_length=1, max_length=20000)
+
+
+class DynamicsBody(BaseModel):
+    """A Dynamics 365 / Dataverse source from four things; the id and secret only when they change."""
+
+    url: str = Field(min_length=1, max_length=500)
+    tenant: str = Field(min_length=1, max_length=200)
+    client_id: str | None = Field(default=None, max_length=500)
+    client_secret: str | None = Field(default=None, max_length=5000)
+    why: str | None = Field(default=None, max_length=2000)
+
+
+class DynamicsTable(BaseModel):
+    entity_set: str = Field(min_length=1, max_length=200)  # what the Web API calls it: accounts
+    logical_name: str | None = Field(default=None, max_length=200)  # its own name: account (its id is accountid)
+
+
+class DynamicsTables(BaseModel):
+    tables: list[str | DynamicsTable] = Field(min_length=1, max_length=200)
+    why: str | None = Field(default=None, max_length=2000)
+
+
+class PastedRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=20000)
+
+
 class TableFromRecords(BaseModel):
     source: str
     table: str
@@ -1117,6 +1145,205 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             return ingest.preview(connection, endpoint)
         except ingest.IngestError as exc:
             raise HTTPException(400, {"message": str(exc)}) from None
+
+    # Secrets: kept in the project's .env (gitignored), never sent back -------------------------------
+
+    def connection_secrets(project: Project) -> list[str]:
+        """The variables the connections read their secrets from."""
+        names: list[str] = []
+        for declaration in project.manifest.sources:
+            c = declaration.connection
+            if c is None:
+                continue
+            data = c.model_dump(exclude_none=True)
+            for holder in (data, data.get("auth") or {}):
+                names += [str(v) for k, v in holder.items() if k.endswith("_env") or (k == "env" and v)]
+        return names
+
+    @app.get("/api/secrets")
+    def get_secrets(names: str | None = None) -> dict[str, Any]:
+        """Whether each secret is set, and where (the project's .env or the environment). Never a value."""
+        from murakumo import secret_file
+
+        wanted = [n for n in (names or "").split(",") if n] or connection_secrets(loaded())
+        return {"secrets": secret_file.status(root, wanted), "file": secret_file.FILE}
+
+    @app.put("/api/secrets/{name}")
+    def put_secret(name: str, body: SecretBody) -> dict[str, Any]:
+        """Keep a secret in the project's .env (added to .gitignore), and use it from now on."""
+        from murakumo import secret_file
+
+        try:
+            with lock:
+                secret_file.save(root, name, body.value)
+        except secret_file.SecretError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+        return {"secrets": secret_file.status(root, [name])}
+
+    @app.delete("/api/secrets/{name}")
+    def delete_secret(name: str) -> dict[str, Any]:
+        from murakumo import secret_file
+
+        with lock:
+            removed = secret_file.remove(root, name)
+        return {"removed": removed, "secrets": secret_file.status(root, [name])}
+
+    # Microsoft Dynamics 365 / Dataverse ---------------------------------------------------------------
+
+    def save_connection(name: str, connection: dict[str, Any], why: str | None) -> str:
+        from murakumo.manifest import SourceDeclaration
+
+        SourceDeclaration.model_validate({"name": name, "connection": connection})
+        project = loaded()
+        before = history_module.take(root)
+        what = stack_module.set_connection(project, name, connection, why)
+        history.record(what, before, history_module.take(root))
+        return what
+
+    def current_connection(name: str) -> dict[str, Any] | None:
+        declaration = next((d for d in loaded().manifest.sources if d.name.lower() == name.lower()), None)
+        if declaration is None or declaration.connection is None:
+            return None
+        return declaration.connection.model_dump(exclude_none=True)
+
+    @app.get("/api/sources/{name}/dynamics")
+    def get_dynamics(name: str) -> dict[str, Any]:
+        """A Dynamics source's URL and tenant, and whether its client id and secret are set."""
+        from murakumo import dynamics, secret_file
+
+        connection = current_connection(name)
+        client_id, client_secret = dynamics.variables(name)
+        settings = dynamics.settings_of(connection) if dynamics.is_dynamics(connection) else {"url": "", "tenant": ""}
+        tables = [e["table"] for e in (connection or {}).get("endpoints", [])] if settings["url"] else []
+        return {
+            **settings,
+            "secrets": secret_file.status(root, [client_id, client_secret]),
+            "tables": tables,
+        }
+
+    @app.post("/api/sources/{name}/dynamics")
+    def connect_dynamics(name: str, body: DynamicsBody) -> dict[str, Any]:
+        """Keep the client id and secret, sign in, list the environment's tables, and save the
+        connection (keeping the tables it already fetches)."""
+        from murakumo import dynamics, extract, secret_file
+
+        try:
+            fresh = dynamics.connection(name, body.url, body.tenant)
+        except dynamics.DynamicsError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+        client_id, client_secret = dynamics.variables(name)
+        with lock:
+            if body.client_id and body.client_id.strip():
+                secret_file.save(root, client_id, body.client_id.strip())
+            if body.client_secret and body.client_secret.strip():
+                secret_file.save(root, client_secret, body.client_secret.strip())
+        try:
+            tables = dynamics.tables(fresh)
+        except extract.ExtractError as exc:
+            raise HTTPException(400, {"message": dynamics.explain(str(exc))}) from None
+        existing = current_connection(name) or {}
+        if dynamics.is_dynamics(existing):
+            fresh["endpoints"] = existing.get("endpoints", [])
+        elif existing.get("kind") == "rest" and dynamics.API in str(existing.get("base_url", "")):
+            # A Dynamics source set up by hand: its tables carry on, now with every page followed.
+            fresh["endpoints"] = [
+                {**e, "path": e.get("path") or f"/{e['table']}", "records": e.get("records") or "value"}
+                for e in existing.get("endpoints", [])
+            ]
+        with lock:
+            try:
+                save_connection(name, fresh, body.why or "Connected to Microsoft Dynamics 365")
+            except (ValueError, stack_module.StackError) as exc:
+                raise HTTPException(400, {"message": " ".join(str(exc).split())[:300]}) from None
+        return {**state(root), "tables": tables, "fetching": [e["table"] for e in fresh["endpoints"]]}
+
+    @app.post("/api/sources/{name}/dynamics/tables")
+    def dynamics_tables(name: str, body: DynamicsTables) -> dict[str, Any]:
+        """Fetch these tables too: make each raw table from its first rows (columns and types, with
+        modifiedon as its watermark), and add its request to the connection."""
+        from murakumo import dynamics, extract
+        from murakumo.importers.api import import_records
+        from murakumo.importers.base import merge, safe_name
+
+        connection = current_connection(name)
+        if not dynamics.is_dynamics(connection):
+            raise HTTPException(400, {"message": f"{name} is not connected to Dynamics yet"})
+        assert connection is not None
+        made: list[dict[str, Any]] = []
+        samples: dict[str, list[dict[str, Any]]] = {}
+        logical = {
+            t.entity_set if isinstance(t, DynamicsTable) else t: t.logical_name
+            if isinstance(t, DynamicsTable)
+            else None
+            for t in body.tables
+        }
+        for entity_set in logical:
+            table = dynamics.table_name(entity_set)
+            try:
+                rows = dynamics.sample(connection, entity_set)
+            except extract.ExtractError as exc:
+                made.append({"table": table, "entity_set": entity_set, "error": dynamics.explain(str(exc))})
+                continue
+            if not rows:
+                made.append(
+                    {"table": table, "entity_set": entity_set, "error": "it has no rows yet to read its columns from"}
+                )
+                continue
+            samples[entity_set] = rows
+        if samples:
+
+            def action(project: Project) -> None:
+                for entity_set, rows in samples.items():
+                    table = dynamics.table_name(entity_set)
+                    report = merge(project, import_records(rows, safe_name(name, "source"), table, path="value"))
+                    entity = project.model.entity(table)
+                    watermark = entity is not None and any(a.name == dynamics.WATERMARK for a in entity.attributes)
+                    if entity is not None:
+                        dynamics.shape(entity, entity_set, logical.get(entity_set))
+                    made.append(
+                        {
+                            "table": table,
+                            "entity_set": entity_set,
+                            "columns": len(entity.attributes) if entity is not None else 0,
+                            "added": bool(report.added),
+                            "watermark": watermark,
+                        }
+                    )
+
+            change(action, None)
+        wanted = {m["entity_set"]: m for m in made if "error" not in m}
+        endpoints = [e for e in connection.get("endpoints", []) if e.get("path", "").lstrip("/") not in wanted]
+        endpoints += [dynamics.endpoint(entity_set, m["watermark"]) for entity_set, m in wanted.items()]
+        if wanted:
+            with lock:
+                save_connection(name, {**connection, "endpoints": endpoints}, body.why or f"Fetch {', '.join(wanted)}")
+        return {**state(root), "made": made}
+
+    @app.post("/api/sources/{name}/paste")
+    def paste_request(name: str, body: PastedRequest) -> dict[str, Any]:
+        """A connection from a request that works (a URL or a curl command): its secret goes in the
+        project's .env, and the connection names the variable. Nothing is saved to murakumo.yaml."""
+        from murakumo import pasted_request, secret_file
+
+        try:
+            parsed = pasted_request.parse(body.text)
+        except pasted_request.PastedRequestError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+        auth = parsed["connection"]["auth"]
+        secret, saved = parsed.pop("secret"), []
+        with lock:
+            if secret and auth["type"] == "basic":
+                user, _, password = secret.partition(":")
+                auth["user_env"] = secret_file.variable(name, "user")
+                auth["password_env"] = secret_file.variable(name, "password")
+                secret_file.save(root, auth["user_env"], user)
+                secret_file.save(root, auth["password_env"], password)
+                saved += [auth["user_env"], auth["password_env"]]
+            elif secret:
+                auth["env"] = secret_file.variable(name, "token" if auth["type"] == "bearer" else "api_key")
+                secret_file.save(root, auth["env"], secret)
+                saved.append(auth["env"])
+        return {**parsed, "saved": saved}
 
     @app.post("/api/sources/{name}/test")
     def test_source(name: str) -> dict[str, Any]:

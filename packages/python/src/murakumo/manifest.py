@@ -204,12 +204,13 @@ class Auth(Section):
 class Paging(Section):
     """How a REST API hands over a long list a page at a time."""
 
-    type: str = Field(default="none", pattern="^(none|page|offset|cursor|link)$")
+    type: str = Field(default="none", pattern="^(none|page|offset|cursor|link|next_url)$")
     param: str | None = None  # the page, offset or cursor parameter (page, offset, cursor)
     size_param: str | None = None  # the page-size parameter (per_page, limit)
     size: int = Field(default=100, ge=1, le=10000)
     start: int = 1  # page: the first page's number; offset starts at 0
     cursor_path: str | None = None  # cursor: where the next cursor is in the response (meta.next_cursor)
+    next_path: str | None = None  # next_url: where the next page's URL is in the response (@odata.nextLink)
     max_pages: int | None = Field(default=None, ge=1)  # a safety stop
 
 
@@ -223,6 +224,7 @@ class Endpoint(Section):
     body: dict[str, Any] | None = None
     records: str | None = None  # where the list of records is in the response (data.items); default: all of it
     since_param: str | None = None  # incremental: this parameter gets the latest watermark already fetched
+    since_format: str | None = None  # how the parameter is written, {since} being the watermark: modifiedon ge {since}
 
 
 class RestConnection(Section):

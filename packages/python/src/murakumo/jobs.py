@@ -155,6 +155,10 @@ def command(root: Path, kind: str, options: dict[str, Any]) -> tuple[str, list[s
             args += ["--source", _name(options["source"], "the source")]
         if options.get("table"):
             args += ["--table", _name(options["table"], "the table")]
+        if options.get("load"):
+            args.append("--load")
+            _common(options, args)
+            return f"Fetch and load {options.get('source') or 'the sources'}", args
         return f"Fetch {options.get('source') or 'the sources'}", args
     if kind == "load":
         args = ["load"]

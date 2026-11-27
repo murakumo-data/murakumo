@@ -418,7 +418,8 @@ def stack_page(project, plan: Plan) -> str:
             for endpoint in c.endpoints:
                 since = ""
                 if endpoint.since_param:
-                    since = f", only what is newer than the last run (`{endpoint.since_param}`)"
+                    written = f" = {endpoint.since_format}" if endpoint.since_format else ""
+                    since = f", only what is newer than the last run (`{endpoint.since_param}{written}`)"
                 records = f", records at `{endpoint.records}`" if endpoint.records else ""
                 lines.append(f"- `{endpoint.method} {endpoint.path or '/'}` → {endpoint.table}{records}{since}")
         lines.append("")

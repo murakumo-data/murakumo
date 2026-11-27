@@ -186,8 +186,11 @@ def warehouse_checks(project: Project, connect: bool) -> list[Check]:
     missing = [name for name in required if not os.environ.get(name)]
     guide = _SETUP_DOCS.get(warehouse)
     if missing:
-        steps = [f'export {name}="..."' for name in missing]
-        steps.append("Put the exports in ~/.zshrc (or your shell's profile) and open a new terminal.")
+        steps = [
+            "Put them in this project's .env file, one a line (Murakumo reads it, and keeps it out of git):",
+            *[f"{name}=..." for name in missing],
+            "Or export them in your shell, or set them in CI's secrets.",
+        ]
         if guide:
             steps.insert(0, f"First-time setup, step by step: {guide}")
         checks.append(
@@ -323,6 +326,35 @@ _DRIVERS = {
 }
 
 
+def _connection_secrets(declaration, area: str) -> list[Check]:
+    """The secrets a source's connection reads: each set, in .env or the environment."""
+    connection = declaration.connection
+    if connection is None:
+        return []
+    data = connection.model_dump(exclude_none=True)
+    names = [
+        str(v)
+        for holder in (data, data.get("auth") or {})
+        for k, v in holder.items()
+        if k.endswith("_env") or k == "env"
+    ]
+    missing = [name for name in dict.fromkeys(names) if not os.environ.get(name)]
+    if not missing:
+        return [Check(area, "Its connection's secrets are set", Status.OK)] if names else []
+    return [
+        Check(
+            area,
+            f"Set {', '.join(missing)}",
+            Status.TODO,
+            "Secrets the connection reads. They never go in murakumo.yaml.",
+            [
+                f"On the canvas: Sources → {declaration.name} → Connect…, and paste each one.",
+                "Or add them to this project's .env (kept out of git): " + ", ".join(f"{n}=..." for n in missing),
+            ],
+        )
+    ]
+
+
 def source_checks(project: Project, connect: bool) -> list[Check]:
     from murakumo.importers.database import dialect_of
 
@@ -330,6 +362,7 @@ def source_checks(project: Project, connect: bool) -> list[Check]:
     root = project.root
     for declaration in project.manifest.sources:
         area = f"Source: {declaration.name}"
+        checks += _connection_secrets(declaration, area)
         if not declaration.from_:
             checks.append(Check(area, "No from: line: add its tables by hand or on the canvas", Status.INFO))
             continue
@@ -378,7 +411,8 @@ def source_checks(project: Project, connect: bool) -> list[Check]:
                         Status.TODO,
                         "The connection string for this source, kept out of the project.",
                         [
-                            f'export {variable}="postgresql://user:password@host:5432/database"',
+                            f"Add it to this project's .env (kept out of git): "
+                            f"{variable}=postgresql://user:password@host:5432/database",
                             "Use a read-only user: importing only reads the catalogue.",
                         ],
                     )

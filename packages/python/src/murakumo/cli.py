@@ -383,6 +383,10 @@ from murakumo import cli_ai, cli_stack  # noqa: E402
 
 app.add_typer(cli_stack.stack_app, name="stack")
 app.add_typer(cli_stack.source_app, name="source")
+
+from murakumo import cli_secret  # noqa: E402
+
+app.add_typer(cli_secret.secret_app, name="secret")
 app.add_typer(cli_stack.decisions_app, name="decisions")
 app.add_typer(cli_ai.ai_app, name="ai")
 app.command("mcp")(cli_ai.mcp)
