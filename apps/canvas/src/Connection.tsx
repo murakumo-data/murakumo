@@ -230,7 +230,14 @@ export function ConnectionEditor({
       <h3 className="section__title">Connect {source}</h3>
       {choice === 'choose' && <Choose onChoose={setChoice} />}
       {choice === 'dynamics' && (
-        <DynamicsConnect source={source} connected={initial !== null && isDynamics(initial)} run={run} startJob={startJob} onMessage={onMessage} />
+        <DynamicsConnect
+          source={source}
+          connected={initial !== null && isDynamics(initial)}
+          inModel={tables}
+          run={run}
+          startJob={startJob}
+          onMessage={onMessage}
+        />
       )}
       {(choice === 'api' || choice === 'other') && (
         <ConnectionForm
@@ -283,12 +290,14 @@ function Choose({ onChoose }: { onChoose: (choice: Choice) => void }) {
 function DynamicsConnect({
   source,
   connected,
+  inModel,
   run,
   startJob,
   onMessage,
 }: {
   source: string
   connected: boolean
+  inModel: string[] // the source's raw tables in the model
   run: Run
   startJob: (kind: string, options?: Record<string, unknown>) => Promise<unknown>
   onMessage: (text: string) => void
@@ -394,6 +403,7 @@ function DynamicsConnect({
           source={source}
           found={found}
           fetching={fetching}
+          inModel={inModel}
           run={run}
           onMade={(made) => {
             const ok = made.filter((m) => !m.error)
@@ -420,12 +430,14 @@ function TablePicker({
   source,
   found,
   fetching,
+  inModel,
   run,
   onMade,
 }: {
   source: string
   found: DynamicsTable[]
   fetching: string[]
+  inModel: string[]
   run: Run
   onMade: (made: DynamicsMade[]) => void
 }) {
@@ -475,7 +487,9 @@ function TablePicker({
       </label>
       <ul className="table-picker__list">
         {shown.map((t) => {
-          const already = fetching.includes(t.table)
+          // Fetched and in the model. One fetched but never made into a table can still be added.
+          const already = fetching.includes(t.table) && inModel.includes(t.table)
+          const unmade = fetching.includes(t.table) && !already
           return (
             <li key={t.entity_set}>
               <label className="settings__check">
@@ -484,6 +498,7 @@ function TablePicker({
                   {t.label} <code className="muted">{t.entity_set}</code>
                   {t.custom && <span className="badge badge--quiet">yours</span>}
                   {already && <span className="badge badge--quiet">fetched</span>}
+                  {unmade && <span className="badge badge--warning">not a table yet</span>}
                 </span>
               </label>
             </li>

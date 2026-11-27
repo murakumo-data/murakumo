@@ -435,3 +435,25 @@ def test_a_dynamics_source_set_up_by_hand_moves_over(fake, project, clean_env):
     assert answer.json()["fetching"] == ["contacts"]
     connection = load_project(project).project.manifest.sources[-1].connection
     assert connection.paging.type == "next_url" and connection.auth.client_secret_env == "CRM_CLIENT_SECRET"
+
+
+def test_fetched_tables_missing_from_the_model_are_made_and_loaded(fake, project, clean_env):
+    """A connection whose tables were never made (set up by hand, or before Add tables): Fetch and
+    load makes each raw table from what landed, then loads it, instead of loading nothing."""
+    from murakumo import stack
+
+    clean_env.setenv("CRM_CLIENT_ID", "app-id")
+    clean_env.setenv("CRM_CLIENT_SECRET", "s3cr$t!")
+    connection = dynamics.connection(
+        "crm", fake, "t1", [dynamics.endpoint("contacts"), dynamics.endpoint("vrp_mortgageloans")]
+    )
+    stack.set_connection(load_project(project).project, "crm", connection)
+    assert load_project(project).project.model.entity("contacts") is None
+
+    result = CliRunner().invoke(app, ["ingest", "--source", "crm", "--load", "-p", str(project)])
+    assert result.exit_code == 0, result.output
+    assert "made the raw table contacts from what landed" in result.output
+    assert "loaded contacts: 7 rows" in result.output and "loaded vrp_mortgageloans: 2 rows" in result.output
+    contacts = load_project(project).project.model.entity("contacts")
+    assert contacts.layer.value == "raw" and contacts.load.value == "incremental"
+    assert [a.name for a in contacts.attributes if a.key] == ["contactid"]
