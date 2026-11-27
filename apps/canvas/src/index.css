@@ -5134,6 +5134,31 @@ button.mapping__sources code {
   flex: none;
 }
 
+/* On a narrow canvas (both side panels open), the text goes on top and the button under it,
+   centred, so both stay readable and in view. */
+.stage {
+  container-type: inline-size;
+}
+
+@container (max-width: 520px) {
+  .canvas-hint {
+    flex-wrap: wrap;
+    justify-content: center;
+    width: calc(100% - 24px);
+    max-width: calc(100% - 24px);
+    box-sizing: border-box;
+    text-align: center;
+  }
+
+  .canvas-hint > span {
+    flex: 1 1 100%;
+  }
+
+  .canvas-hint > .button {
+    white-space: normal;
+  }
+}
+
 .query__questions {
   margin-bottom: 4px;
 }
@@ -5158,4 +5183,262 @@ button.mapping__sources code {
 .advanced[open] > .advanced__summary {
   margin: 0 -8px 6px;
   border-bottom: 1px solid var(--border);
+}
+
+/* A connected source's tables, and a table's columns to choose (SourceTables.tsx). */
+.source-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.source-tables p {
+  margin: 0;
+}
+
+.source-tables__title {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.source-tables__list,
+.source-columns {
+  max-height: 340px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.source-tables__list > li + li,
+.source-columns > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.source-tables__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.source-tables__item:hover,
+.source-tables__item:focus-visible {
+  background: var(--surface-2);
+}
+
+.source-tables__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Under the name, so it shows at any panel width. */
+.source-tables__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.source-tables__state code {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.source-tables__state .badge {
+  margin-left: 0;
+}
+
+.source-columns__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.source-columns__tools .input {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.source-columns__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.source-columns__row > input {
+  flex: none;
+  margin-top: 2px;
+}
+
+.source-columns__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.source-columns__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.source-columns__name .badge {
+  margin-left: 0;
+}
+
+.source-columns__fill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-columns__bar {
+  width: 60px;
+  height: 4px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.source-columns__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.source-columns__examples {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.source-columns__add {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+  background: var(--surface);
+}
+
+.source-columns__add .button {
+  white-space: normal;
+  text-align: center;
+}
+
+.dialog:has(.dialog__picker) {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+/* What fetch and load is doing, as it goes. */
+.next-steps__log {
+  width: 100%;
+  max-height: 220px;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.next-steps .button {
+  white-space: normal;
+}
+
+/* Columns chosen several at a time, to remove them. */
+.columns__select {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-bottom: 4px;
+}
+
+.column-details__values {
+  display: grid;
+  gap: 4px;
+}
+
+.column-values p {
+  margin: 0 0 4px;
+}
+
+.column-values__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.column-values__list li {
+  padding: 1px 6px;
+  overflow-wrap: anywhere;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* In a narrow side panel, a long name wraps and the buttons stay in view. */
+.drawer__body {
+  overflow-x: hidden;
+}
+
+.sources__item,
+.sources__head {
+  min-width: 0;
+}
+
+.sources__item code,
+.sources__head strong {
+  overflow-wrap: anywhere;
+}
+
+.sources__actions {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.connection .stack__buttons {
+  flex-wrap: wrap;
+}
+
+.column-details__label {
+  color: var(--text-muted);
+  font-size: 12px;
 }

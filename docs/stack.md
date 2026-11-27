@@ -95,8 +95,23 @@ On the canvas: **Sources → + Add source → Fetch its data… → Microsoft Dy
    its secret.
 2. **Connect.** Murakumo signs in and lists the tables the app can read, your organisation's own
    first.
-3. **Tick the tables and Add.** Each one's raw table is made from its first rows.
-4. **Fetch and load.**
+3. **Choose a table, then its columns.** Each column shows its type, how many of a sample of 100
+   rows have a value, and a few of its values. Only the columns you tick go on the canvas, and
+   only those are fetched (`$select`). The row's id and `modifiedon` are always kept: they are
+   how the table loads. Choose the table again later to add more columns. Removing columns in the
+   inspector stops fetching them too.
+4. **Fetch and load.** What it does shows as it goes, under the button.
+
+The same from the command line:
+
+```bash
+murakumo source tables crm                         # the tables the app can read
+murakumo source tables crm --table contacts        # its columns: type, how often filled, examples
+murakumo source add-table crm contacts --column fullname --column emailaddress1
+```
+
+A table that is fetched but was never put on the canvas is not loaded; Fetch and load says so,
+and **Add table** (T) with the source chosen lists it, marked *fetched, not on the canvas*.
 
 The app must be an *application user* of the environment, with a security role that can read the
 tables. Add it in the Power Platform admin center: Environments → the environment → Settings →
@@ -264,7 +279,6 @@ murakumo ingest                  # fetch what is new from every connected source
 murakumo ingest --source weather --table readings
 murakumo load --env dev          # load what has landed into the raw tables, without running dbt
 murakumo ingest --source crm --load   # fetch, then load what landed: query it straight away
-# A fetched table with no raw table in the model yet gets one, made from the records that landed.
 murakumo build --ingest          # fetch, load everything landed, then build
 ```
 

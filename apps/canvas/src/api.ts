@@ -256,6 +256,28 @@ export type StackInfo = {
 export type SecretStatus = { name: string; set: boolean; from: 'file' | 'environment' | null }
 export type DynamicsTable = { entity_set: string; logical_name: string | null; label: string; custom: boolean; table: string }
 export type DynamicsMade = { table: string; entity_set: string; columns?: number; added?: boolean; watermark?: boolean; error?: string }
+export type SourceTable = {
+  table: string
+  entity_set: string | null
+  logical_name: string | null
+  label: string
+  custom: boolean
+  in_model: boolean
+  columns_in_model: number
+  fetched: boolean
+  landed: boolean
+}
+export type SourceColumn = {
+  key: string // as the source names it
+  name: string // as the raw table's column is named
+  type: string
+  filled: number // sampled rows with a value
+  examples: string[]
+  in_model: boolean
+  annotation: boolean
+}
+export type SourceColumns = { table: string; rows: number; columns: SourceColumn[]; key: string | null; watermark: string | null }
+export type ColumnValues = { rows: number; filled: number; common: { value: string; count: number }[]; sample: number }
 export type Pasted = {
   connection: Connection
   endpoint: Record<string, unknown>
@@ -793,6 +815,8 @@ export const api = {
     request<State>('PATCH', `/entities/${entityId}/columns/${columnId}`, changes),
   removeColumn: (entityId: string, columnId: string) =>
     request<State>('DELETE', `/entities/${entityId}/columns/${columnId}`),
+  removeColumns: (entityId: string, columnIds: string[]) =>
+    request<State>('POST', `/entities/${entityId}/columns/remove`, { column_ids: columnIds }),
   orderColumns: (entityId: string, columns: string[]) =>
     request<State>('PUT', `/entities/${entityId}/columns/order`, { columns }),
 
@@ -894,6 +918,18 @@ export const api = {
     request<State & { made: DynamicsMade[] }>('POST', `/sources/${encodeURIComponent(source)}/dynamics/tables`, { tables }),
   pasteRequest: (source: string, text: string) =>
     request<Pasted>('POST', `/sources/${encodeURIComponent(source)}/paste`, { text }, false),
+  sourceTables: (source: string) =>
+    request<{ tables: SourceTable[] }>('GET', `/sources/${encodeURIComponent(source)}/tables`, undefined, false),
+  sourceTableColumns: (source: string, table: string, entitySet: string | null) =>
+    request<SourceColumns>('POST', `/sources/${encodeURIComponent(source)}/tables/columns`, { table, entity_set: entitySet }, false),
+  addSourceTable: (source: string, body: { table: string; entity_set: string | null; logical_name: string | null; columns: string[] }) =>
+    request<State & { added_table: { table: string; columns: number; key: string | null } }>(
+      'POST',
+      `/sources/${encodeURIComponent(source)}/tables/add`,
+      body,
+    ),
+  columnValues: (entity: string, column: string) =>
+    request<ColumnValues>('GET', `/explore/values?entity=${encodeURIComponent(entity)}&column=${encodeURIComponent(column)}`, undefined, false),
   testSource: (name: string) =>
     request<{ lines: string[] }>('POST', `/sources/${encodeURIComponent(name)}/test`, undefined, false),
   tableFromRecords: (body: { source: string; table: string; records: Record<string, unknown>[]; path?: string | null }) =>

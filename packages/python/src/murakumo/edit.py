@@ -180,6 +180,9 @@ def remove_column(project: Project, entity_name: str, name: str) -> Attribute:
     if column is None:
         raise EditError(f"{entity.name} has no column {name!r}")
     entity.attributes = [a for a in entity.attributes if a is not column]
+    if entity.watermark == column.name:  # what said when a row changed is gone: new rows are by load time
+        entity.watermark = None
+        entity.incremental_by = "load_time"
     return column
 
 

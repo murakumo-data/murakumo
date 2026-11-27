@@ -381,6 +381,41 @@ def _family(column) -> str:
         return "text"
 
 
+def values(project: Project, entity_name: str, column: str, environment: str | None = None) -> dict[str, Any]:
+    """What a column holds, on a sample of its table: how many rows have a value, and its most
+    common values. One small query, on the warehouse."""
+    from murakumo import query
+
+    entity = project.model.entity(entity_name)
+    if entity is None or not any(a.name == column for a in entity.attributes):
+        raise ExploreError(f"no column {column} in {entity_name}")
+    places = Places(project, environment)
+    located = places.get(entity.name)
+    q = places.quote(column)
+    sample = places.sample(located.relation, SAMPLE, q)
+    try:
+        counts = query.run(
+            project, f"select count(*) as n, count({q}) as filled from {sample} as s", "warehouse", environment, 1, 60
+        ).rows[0]
+        common = query.run(
+            project,
+            f"select cast({q} as varchar) as v, count(*) as n from {sample} as s where {q} is not null "
+            "group by 1 order by 2 desc, 1 limit 8",
+            "warehouse",
+            environment,
+            8,
+            60,
+        ).rows
+    except query.QueryError as exc:
+        raise ExploreError(f"{entity.name} is not loaded yet: {exc}") from None
+    return {
+        "rows": int(counts[0] or 0),
+        "filled": int(counts[1] or 0),
+        "common": [{"value": str(v)[:120], "count": int(n)} for v, n in common],
+        "sample": SAMPLE,
+    }
+
+
 def suggested(project: Project, entity_name: str, environment: str | None = None) -> list[dict[str, str]]:
     """Queries to start from, written from what the model knows of the table: its key, dates,
     categories and joins. Each is {title, plain, sql}, in the warehouse's SQL."""

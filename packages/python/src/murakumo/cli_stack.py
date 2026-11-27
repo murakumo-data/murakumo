@@ -195,16 +195,11 @@ def _load_landed(project, environment: str | None, prefix: str | None) -> None:
     from murakumo.cli_generate import _report
     from murakumo.generate.verify import build
     from murakumo.importers.database import SourceUnavailable
-    from murakumo.project import load_project
 
-    made = ingest.make_missing(project)
-    for table, columns in made:
-        console.print(f"  made the raw table {table} from what landed ({columns} columns): check its types")
-    if made:
-        project = load_project(project.root).project
     for declaration, table in ingest.missing_tables(project):
         console.print(
-            f"  [yellow]{declaration.name}.{table} is not in the model[/yellow]: nothing landed to make it from"
+            f"  [yellow]{declaration.name}.{table} was fetched, but is not on the canvas yet[/yellow], so it is not "
+            f"loaded: add it with Add table → {declaration.name}, choosing its columns"
         )
 
     files = ingest.landed(project)
@@ -265,6 +260,68 @@ def source_disconnect(name: str = typer.Argument(...), why: str | None = WhyOpti
     except stack.StackError as exc:
         fail(str(exc))
         raise typer.Exit(1) from None
+
+
+@source_app.command("tables")
+def source_tables_command(
+    name: str = typer.Argument(..., help="The connected source."),
+    table: str | None = typer.Option(None, "--table", help="Show this table's columns and what they hold."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """The tables a connected source can give (Dynamics: every table the app can read), or one
+    table's columns from a sample: type, how often filled, and a few values."""
+    from murakumo import source_tables
+
+    project = open_project(project_path)
+    try:
+        if table is None:
+            for t in source_tables.available(project, name):
+                where = "on the canvas" if t["in_model"] else "fetched, not on the canvas" if t["landed"] else ""
+                console.print(f"  {t['table']}  [dim]{escape(str(t['label']))}  {where}[/dim]")
+            return
+        entity_set = next(
+            (t["entity_set"] for t in source_tables.available(project, name) if t["table"] == table), None
+        )
+        info = source_tables.columns(project, name, table, entity_set)
+    except source_tables.SourceTableError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    for c in info["columns"]:
+        if c["annotation"]:
+            continue
+        examples = escape(" · ".join(c["examples"]))
+        console.print(f"  {c['key']}  [dim]{c['type']}, {c['filled']}/{info['rows']} filled  {examples}[/dim]")
+    console.print(
+        f"[dim]From a sample of {info['rows']} row(s). Add some with: "
+        f"murakumo source add-table {name} {table} --column ...[/dim]"
+    )
+
+
+@source_app.command("add-table")
+def source_add_table_command(
+    name: str = typer.Argument(..., help="The connected source."),
+    table: str = typer.Argument(..., help="The table, as `murakumo source tables` lists it."),
+    columns: list[str] = typer.Option(..., "--column", help="A column to add, as the source names it. Repeat."),
+    project_path: Path = ProjectOption,
+) -> None:
+    """Put a source's table in the model with only these columns (or add them to it). For Dynamics,
+    only these are fetched, with the row's id and when it changed always kept."""
+    from murakumo import source_tables, stack
+    from murakumo.project import save_model
+
+    project = open_project(project_path)
+    found = next((t for t in source_tables.available(project, name) if t["table"] == table), None)
+    try:
+        result = source_tables.add(
+            project, name, table, columns, found and found["entity_set"], found and found["logical_name"]
+        )
+    except source_tables.SourceTableError as exc:
+        fail(str(exc))
+        raise typer.Exit(1) from None
+    save_model(project)
+    if result["connection"] is not None:
+        stack.set_connection(project, name, result["connection"], f"Fetch {table}: {result['columns']} columns")
+    console.print(f"{table}: {result['columns']} columns. Fetch and load it: murakumo ingest --source {name} --load")
 
 
 @source_app.command("test")

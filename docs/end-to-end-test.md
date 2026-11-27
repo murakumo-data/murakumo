@@ -1904,11 +1904,14 @@ back to **None** and click **Save connection** (Open-Meteo needs no key), then
 **Next: its connection → Microsoft Dynamics 365 / Dataverse**. Enter the environment's URL, the
 tenant id, the client id and the secret, and click **Connect**.
 
-You should see your tables, your organisation's own first. Search for `contact`, tick
-**Contact** and one of your own, and click **Add 2 tables**. Each says how many columns it has,
-*fetched in full once, then only what changed*. Click **Fetch and load crm**: Activity shows every
-row fetched (more than 5,000 if the table has them) and loaded. Click **Fetch and load crm** again:
-only the rows changed since then are fetched, and the table keeps its row count.
+You should see your tables, your organisation's own first. Search for `contact` and choose
+**Contact**. Its columns show, each with its type, how often it is filled in a sample of 100 rows,
+and a few values. Click **Tick those with values**, untick some, and put it on the canvas: only the
+ticked columns are on it, with `contactid` and `modifiedon` always kept. Click **Fetch and load
+crm**: the log shows under the button as it runs, every row is fetched (more than 5,000 if the
+table has them) and loaded. Click it again: only the rows changed since then are fetched. Click a
+column of `contacts` on the canvas, then **Show what it holds**. In the inspector, **Select
+columns…**, tick two, and **Delete 2 columns**; ⌘Z brings them back.
 
 A wrong secret says *Microsoft did not accept the client secret*; an app that is not an
 application user of the environment says so, with where to add it.

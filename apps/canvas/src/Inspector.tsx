@@ -6,7 +6,7 @@ import { EntityCodeView } from './Code'
 import { ExpressionEditor } from './ExpressionEditor'
 import { ComboInput, Row, SelectField, TextField } from './Field'
 import { DiagramChips } from './Diagrams'
-import { DataTab, RelatedColumns } from './Explore'
+import { ColumnValues, DataTab, RelatedColumns } from './Explore'
 import { KIND_WORDS, LAYER_WORDS, useMode } from './mode'
 import { LabelSelect } from './Labels'
 import { QualitySection } from './Rules'
@@ -260,6 +260,10 @@ function ColumnDetails(props: {
       >
         ⇄ {showing ? 'Hide its lineage' : 'Show its lineage on the canvas'}
       </button>
+      <div className="column-details__values">
+        <span className="column-details__label">What it holds</span>
+        <ColumnValues key={`${entity.name}.${column.name}`} entity={entity.name} column={column.name} />
+      </div>
       <RelatedColumns state={state} entity={entity} column={column.name} run={run} />
     </section>
   )
@@ -297,6 +301,9 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
   const [search, setSearch] = useState('')
   const [picking, setPicking] = useState(false)
   const [calculating, setCalculating] = useState(false)
+  // Several columns chosen at once, to remove them in one change (one undo takes it back).
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const matches = (name: string) => name.toLowerCase().includes(search.trim().toLowerCase())
   const shown = entity.attributes.filter((a) => matches(a.name))
   const [dragging, setDragging] = useState<string | null>(null)
@@ -734,6 +741,53 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
             onChange={(e) => setSearch(e.target.value)}
           />
         )}
+        {state.editable && entity.attributes.length > 1 && (
+          <div className="columns__select">
+            {selecting ? (
+              <>
+                <span className="small">{selected.size} selected</span>
+                <button className="link-button" onClick={() => setSelected(new Set(shown.map((a) => a.id)))}>
+                  All{search.trim() ? ' shown' : ''}
+                </button>
+                <button className="link-button" onClick={() => setSelected(new Set())}>
+                  None
+                </button>
+                <button
+                  className="button button--small button--danger"
+                  disabled={selected.size === 0 || selected.size === entity.attributes.length}
+                  title={selected.size === entity.attributes.length ? 'A table keeps at least one column' : undefined}
+                  onClick={async () => {
+                    const names = entity.attributes.filter((a) => selected.has(a.id)).map((a) => a.name)
+                    const ok = await careful(
+                      run,
+                      () => api.removeColumns(entity.id, [...selected]),
+                      `Remove ${names.length} column${names.length === 1 ? '' : 's'} from ${entity.name}: ${names.slice(0, 6).join(', ')}${names.length > 6 ? '…' : ''}?`,
+                    )
+                    if (ok) {
+                      setSelected(new Set())
+                      setSelecting(false)
+                    }
+                  }}
+                >
+                  Delete {selected.size || ''} column{selected.size === 1 ? '' : 's'}
+                </button>
+                <button
+                  className="link-button"
+                  onClick={() => {
+                    setSelecting(false)
+                    setSelected(new Set())
+                  }}
+                >
+                  Done
+                </button>
+              </>
+            ) : (
+              <button className="link-button" onClick={() => setSelecting(true)}>
+                Select columns…
+              </button>
+            )}
+          </div>
+        )}
         <div className="columns">
           <div className="columns__head">
             <span />
@@ -766,6 +820,19 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
                 setDropAt(null)
               }}
             >
+              {selecting ? (
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${a.name}`}
+                  checked={selected.has(a.id)}
+                  onChange={() => {
+                    const next = new Set(selected)
+                    if (next.has(a.id)) next.delete(a.id)
+                    else next.add(a.id)
+                    setSelected(next)
+                  }}
+                />
+              ) : (
               <button
                 className="drag-handle"
                 draggable={!disabled}
@@ -789,6 +856,7 @@ function EntityForm({ state, entity, run, issues, lineageOf, onLineage, onJob }:
               >
                 ⋮⋮
               </button>
+              )}
               <TextField label={`${a.name} name`} value={a.name} disabled={disabled} onSave={(name) => name && saveColumn(a.id, { name })} />
               <TextField
                 label={`${a.name} type`}
