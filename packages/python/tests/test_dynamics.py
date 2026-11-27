@@ -437,23 +437,90 @@ def test_a_dynamics_source_set_up_by_hand_moves_over(fake, project, clean_env):
     assert connection.paging.type == "next_url" and connection.auth.client_secret_env == "CRM_CLIENT_SECRET"
 
 
-def test_fetched_tables_missing_from_the_model_are_made_and_loaded(fake, project, clean_env):
-    """A connection whose tables were never made (set up by hand, or before Add tables): Fetch and
-    load makes each raw table from what landed, then loads it, instead of loading nothing."""
+def test_tables_and_their_columns_are_chosen_not_all_added(fake, project, clean_env):
+    """A fetched table is offered, not added: its columns come with what their values look like,
+    only the chosen ones become the raw table and are fetched, and the rest can be removed later."""
+    from fastapi.testclient import TestClient
+
+    from murakumo import stack
+    from murakumo.server import create_app
+
+    clean_env.setenv("CRM_CLIENT_ID", "app-id")
+    clean_env.setenv("CRM_CLIENT_SECRET", "s3cr$t!")
+    clean_env.setattr(FakeDynamics, "page", 5000)  # as Dynamics: a sample of 100 rows is one page
+    connection = dynamics.connection("crm", fake, "t1", [dynamics.endpoint("contacts")])
+    stack.set_connection(load_project(project).project, "crm", connection)
+
+    # Fetched but not chosen: said so, not loaded, not added.
+    result = CliRunner().invoke(app, ["ingest", "--source", "crm", "--load", "-p", str(project)])
+    assert result.exit_code == 0, result.output
+    assert "crm.contacts was fetched, but is not on the canvas yet" in result.output
+    assert load_project(project).project.model.entity("contacts") is None
+
+    client = TestClient(create_app(project), base_url="http://localhost")
+    tables = {t["table"]: t for t in client.get("/api/sources/crm/tables").json()["tables"]}
+    assert tables["contacts"]["fetched"] and tables["contacts"]["landed"] and not tables["contacts"]["in_model"]
+    assert not tables["vrp_mortgageloans"]["fetched"]
+
+    columns = client.post(
+        "/api/sources/crm/tables/columns", json={"table": "contacts", "entity_set": "contacts"}
+    ).json()
+    by_key = {c["key"]: c for c in columns["columns"]}
+    assert columns["rows"] == 7 and columns["key"] == "contactid" and columns["watermark"] == "modifiedon"
+    assert by_key["fullname"]["filled"] == 7 and by_key["fullname"]["examples"][:2] == ["Person 0", "Person 1"]
+    assert by_key["@odata.etag"]["annotation"] and by_key["@odata.etag"]["name"] == "odata_etag"
+
+    added = client.post(
+        "/api/sources/crm/tables/add",
+        json={"table": "contacts", "entity_set": "contacts", "logical_name": "contact", "columns": ["fullname"]},
+    )
+    assert added.status_code == 200, added.text
+    assert added.json()["added_table"]["key"] == "contactid"
+    contacts = load_project(project).project.model.entity("contacts")
+    assert [a.name for a in contacts.attributes] == [
+        "contactid",
+        "modifiedon",
+        "fullname",
+    ]  # its id and change time kept
+    endpoint = load_project(project).project.manifest.sources[-1].connection.endpoints[0]
+    assert endpoint.params["$select"] == "contactid,fullname,modifiedon"
+
+    loaded = CliRunner().invoke(app, ["ingest", "--source", "crm", "--load", "-p", str(project)])
+    assert loaded.exit_code == 0, loaded.output
+    assert "loaded contacts:" in loaded.output and "merged by key" in loaded.output  # both fetches, one row each
+
+    values = client.get("/api/explore/values", params={"entity": "contacts", "column": "fullname"}).json()
+    assert values["rows"] == 7 and values["filled"] == 7 and len(values["common"]) == 7
+
+    # Several columns removed at once, as one change.
+    ids = [a.id for a in contacts.attributes if a.name in ("fullname", "modifiedon")]
+    removed = client.post(f"/api/entities/{contacts.id}/columns/remove", json={"column_ids": [str(i) for i in ids]})
+    assert removed.status_code == 200, removed.text
+    after = load_project(project).project
+    assert [a.name for a in after.model.entity("contacts").attributes] == ["contactid"]
+    assert after.model.entity("contacts").watermark is None  # its watermark column went with it
+    assert after.manifest.sources[-1].connection.endpoints[0].params["$select"] == "contactid"  # and is not fetched
+    every = client.post(
+        f"/api/entities/{contacts.id}/columns/remove", json={"column_ids": [str(contacts.attributes[0].id)]}
+    )
+    assert every.status_code == 400 and "at least one column" in every.json()["message"]
+
+
+def test_choosing_columns_from_the_command_line(fake, project, clean_env):
     from murakumo import stack
 
     clean_env.setenv("CRM_CLIENT_ID", "app-id")
     clean_env.setenv("CRM_CLIENT_SECRET", "s3cr$t!")
-    connection = dynamics.connection(
-        "crm", fake, "t1", [dynamics.endpoint("contacts"), dynamics.endpoint("vrp_mortgageloans")]
+    clean_env.setattr(FakeDynamics, "page", 5000)
+    stack.set_connection(load_project(project).project, "crm", dynamics.connection("crm", fake, "t1"))
+    runner = CliRunner()
+    listed = runner.invoke(app, ["source", "tables", "crm", "-p", str(project)])
+    assert "vrp_mortgageloans" in listed.output and "contacts" in listed.output
+    columns = runner.invoke(app, ["source", "tables", "crm", "--table", "vrp_mortgageloans", "-p", str(project)])
+    assert "vrp_name" in columns.output and "2/2 filled" in columns.output
+    added = runner.invoke(
+        app, ["source", "add-table", "crm", "vrp_mortgageloans", "--column", "vrp_amount", "-p", str(project)]
     )
-    stack.set_connection(load_project(project).project, "crm", connection)
-    assert load_project(project).project.model.entity("contacts") is None
-
-    result = CliRunner().invoke(app, ["ingest", "--source", "crm", "--load", "-p", str(project)])
-    assert result.exit_code == 0, result.output
-    assert "made the raw table contacts from what landed" in result.output
-    assert "loaded contacts: 7 rows" in result.output and "loaded vrp_mortgageloans: 2 rows" in result.output
-    contacts = load_project(project).project.model.entity("contacts")
-    assert contacts.layer.value == "raw" and contacts.load.value == "incremental"
-    assert [a.name for a in contacts.attributes if a.key] == ["contactid"]
+    assert added.exit_code == 0, added.output
+    loans = load_project(project).project.model.entity("vrp_mortgageloans")
+    assert [a.name for a in loans.attributes] == ["vrp_mortgageloanid", "modifiedon", "vrp_amount"]

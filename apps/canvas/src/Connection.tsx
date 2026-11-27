@@ -1,8 +1,9 @@
-import { Check, CircleAlert, ClipboardPaste, Download, Globe, Plus, Search, Send, Server, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Check, ClipboardPaste, Download, Globe, Plus, Send, Server, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import { clean, isDynamics, variableName } from './connection-names'
-import { api, type Connection, type DynamicsMade, type DynamicsTable, type RequestResult, type SecretStatus, type State } from './api'
+import { api, type Connection, type DynamicsTable, type Job, type RequestResult, type SecretStatus, type State } from './api'
+import { SourceTablePicker } from './SourceTables'
 
 type Run = (action: () => Promise<State>) => Promise<boolean>
 
@@ -217,7 +218,7 @@ export function ConnectionEditor({
   run: Run
   onBack: () => void
   onMessage: (text: string) => void
-  startJob: (kind: string, options?: Record<string, unknown>) => Promise<unknown>
+  startJob: (kind: string, options?: Record<string, unknown>, here?: boolean) => Promise<unknown>
 }) {
   const [choice, setChoice] = useState<Choice>(
     initial === null ? 'choose' : isDynamics(initial) ? 'dynamics' : initial.kind === 'rest' ? 'api' : 'other',
@@ -233,7 +234,6 @@ export function ConnectionEditor({
         <DynamicsConnect
           source={source}
           connected={initial !== null && isDynamics(initial)}
-          inModel={tables}
           run={run}
           startJob={startJob}
           onMessage={onMessage}
@@ -290,16 +290,14 @@ function Choose({ onChoose }: { onChoose: (choice: Choice) => void }) {
 function DynamicsConnect({
   source,
   connected,
-  inModel,
   run,
   startJob,
   onMessage,
 }: {
   source: string
   connected: boolean
-  inModel: string[] // the source's raw tables in the model
   run: Run
-  startJob: (kind: string, options?: Record<string, unknown>) => Promise<unknown>
+  startJob: (kind: string, options?: Record<string, unknown>, here?: boolean) => Promise<unknown>
   onMessage: (text: string) => void
 }) {
   const [url, setUrl] = useState('')
@@ -398,19 +396,18 @@ function DynamicsConnect({
           {busy ? 'Connecting…' : found ? 'Connect again' : connected ? 'Connect and list the tables' : 'Connect'}
         </button>
       </div>
-      {found && (
-        <TablePicker
-          source={source}
-          found={found}
-          fetching={fetching}
-          inModel={inModel}
-          run={run}
-          onMade={(made) => {
-            const ok = made.filter((m) => !m.error)
-            setFetching([...new Set([...fetching, ...ok.map((m) => m.table)])])
-            if (ok.length) onMessage(`Added ${ok.map((m) => m.table).join(', ')}. Next: Fetch and load.`)
-          }}
-        />
+      {(found || connected) && (
+        <fieldset className="settings__group">
+          <legend>Tables to put on the canvas</legend>
+          <SourceTablePicker
+            source={source}
+            run={run}
+            onAdded={(table) => {
+              setFetching([...new Set([...fetching, table])])
+              onMessage(`${table} is on the canvas. Next: Fetch and load.`)
+            }}
+          />
+        </fieldset>
       )}
       {fetching.length > 0 && <NextSteps source={source} tables={fetching} startJob={startJob} />}
     </>
@@ -426,112 +423,7 @@ function SavedBadge({ status }: { status?: SecretStatus }) {
   )
 }
 
-function TablePicker({
-  source,
-  found,
-  fetching,
-  inModel,
-  run,
-  onMade,
-}: {
-  source: string
-  found: DynamicsTable[]
-  fetching: string[]
-  inModel: string[]
-  run: Run
-  onMade: (made: DynamicsMade[]) => void
-}) {
-  const [query, setQuery] = useState('')
-  const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [made, setMade] = useState<DynamicsMade[] | null>(null)
-  const [busy, setBusy] = useState(false)
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    // Ticked tables stay in view while searching for more.
-    const matches = found.filter(
-      (t) =>
-        picked.has(t.entity_set) ||
-        (q ? `${t.label} ${t.entity_set} ${t.logical_name ?? ''}`.toLowerCase().includes(q) : t.custom || fetching.includes(t.table)),
-    )
-    return matches.slice(0, 200)
-  }, [found, query, fetching, picked])
-  const toggle = (name: string) => {
-    const next = new Set(picked)
-    if (next.has(name)) next.delete(name)
-    else next.add(name)
-    setPicked(next)
-  }
-  const add = async () => {
-    setBusy(true)
-    let result: DynamicsMade[] = []
-    await run(async () => {
-      const chosen = found.filter((t) => picked.has(t.entity_set)).map((t) => ({ entity_set: t.entity_set, logical_name: t.logical_name }))
-      const answer = await api.dynamicsTables(source, chosen)
-      result = answer.made
-      return answer
-    })
-    setMade(result)
-    setPicked(new Set())
-    setBusy(false)
-    onMade(result)
-  }
-  return (
-    <fieldset className="settings__group table-picker">
-      <legend>Tables to fetch</legend>
-      <p className="muted small">
-        {found.length} tables. Your organisation’s own are listed first; search for the others, such as accounts or contacts.
-      </p>
-      <label className="table-picker__search">
-        <Search size={14} />
-        <input className="input" placeholder="Search tables" value={query} onChange={(e) => setQuery(e.target.value)} />
-      </label>
-      <ul className="table-picker__list">
-        {shown.map((t) => {
-          // Fetched and in the model. One fetched but never made into a table can still be added.
-          const already = fetching.includes(t.table) && inModel.includes(t.table)
-          const unmade = fetching.includes(t.table) && !already
-          return (
-            <li key={t.entity_set}>
-              <label className="settings__check">
-                <input type="checkbox" checked={already || picked.has(t.entity_set)} disabled={already} onChange={() => toggle(t.entity_set)} />
-                <span>
-                  {t.label} <code className="muted">{t.entity_set}</code>
-                  {t.custom && <span className="badge badge--quiet">yours</span>}
-                  {already && <span className="badge badge--quiet">fetched</span>}
-                  {unmade && <span className="badge badge--warning">not a table yet</span>}
-                </span>
-              </label>
-            </li>
-          )
-        })}
-        {shown.length === 0 && <li className="muted small">{query ? 'No table matches.' : 'Search to find a table.'}</li>}
-      </ul>
-      <button className="button button--primary button--small" disabled={busy || picked.size === 0} onClick={add}>
-        {busy ? 'Reading their columns…' : `Add ${picked.size || ''} table${picked.size === 1 ? '' : 's'}`}
-      </button>
-      {made && (
-        <ul className="connection__tested">
-          {made.map((m) => (
-            <li key={m.entity_set} className={m.error ? 'connection__failed' : undefined}>
-              {m.error ? (
-                <>
-                  <CircleAlert size={12} /> {m.entity_set}: {m.error}
-                </>
-              ) : (
-                <>
-                  <Check size={12} /> {m.table}: {m.columns} columns
-                  {m.watermark ? ', fetched in full once, then only what changed' : ', fetched in full each time'}
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </fieldset>
-  )
-}
-
-/** What to do once a source has tables: fetch them and load them, then look. */
+/** What to do once a source has tables: fetch them and load them, then look, with what it does shown as it goes. */
 function NextSteps({
   source,
   tables,
@@ -539,30 +431,59 @@ function NextSteps({
 }: {
   source: string
   tables: string[]
-  startJob: (kind: string, options?: Record<string, unknown>) => Promise<unknown>
+  startJob: (kind: string, options?: Record<string, unknown>, here?: boolean) => Promise<unknown>
 }) {
-  const [started, setStarted] = useState(false)
+  const [job, setJob] = useState<Job | null>(null)
+  const [lines, setLines] = useState<string[]>([])
+  useEffect(() => {
+    if (!job || job.state !== 'running') return
+    const timer = window.setTimeout(async () => {
+      try {
+        const next = await api.job(job.id, job.next)
+        setLines((old) => [...old, ...next.lines])
+        setJob(next)
+      } catch {
+        setJob({ ...job }) // try again
+      }
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [job])
+  const running = job?.state === 'running'
   return (
     <div className="next-steps">
       <strong>Next: fetch and load</strong>
       <p className="muted small">
-        Fetches every row of {tables.length === 1 ? tables[0] : `its ${tables.length} tables`} the first time, then only what changed, and
+        Fetches {tables.length === 1 ? tables[0] : `its ${tables.length} tables`} (every row the first time, then only what changed) and
         loads them into your raw tables so you can query them. Only the raw tables: nothing else is built.
       </p>
       <button
         className="button button--primary"
+        disabled={running}
         onClick={async () => {
-          if (await startJob('ingest', { source, load: true })) setStarted(true)
+          const started = (await startJob('ingest', { source, load: true }, true)) as Job | null
+          if (started) {
+            setLines(started.lines ?? [])
+            setJob(started)
+          }
         }}
         title={`murakumo ingest --source ${source} --load`}
       >
-        <Download size={14} /> Fetch and load {source}
+        <Download size={14} /> {running ? 'Fetching and loading…' : job ? `Fetch and load ${source} again` : `Fetch and load ${source}`}
       </button>
-      {started && (
-        <p className="muted small">
-          Running: follow it in Activity. When it finishes, click a table on the canvas and open its <strong>Data</strong> tab, or open{' '}
-          <strong>Query</strong>.
-        </p>
+      {job && (
+        <>
+          <pre className="next-steps__log" ref={(el) => {
+              if (el) el.scrollTop = el.scrollHeight
+            }}>
+            {lines.length ? lines.join('\n') : 'Starting…'}
+          </pre>
+          {job.state === 'succeeded' && (
+            <p className="small">
+              <Check size={12} /> Done. Click a table on the canvas and open its <strong>Data</strong> tab, or open <strong>Query</strong>.
+            </p>
+          )}
+          {job.state === 'failed' && <p className="stack__problem stack__problem--error">It stopped: the log above says why.</p>}
+        </>
       )}
     </div>
   )
@@ -588,7 +509,7 @@ function ConnectionForm({
   run: Run
   onBack: () => void
   onMessage: (text: string) => void
-  startJob: (kind: string, options?: Record<string, unknown>) => Promise<unknown>
+  startJob: (kind: string, options?: Record<string, unknown>, here?: boolean) => Promise<unknown>
   onDynamics: () => void
 }) {
   const [connection, setConnection] = useState<Connection>(

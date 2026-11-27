@@ -331,13 +331,10 @@ def build_command(
                 raise typer.Exit(1)
             for name, (count, landed_files) in item.tables.items():
                 console.print(f"  fetched {item.source}.{name}: {count} new, {len(landed_files)} file(s) landed")
-        made = ingesting.make_missing(project)
-        for name, columns in made:
-            console.print(f"  made the raw table {name} from what landed ({columns} columns): check its types")
-        if made:
-            from murakumo.project import load_project
-
-            project = load_project(project.root).project
+        for declaration, name in ingesting.missing_tables(project):
+            console.print(
+                f"  [yellow]{declaration.name}.{name} was fetched but is not on the canvas: not loaded[/yellow]"
+            )
         files = {**ingesting.landed(project), **files}
     if warehouse in (None, project.manifest.targets.warehouse.type) and compare(generate(project), project.root).any:
         console.print(

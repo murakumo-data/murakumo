@@ -57,7 +57,7 @@ export function SourcesPanel({
   state: State
   run: Run
   onMessage: (text: string) => void
-  startJob: (kind: string, options?: Record<string, unknown>) => Promise<unknown>
+  startJob: (kind: string, options?: Record<string, unknown>, here?: boolean) => Promise<unknown>
 }) {
   const [view, setView] = useState<View>({ kind: 'list' })
   const [adding, setAdding] = useState(false)

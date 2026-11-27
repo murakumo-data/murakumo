@@ -372,6 +372,18 @@ class DynamicsTables(BaseModel):
     why: str | None = Field(default=None, max_length=2000)
 
 
+class SourceTableBody(BaseModel):
+    table: str = Field(min_length=1, max_length=200)  # the raw table's name
+    entity_set: str | None = Field(default=None, max_length=200)  # Dynamics: what the Web API calls it
+    logical_name: str | None = Field(default=None, max_length=200)
+    columns: list[str] = Field(default_factory=list, max_length=2000)  # as the source names them
+    why: str | None = Field(default=None, max_length=2000)
+
+
+class ColumnIds(BaseModel):
+    column_ids: list[UUID] = Field(min_length=1, max_length=2000)
+
+
 class PastedRequest(BaseModel):
     text: str = Field(min_length=1, max_length=20000)
 
@@ -868,6 +880,34 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
 
         return change(action, rev, previewable=True)
 
+    @app.post("/api/entities/{entity_id}/columns/remove")
+    def remove_columns(entity_id: UUID, body: ColumnIds, rev: Revision = None) -> dict[str, Any]:
+        """Remove several columns at once, as one change that one undo takes back."""
+
+        from murakumo import source_tables
+
+        removed_from: list[str] = []
+
+        def action(project: Project) -> None:
+            table = entity_name(project, entity_id)
+            names = [column_name(project, entity_id, c) for c in body.column_ids]
+            if len(names) >= len(project.model.entity(table).attributes):  # type: ignore[union-attr]
+                raise edit.EditError(f"{table} keeps at least one column")
+            for column in names:
+                edit.remove_column(project, table, column)
+            removed_from.append(table)
+
+        changed = change(action, rev, previewable=True)
+        if removed_from and "preview" not in changed:  # and stop fetching them
+            following = source_tables.fetched_columns(loaded(), removed_from[0])
+            if following:
+                with lock:
+                    save_connection(
+                        following[0], following[1], f"Stop fetching the columns removed from {removed_from[0]}"
+                    )
+                changed = state(root)
+        return changed
+
     @app.post("/api/relationships")
     def add_relationship(body: NewRelationship, rev: Revision = None) -> dict[str, Any]:
         def action(project: Project) -> None:
@@ -1318,6 +1358,49 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
             with lock:
                 save_connection(name, {**connection, "endpoints": endpoints}, body.why or f"Fetch {', '.join(wanted)}")
         return {**state(root), "made": made}
+
+    @app.get("/api/sources/{name}/tables")
+    def source_tables_list(name: str) -> dict[str, Any]:
+        """The tables a connected source can give, and which are in the model, fetched and landed."""
+        from murakumo import source_tables
+
+        try:
+            return {"tables": source_tables.available(loaded(), name)}
+        except source_tables.SourceTableError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/sources/{name}/tables/columns")
+    def source_table_columns(name: str, body: SourceTableBody) -> dict[str, Any]:
+        """A table's columns, from a sample of its rows: type, how often filled, a few values."""
+        from murakumo import source_tables
+
+        try:
+            return source_tables.columns(loaded(), name, body.table, body.entity_set)
+        except source_tables.SourceTableError as exc:
+            raise HTTPException(400, {"message": str(exc)}) from None
+
+    @app.post("/api/sources/{name}/tables/add")
+    def source_table_add(name: str, body: SourceTableBody) -> dict[str, Any]:
+        """Put a table on the canvas with only the chosen columns (or add columns to it)."""
+        from murakumo import source_tables
+
+        result: dict[str, Any] = {}
+
+        def action(project: Project) -> None:
+            try:
+                result.update(
+                    source_tables.add(project, name, body.table, body.columns, body.entity_set, body.logical_name)
+                )
+            except source_tables.SourceTableError as exc:
+                raise HTTPException(400, {"message": str(exc)}) from None
+
+        changed = change(action, None)
+        connection = result.pop("connection", None)
+        if connection is not None:
+            with lock:
+                save_connection(name, connection, body.why or f"Fetch {body.table}: {result['columns']} columns")
+            changed = state(root)
+        return {**changed, "added_table": result}
 
     @app.post("/api/sources/{name}/paste")
     def paste_request(name: str, body: PastedRequest) -> dict[str, Any]:
@@ -1772,6 +1855,13 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         from murakumo import explore
 
         return {"queries": explored(lambda: explore.suggested(loaded(), entity, environment))}
+
+    @app.get("/api/explore/values")
+    def get_explore_values(entity: str, column: str, environment: str | None = None) -> dict[str, Any]:
+        """What a column holds: how often it has a value, and its most common values, on a sample."""
+        from murakumo import explore
+
+        return explored(lambda: explore.values(loaded(), entity, column, environment))
 
     @app.get("/api/explore/relations")
     def get_explore_relations(entity: str, column: str) -> dict[str, Any]:

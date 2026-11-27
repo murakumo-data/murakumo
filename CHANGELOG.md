@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+**Changed**
+
+- **Tables and columns are chosen, not all added.** A connected source lists its tables, each
+  marked on the canvas, fetched, or neither. Choosing one shows its columns from a sample of rows:
+  type, how often it has a value, and a few values. Only the ticked columns go on the canvas, and
+  for Dynamics only those are fetched (`$select`); its id and `modifiedon` are always kept. The
+  same list is in **Add table** (T) for a source Murakumo fetches, and `murakumo source tables` /
+  `murakumo source add-table`. 1.3.1 added every fetched table with all its columns; a fetched
+  table not on the canvas is now said so, and not loaded.
+
+**Added**
+
+- **Fetch and load shows what it does** as it goes, under its button, and stays on the connection.
+- **Show what it holds**, on a column's card: how many rows have a value, and its most common
+  values, on a sample of the loaded table.
+- **Select columns…** in the inspector: tick several and delete them as one change. Deleting a
+  Dynamics table's columns stops fetching them.
+
+**Fixed**
+
+- With both side panels open, the canvas could be squeezed to a sliver, and the load hint's text
+  and button with it. The left panel now gives way so the canvas keeps room, the hint stacks its
+  button under its text when narrow, and a source's buttons stay in view in a narrow panel.
+- A short table list hid the tables that were not the organisation's own.
+- Deleting the column that says when a row changed left the table pointing at it (MK203).
+
 ## 1.3.1 (2026-11-27)
 
 **Fixed**

@@ -26,7 +26,8 @@ murakumo canvas path/to/project --port 9000 --no-open
   bottom to show every name beside its icon. Only one of its menus is open at a time; Esc closes
   it. The page never scrolls: the top bar and the rail stay put, and the canvas and each panel
   scroll on their own. Drag a panel's edge to make it wider: the right edge of the panels on the
-  left (Sources, Explorer and the rest), the left edge of the inspector. Each keeps its width.
+  left (Sources, Explorer and the rest), the left edge of the inspector. Each keeps its width,
+  but the left panel gives way when the inspector opens, so the canvas keeps room.
 - **The Explorer** lists every table by domain, layer, colour label and source, each opening to
   its tables and their columns; its search box finds tables and columns. Click a table to go to
   it; click a domain to show only its tables; the eye beside a layer hides it.
@@ -39,7 +40,8 @@ murakumo canvas path/to/project --port 9000 --no-open
   [exploring the data](operating.md#exploring-the-data-before-modelling-it)). Click a column on
   the canvas and a card at the top shows its details: type, key, whether it may be empty, where it
   comes from (with its expression), the joins it is in, its checks, what is made from it, and its
-  description, with a button for its lineage; **Related columns**, at its bottom, finds where the
+  description, with a button for its lineage; **Show what it holds** gives how many rows have a
+  value and its most common values, on a sample of the loaded table; **Related columns**, at its bottom, finds where the
   column appears again and adds the relationship. Esc, or a click on the background, lets go.
 - **Help** (the ? at the bottom of the rail): a short tour, which also opens the first time, the
   keyboard shortcuts (press ?), and the notation.
@@ -111,7 +113,10 @@ wrong (problems always show), and every setting is a click away.
   staging table is named after, then the layer before), and you tick the columns you want, or a
   whole table. They keep their names, types and descriptions and, outside the raw layer, are
   mapped to where they came from, all in one change. A new table with no columns offers this
-  straight away. Tables with more than six columns get a **Find a column** box, which filters the
+  straight away. **Add table** (T) with the raw layer and a source Murakumo fetches lists that
+  source's tables instead of asking for a name: choose one, then its columns, as on its connection.
+  **Select columns…** above the columns turns on a checkbox for each, to delete several in one
+  change (one undo takes it back). Tables with more than six columns get a **Find a column** box, which filters the
   columns and mappings. Drag the inspector's left edge to make it wider. **+** on the rail (or T)
   adds a new table.
 - **Reorder columns.** Drag a column by its **⋮⋮** handle in the inspector, or focus the handle
@@ -163,8 +168,9 @@ wrong (problems always show), and every setting is a click away.
   **Connect…** opens a source's connection. It asks what the data is in first:
   - **Microsoft Dynamics 365 / Dataverse:** the environment's URL, the tenant id, the client id
     and the secret. **Connect** signs in and lists the tables, your organisation's own first.
-    Tick some, then **Add**. Each raw table is made from its first rows, merged by its id, and
-    fetched in full once, then only what changed.
+    Choose a table to see its columns, each with its type, how often it has a value in a sample,
+    and a few values; tick the ones you want and put it on the canvas. Only those columns are
+    fetched. Each table is merged by its id, and fetched in full once, then only what changed.
   - **Another API:** paste a URL or a curl command that works, and the base URL, request,
     parameters and way of signing in are filled in. Or fill them in yourself. **Send** shows the
     status, the time it took and the records, and finds where the records are in the response.
@@ -175,8 +181,9 @@ wrong (problems always show), and every setting is a click away.
     murakumo.yaml only names the variable, which you can rename by clicking it.
   - **Headers and parameters** are name and value rows: **+ Add** a row, type each half.
   - **Then: Fetch and load.** It fetches the source and loads what landed into the raw tables
-    (`murakumo ingest --source NAME --load`). When it is done, the canvas says what loaded. Click
-    a table and open **Data**, or open **Query**.
+    (`murakumo ingest --source NAME --load`), showing what it does as it goes, under the button.
+    When it is done, the canvas says what loaded. Click a table and open **Data**, or open
+    **Query**. A fetched table that is not on the canvas is not loaded: put it there first.
   - **Save connection** records your reason in the decisions log. **Test** reaches the source
     without landing anything.
   - See [stack.md](stack.md#connecting-a-source).
@@ -394,6 +401,11 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | PUT, DELETE | `/api/secrets/{name}` | Keep a secret in the project's `.env` (`{value}`), or take it out |
 | GET, POST | `/api/sources/{name}/dynamics` | A Dynamics source: its URL, tenant and whether its id and secret are set; `POST {url, tenant, client_id, client_secret}` keeps them, signs in, saves the connection and lists the tables |
 | POST | `/api/sources/{name}/dynamics/tables` | Fetch these tables too: `{tables: [{entity_set, logical_name}]}` makes each raw table from its first rows and adds its request |
+| GET | `/api/sources/{name}/tables` | A connected source's tables: which are on the canvas, fetched and landed |
+| POST | `/api/sources/{name}/tables/columns` | A table's columns from a sample: `{table, entity_set}` gives each one's type, how often filled and examples |
+| POST | `/api/sources/{name}/tables/add` | Put a table on the canvas with only the chosen columns: `{table, entity_set, logical_name, columns}` |
+| POST | `/api/entities/{id}/columns/remove` | Remove several columns as one change: `{column_ids}` |
+| GET | `/api/explore/values` | What a loaded column holds: `?entity=&column=` gives how many rows have a value and the most common values |
 | POST | `/api/sources/{name}/paste` | A connection from a pasted URL or curl command: `{text}`; its secret goes in `.env` |
 | POST | `/api/sources/request` | Send one request: `{connection, endpoint}`; returns the status, time, record count, a sample and the response. Secrets come from the server's environment variables |
 | POST | `/api/sources/{name}/test` | `murakumo source test`: what the connection can reach, without landing anything |

@@ -80,6 +80,7 @@ import { Shortcuts, Tour } from './Help'
 import { EntityPanel, RelationshipPanel } from './Inspector'
 import { QueryPanel } from './Query'
 import { recall, remember } from './storage'
+import { SourceTablePicker } from './SourceTables'
 import { ENGINEERING_PANELS, MODE_KEY, ModeContext, savedMode, type Mode } from './mode'
 import { rowsText } from './Explore'
 import {
@@ -116,6 +117,8 @@ const edgeTypes = { relationship: RelationshipEdge, lineage: LineageEdge }
 const NODE_WIDTH = 280 // until React Flow has measured a node
 const PANEL_WIDTH = { min: 320, default: 400 }
 const DRAWER_WIDTH = { min: 260, default: 320 }
+const RAIL_WIDTH = 48
+const CANVAS_MIN = 360 // the canvas keeps at least this much width beside the panels
 
 function savedDrawerWidth(): number {
   try {
@@ -254,6 +257,12 @@ function Canvas() {
   const [minimap, setMinimap] = useState(() => recall('murakumo.minimap') === '1')
   const [panelWidth, setPanelWidth] = useState(savedPanelWidth)
   const [drawerWidth, setDrawerWidth] = useState(savedDrawerWidth)
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const resized = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', resized)
+    return () => window.removeEventListener('resize', resized)
+  }, [])
   // The column clicked on the canvas, as entity:column, so its row stays marked.
   const picked = selection?.kind === 'entity' && selection.column ? `${selection.id}:${selection.column}` : null
   const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([])
@@ -347,12 +356,29 @@ function Canvas() {
   }, [load])
 
   // Long commands run as jobs: start one, show it in Activity, and refresh when it ends.
-  const startJob = useCallback(async (kind: string, options: Record<string, unknown> = {}) => {
+  // A job opens Activity, unless it was started where its output is shown (here: keep the panel).
+  const finished = useRef<(job: Job) => void>(() => {})
+  const startJob = useCallback(async (kind: string, options: Record<string, unknown> = {}, here = false) => {
     try {
       const job = await api.startJob(kind, options)
       setJobFocus(job.id)
       setJobRunning(true)
-      setSide('activity')
+      if (!here) setSide('activity')
+      else {
+        // Nobody is watching it in Activity: notice when it ends, as Activity would.
+        void (async () => {
+          let latest = job
+          while (latest.state === 'running') {
+            await new Promise((resolve) => window.setTimeout(resolve, 1000))
+            try {
+              latest = await api.job(job.id, latest.next)
+            } catch {
+              return
+            }
+          }
+          finished.current(latest)
+        })()
+      }
       return job
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : String(e), tone: 'info' })
@@ -371,6 +397,9 @@ function Canvas() {
     [loadGenerated],
   )
   useEffect(() => {
+    finished.current = jobFinished
+  }, [jobFinished])
+  useEffect(() => {
     api
       .jobs()
       .then((r) => setJobRunning(r.jobs.some((j) => j.state === 'running')))
@@ -379,9 +408,9 @@ function Canvas() {
 
   const hasRaw = (state?.model?.entities ?? []).some((e) => e.layer === 'raw')
   useEffect(() => {
+    api.stack().then((info) => setConnected(info.connected), () => setConnected([]))
     if (!hasRaw) return
     api.exploreStatus().then(setRawStatus, () => setRawStatus(null))
-    api.stack().then((info) => setConnected(info.connected), () => setConnected([]))
   }, [hasRaw, jobsDone, state?.revision])
   // Loading the raw tables: fetch the sources Murakumo is connected to and load them, or, with none,
   // choose what to load in the Build dialog (files, made-up rows).
@@ -981,28 +1010,6 @@ function Canvas() {
     window.addEventListener('pointerup', up)
   }
 
-  const resizeDrawer = (event: ReactPointerEvent) => {
-    event.preventDefault()
-    const startX = event.clientX
-    const startWidth = drawerWidth
-    let latest = startWidth
-    const move = (e: PointerEvent) => {
-      latest = Math.max(DRAWER_WIDTH.min, Math.min(window.innerWidth - 160, startWidth + e.clientX - startX))
-      setDrawerWidth(latest)
-    }
-    const up = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      try {
-        window.localStorage.setItem('murakumo.drawerWidth', String(Math.round(latest)))
-      } catch {
-        // Only a convenience.
-      }
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-  }
-
   if (!state) {
     return (
       <div className="splash">
@@ -1040,6 +1047,35 @@ function Canvas() {
   const selectedEntity = selection?.kind === 'entity' ? entities.find((e) => e.id === selection.id) : undefined
   const selectedRelationship =
     selection?.kind === 'relationship' ? relationships.find((r) => r.id === selection.id) : undefined
+  // The left panel gives way when the inspector is open, so the canvas keeps room to work in (and
+  // what sits on it, such as the load hint, stays readable).
+  const inspectorShown = Boolean(selectedEntity || selectedRelationship)
+  const drawerShown = Math.max(
+    DRAWER_WIDTH.min,
+    Math.min(drawerWidth, viewportWidth - RAIL_WIDTH - CANVAS_MIN - (inspectorShown ? panelWidth : 0)),
+  )
+  const resizeDrawer = (event: ReactPointerEvent) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = drawerShown
+    let latest = startWidth
+    const move = (e: PointerEvent) => {
+      latest = Math.max(DRAWER_WIDTH.min, Math.min(window.innerWidth - RAIL_WIDTH - CANVAS_MIN, startWidth + e.clientX - startX))
+      setDrawerWidth(latest)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      try {
+        window.localStorage.setItem('murakumo.drawerWidth', String(Math.round(latest)))
+      } catch {
+        // Only a convenience.
+      }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
 
   const panels: { id: Side; label: string; icon: ReactNode; badge?: ReactNode }[] = [
     { id: 'explorer', label: 'Explorer', icon: <ListTree size={18} /> },
@@ -1344,7 +1380,7 @@ function Canvas() {
         </nav>
 
         {side && (
-          <aside className="drawer" aria-label={drawerTitle} style={{ '--drawer-width': `${drawerWidth}px` } as CSSProperties}>
+          <aside className="drawer" aria-label={drawerTitle} style={{ '--drawer-width': `${drawerShown}px` } as CSSProperties}>
             <div
               className="drawer__resize"
               role="separator"
@@ -1795,17 +1831,7 @@ function Canvas() {
               addEntity()
             }}
           >
-            <h2>New entity</h2>
-            <label className="row">
-              <span className="row__label">Name</span>
-              <input
-                className="input"
-                autoFocus
-                placeholder="dim_customer"
-                value={adding.name}
-                onChange={(e) => setAdding({ ...adding, name: e.target.value })}
-              />
-            </label>
+            <h2>New table</h2>
             <label className="row">
               <span className="row__label">Layer</span>
               <select
@@ -1833,13 +1859,39 @@ function Canvas() {
                 </select>
               </label>
             )}
+            {adding.layer === 'raw' && connected.includes(adding.source) ? (
+              // A source Murakumo fetches: choose one of its tables, and its columns.
+              <div className="dialog__picker">
+                <SourceTablePicker
+                  source={adding.source}
+                  run={run}
+                  onAdded={(table) => {
+                    setAdding(null)
+                    setMessage({ text: `${table} is on the canvas. Fetch and load ${adding.source} to fill it.`, tone: 'info' })
+                  }}
+                />
+              </div>
+            ) : (
+              <label className="row">
+                <span className="row__label">Name</span>
+                <input
+                  className="input"
+                  autoFocus
+                  placeholder={adding.layer === 'raw' ? 'orders' : 'dim_customer'}
+                  value={adding.name}
+                  onChange={(e) => setAdding({ ...adding, name: e.target.value })}
+                />
+              </label>
+            )}
             <div className="dialog__actions">
               <button type="button" className="button" onClick={() => setAdding(null)}>
-                Cancel
+                {adding.layer === 'raw' && connected.includes(adding.source) ? 'Close' : 'Cancel'}
               </button>
-              <button type="submit" className="button button--primary" disabled={!adding.name.trim()}>
-                Add
-              </button>
+              {!(adding.layer === 'raw' && connected.includes(adding.source)) && (
+                <button type="submit" className="button button--primary" disabled={!adding.name.trim()}>
+                  Add
+                </button>
+              )}
             </div>
           </form>
         </div>

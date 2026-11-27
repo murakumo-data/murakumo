@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Eye, Search as SearchIcon, Sparkles, Table2 } from 'lucide-react'
 
-import { api, type Entity, type Estimate, type FoundValue, type QueryResult, type RawStatus, type RelatedCandidate, type RelatedCheck, type RelatedNames, type State, type Suggested } from './api'
+import { api, type ColumnValues as ColumnValuesType, type Entity, type Estimate, type FoundValue, type QueryResult, type RawStatus, type RelatedCandidate, type RelatedCheck, type RelatedNames, type State, type Suggested } from './api'
 import { cell } from './Query'
 
 // Exploring the data before modelling it. The Data tab says whether a table's raw data is in the
@@ -416,6 +416,52 @@ export function RelatedColumns({ state, entity, column, run }: { state: State; e
             {found.skipped ? `, skipped ${found.skipped} whose values never reach it` : ''}.
           </span>
         </p>
+      )}
+    </div>
+  )
+}
+
+/** What a loaded column holds: how often it has a value, and its most common values, on a sample. */
+export function ColumnValues({ entity, column }: { entity: string; column: string }) {
+  const [values, setValues] = useState<ColumnValuesType | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const show = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      setValues(await api.columnValues(entity, column))
+    } catch (e) {
+      setError(message(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="column-values">
+      {!values && (
+        <button className="button button--small" onClick={show} disabled={busy}>
+          <Eye size={13} /> {busy ? 'Reading…' : 'Show what it holds'}
+        </button>
+      )}
+      {error && <p className="muted small">{/not loaded/.test(error) ? 'Its table is not loaded yet: Fetch and load it first.' : error}</p>}
+      {values && (
+        <>
+          <p className="small">
+            {values.rows === 0
+              ? 'Its table has no rows yet.'
+              : `${Math.round((100 * values.filled) / values.rows)}% of ${values.rows.toLocaleString()} ${values.rows >= values.sample ? 'sampled ' : ''}rows have a value.`}
+          </p>
+          {values.common.length > 0 && (
+            <ul className="column-values__list">
+              {values.common.map((v) => (
+                <li key={v.value}>
+                  <code>{v.value}</code> <span className="muted small">× {v.count.toLocaleString()}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   )

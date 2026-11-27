@@ -149,9 +149,6 @@ def landed(project: Project) -> dict[str, str]:
     return data
 
 
-SAMPLE_RECORDS = 500
-
-
 def missing_tables(project: Project) -> list[tuple[Any, str]]:
     """Each fetched table the model has no raw table for: (its source's declaration, the table)."""
     return [
@@ -160,50 +157,6 @@ def missing_tables(project: Project) -> list[tuple[Any, str]]:
         for table in declaration.tables()
         if project.model.entity(table) is None
     ]
-
-
-def make_missing(project: Project) -> list[tuple[str, int]]:
-    """Make a raw table for each fetched table that has none, from the records that landed (their
-    columns and types), and save the model. Returns (table, columns) for each one made.
-
-    Without this, data is fetched but never loaded: the load fills only the model's raw tables."""
-    import json
-
-    from murakumo import dynamics
-    from murakumo.importers.api import import_records
-    from murakumo.importers.base import merge, safe_name
-    from murakumo.project import save_model
-
-    made: list[tuple[str, int]] = []
-    for declaration, table in missing_tables(project):
-        location = landing_folder(project, declaration.name, table)
-        folder = Path(location)
-        if "://" in location or not folder.is_dir():
-            continue
-        records: list[dict[str, Any]] = []
-        for file in sorted(folder.glob("*.jsonl"), reverse=True):  # the latest run first
-            with file.open(encoding="utf-8") as handle:
-                for line in handle:
-                    if line.strip():
-                        records.append(json.loads(line))
-                    if len(records) >= SAMPLE_RECORDS:
-                        break
-            if len(records) >= SAMPLE_RECORDS:
-                break
-        if not records:
-            continue
-        merge(project, import_records(records, safe_name(declaration.name, "source"), table))
-        entity = project.model.entity(table)
-        if entity is None:
-            continue
-        connection = declaration.connection.model_dump(exclude_none=True)  # type: ignore[union-attr]
-        if dynamics.is_dynamics(connection):
-            endpoint = next((e for e in connection.get("endpoints", []) if e.get("table") == table), {})
-            dynamics.shape(entity, str(endpoint.get("path") or table).strip("/"))
-        made.append((table, len(entity.attributes)))
-    if made:
-        save_model(project)
-    return made
 
 
 def _run_of(table: str, name: str) -> str | None:
@@ -307,7 +260,6 @@ __all__ = [
     "IngestError",
     "landed",
     "landing_folder",
-    "make_missing",
     "missing_tables",
     "preview",
     "run",
