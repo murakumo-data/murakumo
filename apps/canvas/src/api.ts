@@ -253,7 +253,18 @@ export type StackInfo = {
   changed?: string[]
   state?: State
 }
+export type SecretStatus = { name: string; set: boolean; from: 'file' | 'environment' | null }
+export type DynamicsTable = { entity_set: string; logical_name: string | null; label: string; custom: boolean; table: string }
+export type DynamicsMade = { table: string; entity_set: string; columns?: number; added?: boolean; watermark?: boolean; error?: string }
+export type Pasted = {
+  connection: Connection
+  endpoint: Record<string, unknown>
+  dynamics: boolean
+  saved: string[] // the variables the pasted secret was kept in, in the project's .env
+}
+
 export type RequestResult = {
+  records_at: string | null // where the records were found in the response
   status: number
   milliseconds: number
   headers: Record<string, string>
@@ -866,6 +877,23 @@ export const api = {
     request<StackInfo>('PUT', `/sources/${encodeURIComponent(name)}/connection`, { connection, why }, false),
   tryRequest: (connection: Connection, endpoint: Record<string, unknown>) =>
     request<RequestResult>('POST', '/sources/request', { connection, endpoint }, false),
+  secrets: (names: string[]) =>
+    request<{ secrets: SecretStatus[]; file: string }>('GET', `/secrets?names=${encodeURIComponent(names.join(','))}`, undefined, false),
+  setSecret: (name: string, value: string) =>
+    request<{ secrets: SecretStatus[] }>('PUT', `/secrets/${encodeURIComponent(name)}`, { value }, false),
+  dynamicsStatus: (source: string) =>
+    request<{ url: string; tenant: string; secrets: SecretStatus[]; tables: string[] }>(
+      'GET',
+      `/sources/${encodeURIComponent(source)}/dynamics`,
+      undefined,
+      false,
+    ),
+  connectDynamics: (source: string, body: { url: string; tenant: string; client_id?: string; client_secret?: string }) =>
+    request<State & { tables: DynamicsTable[]; fetching: string[] }>('POST', `/sources/${encodeURIComponent(source)}/dynamics`, body),
+  dynamicsTables: (source: string, tables: { entity_set: string; logical_name: string | null }[]) =>
+    request<State & { made: DynamicsMade[] }>('POST', `/sources/${encodeURIComponent(source)}/dynamics/tables`, { tables }),
+  pasteRequest: (source: string, text: string) =>
+    request<Pasted>('POST', `/sources/${encodeURIComponent(source)}/paste`, { text }, false),
   testSource: (name: string) =>
     request<{ lines: string[] }>('POST', `/sources/${encodeURIComponent(name)}/test`, undefined, false),
   tableFromRecords: (body: { source: string; table: string; records: Record<string, unknown>[]; path?: string | null }) =>

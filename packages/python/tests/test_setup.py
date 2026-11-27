@@ -91,7 +91,7 @@ def test_snowflake_needs_variables(tmp_path, monkeypatch):
     project = init_project(tmp_path / "p", warehouse=Warehouse.SNOWFLAKE)
     check = by_title(run_checks(project), "connection variable")
     assert check.status is Status.TODO
-    assert 'export SNOWFLAKE_ACCOUNT="..."' in check.steps
+    assert "SNOWFLAKE_ACCOUNT=..." in check.steps and any(".env" in step for step in check.steps)
     assert any("snowflake.md" in step for step in check.steps)
     assert runner.invoke(app, ["setup", str(project.root), "--check"]).exit_code == 1
 
@@ -138,7 +138,7 @@ def test_source_checks(tmp_path, monkeypatch):
     checks = run_checks(project)
     assert by_title(checks, "csv file not found").status is Status.TODO
     crm = by_title(checks, "Set CRM_DB_URL")
-    assert crm.status is Status.TODO and crm.steps[0].startswith('export CRM_DB_URL="postgresql://')
+    assert crm.status is Status.TODO and "CRM_DB_URL=postgresql://" in crm.steps[0] and ".env" in crm.steps[0]
     assert by_title(checks, "No from: line").status is Status.INFO
 
     (project.root / "dictionaries").mkdir()

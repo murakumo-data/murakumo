@@ -29,6 +29,7 @@ import base64
 import fnmatch
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -56,8 +57,31 @@ def secret(name: str | None, what: str) -> str:
         raise ExtractError(f"{what}: name the environment variable that holds it")
     value = os.environ.get(name)
     if not value:
-        raise ExtractError(f"{what}: set the environment variable {name}")
+        raise ExtractError(f"{what}: {name} is not set. Add it in the canvas, or put {name}=... in the project's .env")
     return value
+
+
+def read_env_file(folder: Path) -> None:
+    """The project's .env (NAME=value lines): its variables, for those not already set here."""
+    try:
+        text = (folder / ".env").read_text(encoding="utf-8")
+    except OSError:
+        return
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        name, value = (part.strip() for part in line.split("=", 1))
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            quote, value = value[0], value[1:-1]
+            if quote == '"':
+                value = value.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+        elif " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+        if name and name not in os.environ:
+            os.environ[name] = value
 
 
 def _stamp() -> str:
@@ -136,6 +160,18 @@ class Landing:
             Path(self.path("_state.json")).write_bytes(data)
 
 
+_PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def column_name(key: str) -> str:
+    """A field's name as its raw table's column is named (Murakumo's safe_name): @odata.etag is
+    odata_etag, Trip Distance (mi) is Trip_Distance_mi."""
+    name = re.sub(r"[^A-Za-z0-9_]+", "_", key.strip()).strip("_")
+    if not name:
+        return "column"
+    return f"_{name}" if name[0].isdigit() else name[:255]
+
+
 class Writer:
     """Records written as JSON lines, a file per ROWS_PER_FILE records."""
 
@@ -147,6 +183,11 @@ class Writer:
         self.count = 0
 
     def add(self, record: dict[str, Any]) -> None:
+        if isinstance(record, dict) and any(not _PLAIN.match(str(k)) for k in record):
+            named: dict[str, Any] = {}
+            for key, value in record.items():
+                named.setdefault(column_name(str(key)), value)
+            record = named
         self.rows.append(json.dumps(record, default=_json_default, ensure_ascii=False).encode())
         self.count += 1
         if len(self.rows) >= ROWS_PER_FILE:
@@ -184,7 +225,44 @@ def records_at(data: Any, path: str | None) -> list[dict[str, Any]]:
     return []
 
 
+LIKELY_RECORDS = ("value", "data", "items", "results", "records", "rows", "entries", "list")
+
+
+def guess_records(data: Any) -> str | None:
+    """Where the records probably are in a response: the top-level (or data.<key>) list of objects,
+    preferring the usual names. None when the response is itself the list, or has no such list."""
+    if not isinstance(data, dict):
+        return None
+
+    def lists(obj: dict[str, Any], prefix: str = "") -> list[str]:
+        return [
+            prefix + key
+            for key, value in obj.items()
+            if isinstance(value, list) and value and all(isinstance(v, dict) for v in value)
+        ]
+
+    found = lists(data)
+    for key, value in data.items():
+        if not found and isinstance(value, dict):
+            found += lists(value, f"{key}.")
+    if not found:  # columns side by side, as Open-Meteo sends them: {"hourly": {"time": [...], ...}}
+        found = [
+            key
+            for key, value in data.items()
+            if isinstance(value, dict)
+            and len(value) > 1
+            and all(isinstance(v, list) for v in value.values())
+            and len({len(v) for v in value.values()}) == 1
+            and any(value.values())
+        ]
+    if not found:
+        return None
+    return min(found, key=lambda path: (path.split(".")[-1] not in LIKELY_RECORDS, path.count("."), path))
+
+
 def _at(data: Any, path: str | None) -> Any:
+    if isinstance(data, dict) and path and path in data:  # a key with dots in it: @odata.nextLink
+        return data[path]
     for part in [p for p in (path or "").split(".") if p]:
         data = data.get(part) if isinstance(data, dict) else None
     return data
@@ -196,10 +274,11 @@ class Rest:
         self.auth = connection.get("auth") or {}
         self.paging = connection.get("paging") or {}
         self.token: str | None = None
+        self.token_until = 0.0
         self.last_call = 0.0
 
     def _oauth_token(self) -> str:
-        if self.token is None:
+        if self.token is None or time.monotonic() > self.token_until:
             form = {"grant_type": "client_credentials"}
             if self.auth.get("scope"):
                 form["scope"] = self.auth["scope"]
@@ -214,8 +293,23 @@ class Rest:
                     "User-Agent": USER_AGENT,
                 },
             )
-            with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
-                self.token = json.loads(response.read())["access_token"]
+            try:
+                with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
+                    answer = json.loads(response.read())
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", "replace")
+                try:
+                    detail = json.loads(detail).get("error_description") or detail
+                except ValueError:
+                    pass
+                raise ExtractError(f"signing in at {self.auth.get('token_url')}: {exc.code} {detail[:300]}") from None
+            except urllib.error.URLError as exc:
+                raise ExtractError(f"signing in at {self.auth.get('token_url')}: {exc.reason}") from None
+            except ValueError:
+                raise ExtractError(f"signing in at {self.auth.get('token_url')}: the answer is not JSON") from None
+            self.token = answer["access_token"]
+            # Ask again a minute before it runs out, so long fetches keep going.
+            self.token_until = time.monotonic() + max(60, int(answer.get("expires_in") or 3600) - 60)
         return self.token
 
     def _authorise(self, headers: dict[str, str], params: dict[str, str]) -> None:
@@ -276,7 +370,8 @@ class Rest:
         url = self.c["base_url"].rstrip("/") + "/" + endpoint.get("path", "").lstrip("/")
         params = dict(endpoint.get("params") or {})
         if since is not None and endpoint.get("since_param"):
-            params[endpoint["since_param"]] = since
+            template = endpoint.get("since_format") or "{since}"
+            params[endpoint["since_param"]] = template.replace("{since}", str(since))
         if kind != "none" and p.get("size_param"):
             params[p["size_param"]] = p.get("size", 100)
         number = p.get("start", 1) if kind == "page" else 0
@@ -305,6 +400,11 @@ class Rest:
                 if not following:
                     return
                 url, params = following, {}
+            elif kind == "next_url":  # the next page's whole URL is in the response: @odata.nextLink
+                following = _at(data, p.get("next_path") or "next")
+                if not following:
+                    return
+                url, params = str(following), {}
             if kind in {"page", "offset"} and len(records) < int(p.get("size", 100)):
                 return
 
@@ -619,6 +719,10 @@ KINDS = {
 }
 
 
+def _project_folder(settings: dict[str, Any], here: Path | None) -> Path:
+    return (here / settings.get("root", ".")).resolve() if here else Path.cwd()
+
+
 def _resolve(settings: dict[str, Any], here: Path | None) -> dict[str, Any]:
     """Relative paths in the settings are from the project's folder: ``root``, from the settings file."""
     base = (here / settings.get("root", ".")).resolve() if here else Path.cwd()
@@ -641,6 +745,7 @@ def run(
     """Fetch what is new for each of a source's tables: {table: (records or files, files written)}.
     ``here`` is the settings file's folder, which relative paths start from."""
     settings = _resolve(settings, here)
+    read_env_file(_project_folder(settings, here))
     kind = settings["connection"]["kind"]
     place = Landing(landing or os.environ.get("MURAKUMO_LANDING") or settings["landing"], settings["source"])
     state = place.read_state()
@@ -654,7 +759,13 @@ def preview(connection: dict[str, Any], endpoint: dict[str, Any]) -> dict[str, A
     rest = Rest(connection)
     started = time.monotonic()
     status, headers, records, data = next(rest.pages(endpoint, max_pages=1))
+    found = endpoint.get("records")
+    if not found:  # where the records are, when it was not said: the one list of objects in the response
+        found = guess_records(data)
+        if found:
+            records = records_at(data, found)
     return {
+        "records_at": found or None,
         "status": status,
         "milliseconds": round((time.monotonic() - started) * 1000),
         "headers": {k: v for k, v in headers.items() if k.lower() in {"content-type", "link", "x-total-count"}},

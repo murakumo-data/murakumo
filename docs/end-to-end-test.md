@@ -1836,24 +1836,28 @@ means. Then a warning that no source has a connection yet.
 **17.2** Connect the API in the canvas. Open **Sources** (the database icon) → **+ Add source**:
 
 - **Name:** `open_meteo`.
-- **Kind:** **Fetched by Murakumo (REST API, SFTP, database, files, protobuf)**.
+- **Kind:** leave it on **Fetch its data: Dynamics 365, an API, a database, files…**.
 
-Click **Next: its connection**. Leave **Kind** on **REST API**, and fill in:
+Click **Next: its connection**, then **Another API**. Paste this into **Start from a request that
+works**, and click **Fill in from this**:
 
-| Field | Value |
-| --- | --- |
-| Base URL | `https://archive-api.open-meteo.com/v1` |
-| Request 1: path (beside GET) | `/archive` |
-| Raw table | `weather_hourly` |
-| Parameters (one a line) | `latitude=40.78`, `longitude=-73.97`, `start_date=2024-01-01`, `end_date=2024-01-07`, `hourly=temperature_2m,precipitation` |
-| Records at | `hourly` |
+```text
+https://archive-api.open-meteo.com/v1/archive?latitude=40.78&longitude=-73.97&start_date=2024-01-01&end_date=2024-01-07&hourly=temperature_2m,precipitation
+```
+
+You should see the fields filled in: **Base URL** `https://archive-api.open-meteo.com/v1`, the
+request `/archive`, **Raw table** `archive`, and five **Parameters** rows (`latitude` = `40.78`
+and so on). Change **Raw table** to `weather_hourly`. Click **+ Add** under Parameters and type a
+name and a value, letter by letter, to check the rows take typing; then remove that row with its
+bin.
 
 Click **Send**.
 
-You should see **200**, the time it took, and **168 records on the first page**, with a table of
-`time`, `temperature_2m` and `precipitation`. **Raw response** shows the JSON as it came back.
+You should see **200**, the time it took, and **168 records on the first page, at hourly**, with a
+table of `time`, `temperature_2m` and `precipitation`. **Records at** (under *Where the records
+are*) now says `hourly`: Murakumo found it. **Raw response** shows the JSON as it came back.
 
-☐ The request works.
+☐ The request works, and the records were found without being told where.
 
 **17.3** Click **Make weather_hourly from these records**. Then type a reason in **Why?** (`Hourly
 weather to explain demand`) and click **Save connection**.
@@ -1862,7 +1866,7 @@ You should see:
 
 - a `weather_hourly` table on the canvas, from source `open_meteo`, with `time` as a timestamp and
   the other two as doubles;
-- the message *Saved open_meteo's connection in murakumo.yaml*;
+- the message *Saved how open_meteo is fetched*, and a **Next: fetch and load** box;
 - the source in **Sources** marked **Fetched by Murakumo: rest**.
 
 ☐ The table and connection are saved.
@@ -1871,12 +1875,45 @@ You should see:
 
 You should see: ✓ *weather_hourly: 200 in … ms, 168 record(s) on the first page*.
 
-Then click **Fetch now**.
+Then click **Fetch and load open_meteo**.
 
-You should see **Activity** open on `murakumo ingest --source open_meteo`, ending with
-*open_meteo.weather_hourly: 168 new, 1 file(s) landed*.
+You should see **Activity** open on `murakumo ingest --source open_meteo --load`, with
+*open_meteo.weather_hourly: 168 new, 1 file(s) landed*, then *loaded weather_hourly: 168 rows*.
+The hint above the canvas says *Raw data loaded (weather_hourly: 168 rows)*.
 
-☐ Tested and fetched from the canvas.
+☐ Tested, fetched and loaded from the canvas.
+
+**17.4a** Secrets. Open **Sources → open_meteo → Connect…**, open **Signing in**, and choose
+**Bearer token**. The **Token** field says *Not set yet as OPEN_METEO_TOKEN*. Type anything into
+it, such as `test-token`, and press Enter.
+
+You should see *Kept in .env as OPEN_METEO_TOKEN*. In the terminal:
+
+```bash
+cat .gitignore | grep -x .env
+murakumo secret list
+```
+
+You should see `.env`, then *OPEN_METEO_TOKEN: in .env*, without its value. Set **Signing in**
+back to **None** and click **Save connection** (Open-Meteo needs no key), then
+`murakumo secret remove OPEN_METEO_TOKEN`.
+
+☐ A secret typed on the canvas is kept in .env, out of git, and never shown again.
+
+**17.4b** (Only if you have Microsoft Dynamics 365.) **Sources → + Add source**, name `crm`,
+**Next: its connection → Microsoft Dynamics 365 / Dataverse**. Enter the environment's URL, the
+tenant id, the client id and the secret, and click **Connect**.
+
+You should see your tables, your organisation's own first. Search for `contact`, tick
+**Contact** and one of your own, and click **Add 2 tables**. Each says how many columns it has,
+*fetched in full once, then only what changed*. Click **Fetch and load crm**: Activity shows every
+row fetched (more than 5,000 if the table has them) and loaded. Click **Fetch and load crm** again:
+only the rows changed since then are fetched, and the table keeps its row count.
+
+A wrong secret says *Microsoft did not accept the client secret*; an app that is not an
+application user of the environment says so, with where to add it.
+
+☐ Dynamics connects from four fields, and fetches every row, then only what changed.
 
 **17.5** The same from the terminal, and load it:
 

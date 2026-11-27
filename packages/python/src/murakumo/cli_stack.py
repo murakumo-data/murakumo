@@ -142,9 +142,13 @@ def stack_deploy(
 def ingest_command(
     source: str | None = typer.Option(None, "--source", help="Only this source."),
     table: str | None = typer.Option(None, "--table", help="Only this table."),
+    load: bool = typer.Option(False, "--load", help="Then load what landed into the raw tables (murakumo load)."),
+    environment: str | None = typer.Option(None, "--env", help="With --load: the environment. Default: your own."),
+    prefix: str | None = typer.Option(None, "--prefix", help="With --load: the schemas under this prefix."),
     project_path: Path = ProjectOption,
 ) -> None:
-    """Fetch what is new from the sources into the landing area, with the generated extract code."""
+    """Fetch what is new from the sources into the landing area, with the generated extract code.
+    --load then loads it into the raw tables, so it can be queried straight away."""
     from murakumo import ingest
 
     project = open_project(project_path)
@@ -169,9 +173,12 @@ def ingest_command(
             continue
         for name, (count, files) in fetched.tables.items():
             console.print(f"  {fetched.source}.{name}: {count} new, {len(files)} file(s) landed")
-    console.print(f"Landed under {project.manifest.stack.landing}/. Load it with [bold]murakumo load[/bold].")
     if failed:
         raise typer.Exit(1)
+    if load:
+        _load_landed(project, environment, prefix)
+        return
+    console.print(f"Landed under {project.manifest.stack.landing}/. Load it with [bold]murakumo load[/bold].")
 
 
 def load_command(
@@ -180,12 +187,15 @@ def load_command(
     project_path: Path = ProjectOption,
 ) -> None:
     """Load the landed files into the raw tables, each file once, without running dbt."""
+    _load_landed(open_project(project_path), environment, prefix)
+
+
+def _load_landed(project, environment: str | None, prefix: str | None) -> None:
     from murakumo import ingest
     from murakumo.cli_generate import _report
     from murakumo.generate.verify import build
     from murakumo.importers.database import SourceUnavailable
 
-    project = open_project(project_path)
     files = ingest.landed(project)
     if not files:
         console.print("Nothing has landed yet: run [bold]murakumo ingest[/bold] first.")
@@ -200,6 +210,8 @@ def load_command(
     if result.error:
         fail(result.error)
         raise typer.Exit(1)
+    where = environment or "your own schemas"
+    console.print(f"Loaded into {where}. Query it with [bold]murakumo query[/bold], or on the canvas.")
 
 
 @source_app.command("connect")

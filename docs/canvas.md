@@ -25,7 +25,8 @@ murakumo canvas path/to/project --port 9000 --no-open
   It always fits the window. Hover an icon for its name, or click **Show the names** at its
   bottom to show every name beside its icon. Only one of its menus is open at a time; Esc closes
   it. The page never scrolls: the top bar and the rail stay put, and the canvas and each panel
-  scroll on their own.
+  scroll on their own. Drag a panel's edge to make it wider: the right edge of the panels on the
+  left (Sources, Explorer and the rest), the left edge of the inspector. Each keeps its width.
 - **The Explorer** lists every table by domain, layer, colour label and source, each opening to
   its tables and their columns; its search box finds tables and columns. Click a table to go to
   it; click a domain to show only its tables; the eye beside a layer hides it.
@@ -158,17 +159,27 @@ wrong (problems always show), and every setting is a click away.
   import** shows what would be added, changed or removed, and **Import into the model** saves it.
   Other sources have **Re-import**, with the same preview. Connection errors are shown with any
   password removed.
-- **Say how a source's data is fetched.** **Connect…** on a source opens its connection:
-  - **Kinds:** a REST API, SFTP, a database, a folder or S3 prefix, protobuf files, or Kafka (its
-    brokers, security, and a topic per raw table).
-  - **A REST API is a request builder.** Set the auth and paging once, add a request for each raw
-    table, and **Send** it. You see the status, the time it took and the records, as a table or
-    the raw response. **Make … from these records** creates the raw table from them.
-  - **Secrets stay out of the canvas.** Each auth field names the environment variable that holds
-    the secret, never the secret itself.
+- **Say how a source's data is fetched.** **+ Add source** starts with **Fetch its data**, and
+  **Connect…** opens a source's connection. It asks what the data is in first:
+  - **Microsoft Dynamics 365 / Dataverse:** the environment's URL, the tenant id, the client id
+    and the secret. **Connect** signs in and lists the tables, your organisation's own first.
+    Tick some, then **Add**. Each raw table is made from its first rows, merged by its id, and
+    fetched in full once, then only what changed.
+  - **Another API:** paste a URL or a curl command that works, and the base URL, request,
+    parameters and way of signing in are filled in. Or fill them in yourself. **Send** shows the
+    status, the time it took and the records, and finds where the records are in the response.
+    **Make … from these records** creates the raw table.
+  - **A database, files, SFTP, Kafka or protobuf:** the full form.
+  - **Secrets are typed once.** A secret field (a token, a client secret, a database URL) takes the
+    value, keeps it in the project's `.env` and never shows it again. `.env` is kept out of git.
+    murakumo.yaml only names the variable, which you can rename by clicking it.
+  - **Headers and parameters** are name and value rows: **+ Add** a row, type each half.
+  - **Then: Fetch and load.** It fetches the source and loads what landed into the raw tables
+    (`murakumo ingest --source NAME --load`). When it is done, the canvas says what loaded. Click
+    a table and open **Data**, or open **Query**.
   - **Save connection** records your reason in the decisions log. **Test** reaches the source
-    without landing anything, and **Fetch now** runs `murakumo ingest` for it.
-  - See [stack.md](stack.md).
+    without landing anything.
+  - See [stack.md](stack.md#connecting-a-source).
 - **See the generated code.** The inspector's **Code** tab shows the dbt SQL generated for the
   entity and its table's DDL, updated as you edit.
 - **Write the code.** The top bar says how many files in `generated/` are out of date with the
@@ -229,10 +240,13 @@ wrong (problems always show), and every setting is a click away.
   from the model for the table you are on. When a table is not loaded yet, **Load raw data…** opens
   the Build dialog to load the raw tables only; before anything is built, **Query a file instead** reads your data files
   directly. See [operating.md](operating.md#the-query-console).
-- **Load the raw data first.** While no raw table holds data, a hint above the canvas offers
-  **Load raw data…**, which opens the Build dialog: pick the data, then **Load raw data only** loads
-  the raw tables and builds nothing else (`murakumo build --raw-only`). When it is done, the hint says what loaded and opens
-  **Query**, so you can look at the data before modelling the rest.
+- **Load the raw data first.** While no raw table holds data, a hint above the canvas offers to
+  load it. With sources Murakumo fetches, it is **Fetch and load**: it fetches them and loads what
+  landed (`murakumo ingest --load`). With none, **Load raw data…** opens the Build dialog: pick a
+  file for a table, or made-up rows, then **Load raw data only** loads the raw tables and builds
+  nothing else (`murakumo build --raw-only`). The Build dialog fetches the connected sources first
+  by default, and says when there is nothing to load. When it is done, the hint says what loaded
+  and opens **Query**, so you can look at the data before modelling the rest.
 - **Settings → Data quality** writes the rules for Great Expectations and Soda too, turns on
   reconciliation and write-audit-publish, and says where contracts are enforced.
 
@@ -376,6 +390,11 @@ at `/api/docs`. Every change returns the whole new state, validated.
 | POST | `/api/jobs/{id}/cancel` | Stop a job, and what it started |
 | GET, PUT | `/api/stack` | The stack's parts, their choices, problems, each source's connection, the environments and the decisions log; `PUT {values: {part: value}, why}` changes parts (undoable) |
 | PUT | `/api/sources/{name}/connection` | A source's connection: `{connection, why}`, or `connection: null` to stop fetching it |
+| GET | `/api/secrets` | Whether each secret is set, and where (`.env` or the environment): `?names=A,B`, or the connections' own. Never a value |
+| PUT, DELETE | `/api/secrets/{name}` | Keep a secret in the project's `.env` (`{value}`), or take it out |
+| GET, POST | `/api/sources/{name}/dynamics` | A Dynamics source: its URL, tenant and whether its id and secret are set; `POST {url, tenant, client_id, client_secret}` keeps them, signs in, saves the connection and lists the tables |
+| POST | `/api/sources/{name}/dynamics/tables` | Fetch these tables too: `{tables: [{entity_set, logical_name}]}` makes each raw table from its first rows and adds its request |
+| POST | `/api/sources/{name}/paste` | A connection from a pasted URL or curl command: `{text}`; its secret goes in `.env` |
 | POST | `/api/sources/request` | Send one request: `{connection, endpoint}`; returns the status, time, record count, a sample and the response. Secrets come from the server's environment variables |
 | POST | `/api/sources/{name}/test` | `murakumo source test`: what the connection can reach, without landing anything |
 | POST | `/api/sources/table-from-records` | Make or update a raw table from records: `{source, table, records, path}` |

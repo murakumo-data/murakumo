@@ -126,7 +126,7 @@ def test_every_paging_kind_fetches_every_record(api, tmp_path, path, paging):
 
 def test_auth_kinds_and_secrets_from_the_environment(api, tmp_path, monkeypatch):
     paging = {"type": "none"}
-    with pytest.raises(extract.ExtractError, match="set the environment variable API_TOKEN"):
+    with pytest.raises(extract.ExtractError, match="API_TOKEN is not set"):
         extract.run(rest(api, "/bearer/x", paging, {"type": "bearer", "env": "API_TOKEN"}), here=tmp_path)
     monkeypatch.setenv("API_TOKEN", "t0ken")
     assert (

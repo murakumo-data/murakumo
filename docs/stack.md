@@ -65,8 +65,82 @@ knows why it is built the way it is.
 
 A source in murakumo.yaml can say how its data is fetched: its `connection`. Each kind of
 connection fills one or more raw tables. **Secrets are never written in murakumo.yaml**: each
-field ending in `env` names the environment variable that holds the secret, on the machine that
-runs the extract.
+field ending in `env` names the variable that holds the secret.
+
+### Secrets: the project's .env
+
+You don't export anything by hand. Murakumo keeps secrets in the project's `.env` file:
+
+- **On the canvas**, each secret field takes the value itself. It is written to `.env` and never
+  shown again. The connection names its variable, such as `CRM_CLIENT_SECRET`.
+- **From the command line**: `murakumo secret set CRM_CLIENT_SECRET` (asks for the value without
+  showing it), `murakumo secret list` (which are set, never their values) and
+  `murakumo secret remove`.
+- `.env` is added to `.gitignore`, and only its owner can read it.
+- `.env` is read by the canvas, every command, and the generated extract code
+  (`python extract.py`).
+- A variable set in the environment wins over `.env`. That is how CI, a scheduler or a secret
+  store supplies secrets on a server.
+- `murakumo setup` says which of the connections' secrets are not set.
+
+The file is the usual `NAME=value` format that python-dotenv and Docker Compose read. Spaces
+around `=`, `export` and quotes are all accepted.
+
+### Microsoft Dynamics 365 and Dataverse
+
+On the canvas: **Sources → + Add source → Fetch its data… → Microsoft Dynamics 365 / Dataverse**.
+
+1. **Enter four things:** the environment's URL (such as `https://yourorg.crm11.dynamics.com`,
+   in any form, even the app's address in a browser), the tenant id, the app's client id, and
+   its secret.
+2. **Connect.** Murakumo signs in and lists the tables the app can read, your organisation's own
+   first.
+3. **Tick the tables and Add.** Each one's raw table is made from its first rows.
+4. **Fetch and load.**
+
+The app must be an *application user* of the environment, with a security role that can read the
+tables. Add it in the Power Platform admin center: Environments → the environment → Settings →
+Users + permissions → Application users. Without that, Dynamics answers 403.
+
+What it writes is an ordinary REST connection, which runs without Murakumo:
+
+```yaml
+  - name: crm
+    connection:
+      kind: rest
+      base_url: https://yourorg.crm11.dynamics.com/api/data/v9.2
+      headers: {Prefer: odata.maxpagesize=5000, OData-MaxVersion: "4.0", OData-Version: "4.0"}
+      auth:
+        type: oauth2
+        token_url: https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token
+        client_id_env: CRM_CLIENT_ID
+        client_secret_env: CRM_CLIENT_SECRET
+        scope: https://yourorg.crm11.dynamics.com/.default
+      paging: {type: next_url, next_path: "@odata.nextLink"}
+      endpoints:
+        - table: contacts
+          path: /contacts
+          records: value
+          since_param: $filter
+          since_format: modifiedon ge {since}
+```
+
+- **Every row:** each page's `@odata.nextLink` is followed until there is none.
+- **Then only what changed:** the first fetch reads everything. Each one after asks for
+  `modifiedon ge <the latest modifiedon fetched>`.
+- **The raw table keeps every row:** it is merged by the row's id (`contactid`), the latest by
+  `modifiedon` winning.
+- **Long fetches keep their sign-in:** the token is asked for again a minute before it runs out.
+
+### A request that already works
+
+For any other API, **Another API** starts from a request you know works. Paste a URL, or a curl
+command copied from the API's docs, Postman or a browser's network tab:
+
+- **The URL is split up:** its base, the request's path, and its parameters.
+- **The way it signs in is recognised:** a bearer token, an API key in a header or the query, or
+  a user and password. The secret goes into `.env`, and the connection names its variable.
+- **Send** finds where the records are in the response (`data.items`, `value`, …) by itself.
 
 ### REST APIs
 
@@ -90,6 +164,7 @@ sources:
           params: {station: all}
           records: data.items   # where the records are in the response
           since_param: since    # gets the table's watermark, so each run asks only for what is new
+          # since_format: updated_at gt {since}   # when the parameter is an expression around it
 ```
 
 | Auth | Fields |
@@ -104,9 +179,13 @@ sources:
 | `page` | `param` (page), `size_param`, `size`, `start` (1) |
 | `offset` | `param` (offset), `size_param`, `size` |
 | `cursor` | `param` (cursor), `cursor_path` (where the next cursor is: `meta.next_cursor`) |
+| `next_url` | `next_path`: where the next page's whole URL is in the response (`next`, `@odata.nextLink`) |
 | `link` | none: follows the `Link: <...>; rel="next"` header |
 
 Requests are retried on 429 and 5xx, waiting as `Retry-After` says.
+
+A field whose name is not a plain column name (`@odata.etag`, `Trip Distance (mi)`) lands under the
+name its raw table's column has (`odata_etag`, `Trip_Distance_mi`), so the load finds it.
 
 ### SFTP, databases, folders and protobuf
 
@@ -184,6 +263,7 @@ murakumo source disconnect weather
 murakumo ingest                  # fetch what is new from every connected source
 murakumo ingest --source weather --table readings
 murakumo load --env dev          # load what has landed into the raw tables, without running dbt
+murakumo ingest --source crm --load   # fetch, then load what landed: query it straight away
 murakumo build --ingest          # fetch, load everything landed, then build
 ```
 

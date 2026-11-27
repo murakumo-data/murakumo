@@ -342,9 +342,10 @@ code {
 .rail__dot--pending { background: var(--accent); }
 
 .drawer {
+  position: relative;
   display: flex;
   flex-direction: column;
-  width: 320px;
+  width: min(var(--drawer-width, 320px), calc(100vw - 120px));
   flex: none;
   min-height: 0;
   background: var(--surface);
@@ -3956,6 +3957,198 @@ button.tree-row__label:not(:disabled) {
 
 .connection {
   overflow-x: hidden;
+}
+
+.badge--quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  color: var(--ok);
+  background: var(--ok-bg);
+  font-weight: 500;
+}
+
+/* What a source is: Dynamics, another API, or something else. */
+.connect-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connect-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.connect-choice:hover,
+.connect-choice:focus-visible {
+  border-color: var(--accent);
+}
+
+.connect-choice > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.connect-choice > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.table-picker__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.table-picker__list {
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.table-picker__list > li {
+  padding: 4px 8px;
+}
+
+.table-picker__list > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.table-picker__list code {
+  font-size: 11px;
+}
+
+.next-steps {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--info-bg);
+}
+
+.next-steps p {
+  margin: 0;
+}
+
+.connection__tested > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.connection__tested > li > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.connection__failed {
+  color: var(--error);
+}
+
+.connection__more > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.connection__more[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.paste {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.paste p {
+  margin: 0;
+}
+
+/* A secret: typed once, kept in .env. */
+.secret__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.secret__where {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.secret__where .link-button {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.input--inline {
+  width: auto !important;
+  height: 22px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* name = value rows: headers, parameters. */
+.key-values {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.key-values__label {
+  font-size: 12px;
+}
+
+.key-values__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+/* Drag the right edge of a side panel (Sources, Explorer…) to make it wider. */
+.drawer__resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 5;
+}
+
+.drawer__resize:hover,
+.drawer__resize:active {
+  background: linear-gradient(to left, transparent 2px, var(--accent) 2px 5px, transparent 5px);
 }
 
 /* The replication guide (Guide.tsx) */

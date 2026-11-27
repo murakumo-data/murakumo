@@ -192,6 +192,12 @@ def _dlt_rest(project, declaration: SourceDeclaration) -> tuple[list[str], list[
         }
     elif paging.type == "link":
         client["paginator"] = {"type": "header_link"}
+    elif paging.type == "next_url":
+        path = paging.next_path or "next"
+        client["paginator"] = {
+            "type": "json_link",
+            "next_url_path": f"'{path}'" if "." in path or "@" in path else path,
+        }
     else:
         client["paginator"] = {"type": "single_page"}
     resources = []
@@ -201,7 +207,8 @@ def _dlt_rest(project, declaration: SourceDeclaration) -> tuple[list[str], list[
         params: dict[str, Any] = dict(endpoint.params)
         if paging.type in ("page", "offset") and paging.size_param and paging.type == "page":
             params[paging.size_param] = paging.size
-        if endpoint.since_param and entity is not None and entity.watermark:
+        # A parameter written around the watermark (modifiedon ge {since}) is fetched in full here.
+        if endpoint.since_param and not endpoint.since_format and entity is not None and entity.watermark:
             params[endpoint.since_param] = {
                 "type": "incremental",
                 "cursor_path": entity.watermark,

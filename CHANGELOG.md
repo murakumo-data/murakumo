@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+Connecting a source without the fiddly parts: secrets typed once and kept out of git, Microsoft
+Dynamics 365 from four fields, any other API from a request that already works, and one button to
+fetch and load.
+
+**Added**
+
+- **Secrets in the project's `.env`.** A secret field on the canvas takes the value and keeps it in
+  `.env`, which Murakumo adds to `.gitignore` and makes readable only by you. The canvas, every
+  command and the generated extract code read it themselves: nothing has to be exported. A
+  variable set in the environment (CI, a scheduler) still wins. `murakumo secret set`, `list` and
+  `remove`; `murakumo setup` says which connection secrets are missing.
+- **Microsoft Dynamics 365 / Dataverse:** the environment's URL, the tenant, the client id and the
+  secret. Murakumo signs in, lists the tables (the organisation's own first) and makes each raw
+  table you tick from its first rows. Every row is fetched, following `@odata.nextLink`, then only
+  what changed (`modifiedon`), and each table is merged by its id, so nothing is lost. Sign-in
+  problems are said plainly: a wrong secret, an unknown client id or tenant, an app that is not an
+  application user.
+- **Another API from a request that works:** paste a URL or a curl command and the base URL,
+  request, parameters and way of signing in are filled in. The secret goes into `.env`.
+- **Fetch and load**, on the connection and in the hint above the canvas: fetches a source and
+  loads what landed (`murakumo ingest --load`), ready to query.
+- REST connections: `next_url` paging (the next page's URL in the response), `since_format` for
+  an incremental parameter written as an expression (`modifiedon ge {since}`), and a fresh OAuth
+  token before the old one runs out. **Send** finds where the records are in a response by itself,
+  including columns side by side.
+- The panels on the left (Sources, Explorer and the rest) can be dragged wider, like the
+  inspector, and keep their width.
+
+**Fixed**
+
+- The **Headers** and **Parameters** boxes dropped every key you typed until the line had an `=`,
+  so they could only be pasted into. They are now name and value rows.
+- Fields whose names are not plain column names (Dynamics' `@odata.etag`, `Trip Distance (mi)`)
+  stopped the load with *has no column odata_etag*. They now land under their column's name.
+- **Load raw data** with a connected source loaded nothing. It now fetches the sources and loads
+  them; the Build dialog fetches them first by default, and says when there is nothing to load.
+- Signing in with OAuth reported a bare *HTTP Error 401* or *the response is not JSON*. It now
+  says the token endpoint's reason.
+
 ## 1.2.0 (2026-11-24)
 
 Exploring the data before modelling it: load the raw tables alone, look at a table before it is

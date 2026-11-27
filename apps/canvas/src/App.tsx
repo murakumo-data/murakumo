@@ -115,6 +115,15 @@ const isTable = (n: AppNode): n is EntityNodeType => n.type === 'entity'
 const edgeTypes = { relationship: RelationshipEdge, lineage: LineageEdge }
 const NODE_WIDTH = 280 // until React Flow has measured a node
 const PANEL_WIDTH = { min: 320, default: 400 }
+const DRAWER_WIDTH = { min: 260, default: 320 }
+
+function savedDrawerWidth(): number {
+  try {
+    return Number(window.localStorage.getItem('murakumo.drawerWidth')) || DRAWER_WIDTH.default
+  } catch {
+    return DRAWER_WIDTH.default
+  }
+}
 
 function savedPanelWidth(): number {
   try {
@@ -227,6 +236,7 @@ function Canvas() {
   // Which raw tables hold data: asked of the warehouse's catalog when the canvas opens and after
   // each job, so the canvas can say when to load the raw data and explore it before modelling.
   const [rawStatus, setRawStatus] = useState<RawStatus | null>(null)
+  const [connected, setConnected] = useState<string[]>([]) // sources Murakumo fetches
   const [rawHint, setRawHint] = useState(() => recall('murakumo.rawHint') ?? '')
   const [showDomains, setShowDomains] = useState(() => recall('murakumo.showDomains') === '1')
   const [domainFilter, setDomainFilter] = useState<string | null>(null)
@@ -243,6 +253,7 @@ function Canvas() {
   const [railOpen, setRailOpen] = useState(() => recall('murakumo.rail') === 'open')
   const [minimap, setMinimap] = useState(() => recall('murakumo.minimap') === '1')
   const [panelWidth, setPanelWidth] = useState(savedPanelWidth)
+  const [drawerWidth, setDrawerWidth] = useState(savedDrawerWidth)
   // The column clicked on the canvas, as entity:column, so its row stays marked.
   const picked = selection?.kind === 'entity' && selection.column ? `${selection.id}:${selection.column}` : null
   const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([])
@@ -353,7 +364,8 @@ function Canvas() {
     (job: Job) => {
       setJobRunning(false)
       setJobsDone((n) => n + 1)
-      if (job.kind === 'build' && job.title.startsWith('Load raw data') && job.state === 'succeeded') setJustLoaded(true)
+      const loads = (job.kind === 'build' && job.title.startsWith('Load raw data')) || (job.kind === 'ingest' && job.title.startsWith('Fetch and load'))
+      if (loads && job.state === 'succeeded') setJustLoaded(true)
       if (job.kind === 'generate' || job.kind === 'export') loadGenerated()
     },
     [loadGenerated],
@@ -369,7 +381,11 @@ function Canvas() {
   useEffect(() => {
     if (!hasRaw) return
     api.exploreStatus().then(setRawStatus, () => setRawStatus(null))
-  }, [hasRaw, jobsDone])
+    api.stack().then((info) => setConnected(info.connected), () => setConnected([]))
+  }, [hasRaw, jobsDone, state?.revision])
+  // Loading the raw tables: fetch the sources Murakumo is connected to and load them, or, with none,
+  // choose what to load in the Build dialog (files, made-up rows).
+  const loadRaw = () => (connected.length ? startJob('ingest', { load: true }) : setBuilding(true))
 
   // When each schedule last ran, for the Schedules panel, and whether they run on this computer:
   // read while it is open (the scheduler's runs finish on their own).
@@ -965,6 +981,28 @@ function Canvas() {
     window.addEventListener('pointerup', up)
   }
 
+  const resizeDrawer = (event: ReactPointerEvent) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = drawerWidth
+    let latest = startWidth
+    const move = (e: PointerEvent) => {
+      latest = Math.max(DRAWER_WIDTH.min, Math.min(window.innerWidth - 160, startWidth + e.clientX - startX))
+      setDrawerWidth(latest)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      try {
+        window.localStorage.setItem('murakumo.drawerWidth', String(Math.round(latest)))
+      } catch {
+        // Only a convenience.
+      }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   if (!state) {
     return (
       <div className="splash">
@@ -1306,7 +1344,15 @@ function Canvas() {
         </nav>
 
         {side && (
-          <aside className="drawer" aria-label={drawerTitle}>
+          <aside className="drawer" aria-label={drawerTitle} style={{ '--drawer-width': `${drawerWidth}px` } as CSSProperties}>
+            <div
+              className="drawer__resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Drag to resize the panel"
+              title="Drag to resize"
+              onPointerDown={resizeDrawer}
+            />
             <div className="drawer__head">
               <strong>{drawerTitle}</strong>
               <button
@@ -1386,7 +1432,7 @@ function Canvas() {
                 <QueryPanel
                   environments={state.environments}
                   focus={queryFocus}
-                  onLoadRaw={state.editable ? () => setBuilding(true) : undefined}
+                  onLoadRaw={state.editable ? loadRaw : undefined}
                 />
               )}
               {side === 'health' && (
@@ -1491,8 +1537,8 @@ function Canvas() {
                     The raw tables have no data yet. Load them to look at the data before you model the rest: only the raw
                     tables, nothing else is built.
                   </span>
-                  <button className="button button--small button--primary" onClick={() => setBuilding(true)} disabled={!state.editable}>
-                    Load raw data…
+                  <button className="button button--small button--primary" onClick={loadRaw} disabled={!state.editable}>
+                    {connected.length ? `Fetch and load ${connected.length === 1 ? connected[0] : 'the sources'}` : 'Load raw data…'}
                   </button>
                 </>
               ) : (
@@ -1675,7 +1721,7 @@ function Canvas() {
                   setQueryFocus({ entity, sql, at: Date.now() })
                   setSide('query')
                 }}
-                onLoadRaw={() => setBuilding(true)}
+                onLoadRaw={loadRaw}
               />
             )}
             {selectedRelationship && (
@@ -1721,6 +1767,7 @@ function Canvas() {
       {building && (
         <BuildDialog
           state={state}
+          connected={connected}
           onClose={() => setBuilding(false)}
           onStart={async (options) => {
             if (await startJob('build', options)) setBuilding(false)

@@ -11,8 +11,14 @@ type Run = (action: () => Promise<State>) => Promise<boolean>
 
 const KINDS: { value: string; label: string; placeholder: string; help: string }[] = [
   {
+    value: 'connect',
+    label: 'Fetch its data: Dynamics 365, an API, a database, files…',
+    placeholder: '',
+    help: 'Next you choose what it is: Microsoft Dynamics 365, another API, a database or files. Its tables are made from what comes back.',
+  },
+  {
     value: 'database',
-    label: 'Database (PostgreSQL, DuckDB)',
+    label: 'Import a database’s tables (PostgreSQL, DuckDB)',
     placeholder: 'CRM_DB_URL',
     help: 'The name of an environment variable that holds the connection string. The string itself never goes into murakumo.yaml.',
   },
@@ -31,12 +37,7 @@ const KINDS: { value: string; label: string; placeholder: string; help: string }
     help: 'Its columns and types become a table.',
   },
   { value: 'openapi', label: 'API (OpenAPI spec)', placeholder: 'specs/api.yaml or https://…', help: 'One table per object schema.' },
-  {
-    value: 'connect',
-    label: 'Fetched by Murakumo (REST API, SFTP, database, files, protobuf)',
-    placeholder: '',
-    help: 'Say how its data is fetched next: requests to send, files to copy. Its tables can be made from what comes back.',
-  },
+
 ]
 
 const browsable = (s: SourceInfo) => s.kind === 'database' || s.kind === 'snowflake'
@@ -191,7 +192,7 @@ export function SourcesPanel({
 }
 
 function AddSource({ run, onDone, onConnect }: { run: Run; onDone: () => void; onConnect: (name: string) => void }) {
-  const [draft, setDraft] = useState({ name: '', kind: 'database', location: '' })
+  const [draft, setDraft] = useState({ name: '', kind: 'connect', location: '' })
   const kind = KINDS.find((k) => k.value === draft.kind)!
   return (
     <form
