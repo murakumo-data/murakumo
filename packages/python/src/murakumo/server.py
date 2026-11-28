@@ -1329,7 +1329,7 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
                     {"table": table, "entity_set": entity_set, "error": "it has no rows yet to read its columns from"}
                 )
                 continue
-            samples[entity_set] = rows
+            samples[entity_set] = dynamics.useful_labels(rows)
         if samples:
 
             def action(project: Project) -> None:
@@ -1356,7 +1356,11 @@ def create_app(root: Path, static: Path | None = None) -> FastAPI:
         endpoints += [dynamics.endpoint(entity_set, m["watermark"]) for entity_set, m in wanted.items()]
         if wanted:
             with lock:
-                save_connection(name, {**connection, "endpoints": endpoints}, body.why or f"Fetch {', '.join(wanted)}")
+                save_connection(
+                    name,
+                    {**dynamics.with_labels(connection), "endpoints": endpoints},
+                    body.why or f"Fetch {', '.join(wanted)}",
+                )
         return {**state(root), "made": made}
 
     @app.get("/api/sources/{name}/tables")

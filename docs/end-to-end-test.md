@@ -1910,7 +1910,10 @@ and a few values. Click **Tick those with values**, untick some, and put it on t
 ticked columns are on it, with `contactid` and `modifiedon` always kept. Click **Fetch and load
 crm**: the log shows under the button as it runs, every row is fetched (more than 5,000 if the
 table has them) and loaded. Click it again: only the rows changed since then are fetched. Click a
-column of `contacts` on the canvas, then **Show what it holds**. In the inspector, **Select
+column of `contacts` on the canvas, then **Show what it holds**. Choose **Contact** again: a choice
+column such as `statuscode` has `statuscode_label` under it, with values such as *Active*, not
+numbers. Tick it, add it, and Fetch and load again: **Show what it holds** on `statuscode_label`
+lists the labels. In the inspector, **Select
 columns…**, tick two, and **Delete 2 columns**; ⌘Z brings them back.
 
 A wrong secret says *Microsoft did not accept the client secret*; an app that is not an

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**Added**
+
+- **Dynamics choices come with their labels.** A choice column holds a number (`100006`); its
+  label (*Approved*) is now offered as a column of its own beside it, `statuscode_label`, in the
+  table's column list. Yes-or-no columns and lookups have one too (a lookup's is the name of
+  what it points to). Murakumo asks Dynamics for them in the `Prefer` header. Connections made
+  before this ask once a table is added or the source is connected again.
+
 ## 1.3.2 (2026-11-27)
 
 **Changed**

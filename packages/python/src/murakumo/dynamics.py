@@ -23,6 +23,7 @@ WATERMARK = "modifiedon"
 PAGE = 5000  # the most Dynamics sends a page
 LOGIN = "https://login.microsoftonline.com"
 NEXT = "@odata.nextLink"
+LABELS = 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"'  # a choice's label beside its number
 
 
 class DynamicsError(ValueError):
@@ -66,7 +67,7 @@ def connection(source: str, url: str, tenant_id: str, endpoints: list[dict[str, 
     return {
         "kind": "rest",
         "base_url": base + API,
-        "headers": {"Prefer": f"odata.maxpagesize={PAGE}", "OData-MaxVersion": "4.0", "OData-Version": "4.0"},
+        "headers": {"Prefer": f"odata.maxpagesize={PAGE},{LABELS}", "OData-MaxVersion": "4.0", "OData-Version": "4.0"},
         "auth": {
             "type": "oauth2",
             "token_url": f"{LOGIN}/{tenant(tenant_id)}/oauth2/v2.0/token",
@@ -77,6 +78,61 @@ def connection(source: str, url: str, tenant_id: str, endpoints: list[dict[str, 
         "paging": {"type": "next_url", "next_path": NEXT},
         "endpoints": endpoints or [],
     }
+
+
+def with_labels(conn: dict[str, Any]) -> dict[str, Any]:
+    """The connection, asking Dynamics for each value's label too (Approved beside 100006). One
+    Prefer header carries every preference, so the labels are added to the one already there."""
+    headers = dict(conn.get("headers") or {})
+    name = next((k for k in headers if k.lower() == "prefer"), "Prefer")
+    current = str(headers.get(name) or "")
+    if "include-annotations" in current:
+        return conn
+    headers[name] = f"{current},{LABELS}" if current.strip() else f"odata.maxpagesize={PAGE},{LABELS}"
+    return {**conn, "headers": headers}
+
+
+def is_label(key: str) -> bool:
+    return key.endswith(extract.LABEL) and len(key) > len(extract.LABEL)
+
+
+def labelled(key: str) -> str:
+    """The column a label belongs to: statuscode for statuscode@OData.Community.Display.V1.FormattedValue."""
+    return key[: -len(extract.LABEL)] if is_label(key) else key
+
+
+_CODES = re.compile(r"^-?\d+(,-?\d+)*$")
+
+
+def worth_a_label(key: str, values: list[Any], labels: list[Any]) -> bool:
+    """Whether a column's labels say more than its values: a choice (100006 is Approved), a yes or
+    no, several choices, or a lookup (a GUID, and the name of what it points to). Dynamics labels
+    dates, money and numbers too, only formatted (1,000.00): those are left out."""
+    pairs = [(v, lab) for v, lab in zip(values, labels, strict=False) if v is not None and lab not in (None, "")]
+    if not pairs:
+        return False
+    if key.startswith("_") and key.endswith("_value"):
+        return True
+    for value, label in pairs:
+        if isinstance(value, bool):
+            return True
+        if isinstance(value, int) or (isinstance(value, str) and _CODES.match(value)):
+            if re.sub(r"[\s,.'\u00a0\u202f-]", "", str(label)) != re.sub(r"[,-]", "", str(value)):
+                return True
+    return False
+
+
+def useful_labels(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rows to make a whole raw table from: each label worth having named <column>_label, as it lands;
+    the rest (a number's or a date's, only formatted) left out."""
+    keys = {k for r in rows for k in r if is_label(k)}
+    if not keys:
+        return rows
+    kept = {k for k in keys if worth_a_label(labelled(k), [r.get(labelled(k)) for r in rows], [r.get(k) for r in rows])}
+    return [
+        {(extract.column_name(k) if k in kept else k): v for k, v in r.items() if k not in keys or k in kept}
+        for r in rows
+    ]
 
 
 def is_dynamics(conn: dict[str, Any] | None) -> bool:
@@ -167,7 +223,7 @@ def tables(conn: dict[str, Any]) -> list[dict[str, Any]]:
 
 def sample(conn: dict[str, Any], entity_set: str, rows: int = 50) -> list[dict[str, Any]]:
     """The first rows of a table, to make its raw table from (their columns and types)."""
-    rest = extract.Rest(conn)
+    rest = extract.Rest(with_labels(conn))
     url = conn["base_url"].rstrip("/") + f"/{entity_set}"
     _status, _headers, data = rest.call(url, "GET", {"$top": rows}, None)
     return extract.records_at(data, "value") if data else []

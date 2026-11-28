@@ -100,6 +100,13 @@ On the canvas: **Sources → + Add source → Fetch its data… → Microsoft Dy
    only those are fetched (`$select`). The row's id and `modifiedon` are always kept: they are
    how the table loads. Choose the table again later to add more columns. Removing columns in the
    inspector stops fetching them too.
+
+   **Choices come with their labels.** Dynamics keeps a choice as a number (`statuscode` is
+   `100006`), a yes or no as true or false, and a lookup as an id. Each of these is offered
+   with a second column beside it, ending `_label`, that holds what Dynamics shows people:
+   `statuscode_label` is `Approved`. Tick the label with its column, or the label alone. The
+   number is still fetched, because Dynamics sends a label only with its column. Dates, money
+   and plain numbers get no label column: theirs would only be the value formatted.
 4. **Fetch and load.** What it does shows as it goes, under the button.
 
 The same from the command line:
@@ -124,7 +131,10 @@ What it writes is an ordinary REST connection, which runs without Murakumo:
     connection:
       kind: rest
       base_url: https://yourorg.crm11.dynamics.com/api/data/v9.2
-      headers: {Prefer: odata.maxpagesize=5000, OData-MaxVersion: "4.0", OData-Version: "4.0"}
+      headers:
+        Prefer: odata.maxpagesize=5000,odata.include-annotations="OData.Community.Display.V1.FormattedValue"
+        OData-MaxVersion: "4.0"
+        OData-Version: "4.0"
       auth:
         type: oauth2
         token_url: https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token
@@ -145,6 +155,10 @@ What it writes is an ordinary REST connection, which runs without Murakumo:
   `modifiedon ge <the latest modifiedon fetched>`.
 - **The raw table keeps every row:** it is merged by the row's id (`contactid`), the latest by
   `modifiedon` winning.
+- **Labels:** the `Prefer` header asks for each value's label, which Dynamics sends as
+  `statuscode@OData.Community.Display.V1.FormattedValue`. It lands as the column
+  `statuscode_label`. A connection made before 1.3.3 starts asking for labels the next time a
+  table is added, or when you connect again.
 - **Long fetches keep their sign-in:** the token is asked for again a minute before it runs out.
 
 ### A request that already works

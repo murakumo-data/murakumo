@@ -5329,6 +5329,10 @@ button.mapping__sources code {
   background: var(--accent);
 }
 
+.source-columns__row--label {
+  padding-left: 18px;
+}
+
 .source-columns__examples {
   color: var(--text-muted);
   font-family: var(--mono);

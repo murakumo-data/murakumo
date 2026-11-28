@@ -274,6 +274,7 @@ export type SourceColumn = {
   filled: number // sampled rows with a value
   examples: string[]
   in_model: boolean
+  label_for: string | null // the column whose values this names (Dynamics: Approved for 100006)
   annotation: boolean
 }
 export type SourceColumns = { table: string; rows: number; columns: SourceColumn[]; key: string | null; watermark: string | null }
