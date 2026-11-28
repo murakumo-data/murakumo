@@ -163,9 +163,15 @@ class Landing:
 _PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+LABEL = "@OData.Community.Display.V1.FormattedValue"  # Dynamics' label of a value, when asked for
+
+
 def column_name(key: str) -> str:
     """A field's name as its raw table's column is named (Murakumo's safe_name): @odata.etag is
-    odata_etag, Trip Distance (mi) is Trip_Distance_mi."""
+    odata_etag, Trip Distance (mi) is Trip_Distance_mi. The label Dynamics sends beside a value
+    (statuscode@OData.Community.Display.V1.FormattedValue) is that column's name and _label."""
+    if key.endswith(LABEL) and len(key) > len(LABEL):
+        return column_name(key[: -len(LABEL)]) + "_label"
     name = re.sub(r"[^A-Za-z0-9_]+", "_", key.strip()).strip("_")
     if not name:
         return "column"

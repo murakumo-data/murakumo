@@ -41,10 +41,22 @@ LOANS = [
         "vrp_mortgageloanid": f"l{i}",
         "vrp_name": f"Loan {i}",
         "vrp_amount": 1000.5 * i,
+        "vrp_status": 100006 if i else 100000,
+        "vrp_islive": bool(i),
+        "_vrp_contactid_value": f"00000000-0000-0000-0000-00000000000{i}",
         "modifiedon": "2026-11-01T00:00:00Z",
     }
     for i in range(2)
 ]
+# What Dynamics sends beside each value when asked for labels: choices, yes or no and lookups have
+# a name; numbers and dates are only formatted.
+LABELS = {
+    "vrp_amount": lambda v: f"{v:,.2f}",
+    "vrp_status": lambda v: {100000: "New", 100006: "Approved"}[v],
+    "vrp_islive": lambda v: "Yes" if v else "No",
+    "_vrp_contactid_value": lambda v: "Person " + v[-1],
+    "modifiedon": lambda v: "11/1/2026 12:00 AM",
+}
 ENTITIES = [
     {
         "EntitySetName": "contacts",
@@ -112,6 +124,8 @@ class FakeDynamics(BaseHTTPRequestHandler):
         if "$top" in query:
             rows = rows[: int(query["$top"])]
         start = int(query.get("$skiptoken", 0))
+        if "OData.Community.Display.V1.FormattedValue" in self.headers.get("Prefer", ""):
+            rows = [{**r, **{f"{k}{extract.LABEL}": LABELS[k](v) for k, v in r.items() if k in LABELS}} for r in rows]
         body: dict = {"@odata.context": "$metadata#" + name, "value": rows[start : start + self.page]}
         if start + self.page < len(rows):
             rest = {k: v for k, v in query.items() if k != "$skiptoken"}
@@ -524,3 +538,72 @@ def test_choosing_columns_from_the_command_line(fake, project, clean_env):
     assert added.exit_code == 0, added.output
     loans = load_project(project).project.model.entity("vrp_mortgageloans")
     assert [a.name for a in loans.attributes] == ["vrp_mortgageloanid", "modifiedon", "vrp_amount"]
+
+
+def test_choices_come_with_their_labels(fake, project, clean_env):
+    """Dynamics stores a choice as a number (100006); its label (Approved) is offered as a column of
+    its own, fetched with the column it names. Numbers' and dates' labels, only formatted, are not."""
+    from fastapi.testclient import TestClient
+
+    from murakumo import stack
+    from murakumo.server import create_app
+
+    clean_env.setenv("CRM_CLIENT_ID", "app-id")
+    clean_env.setenv("CRM_CLIENT_SECRET", "s3cr$t!")
+    clean_env.setattr(FakeDynamics, "page", 5000)
+    # A connection made before labels were asked for: they are asked for once a table is added.
+    old = dynamics.connection("crm", fake, "t1")
+    old["headers"]["Prefer"] = f"odata.maxpagesize={dynamics.PAGE}"
+    stack.set_connection(load_project(project).project, "crm", old)
+    client = TestClient(create_app(project), base_url="http://localhost")
+
+    columns = client.post(
+        "/api/sources/crm/tables/columns", json={"table": "vrp_mortgageloans", "entity_set": "vrp_mortgageloans"}
+    ).json()["columns"]
+    keys = [c["key"] for c in columns]
+    labels = {c["name"]: c for c in columns if c["label_for"]}
+    assert set(labels) == {"vrp_status_label", "vrp_islive_label", "vrp_contactid_value_label"}
+    assert (
+        labels["vrp_status_label"]["examples"] == ["New", "Approved"] and not labels["vrp_status_label"]["annotation"]
+    )
+    assert keys.index("vrp_status" + extract.LABEL) == keys.index("vrp_status") + 1  # beside its column
+
+    added = client.post(
+        "/api/sources/crm/tables/add",
+        json={
+            "table": "vrp_mortgageloans",
+            "entity_set": "vrp_mortgageloans",
+            "logical_name": "vrp_mortgageloan",
+            "columns": ["vrp_name", "vrp_status" + extract.LABEL],
+        },
+    )
+    assert added.status_code == 200, added.text
+    after = load_project(project).project
+    loans = after.model.entity("vrp_mortgageloans")
+    assert [a.name for a in loans.attributes] == ["vrp_mortgageloanid", "modifiedon", "vrp_name", "vrp_status_label"]
+    connection = after.manifest.sources[-1].connection
+    assert connection.endpoints[0].params["$select"] == "modifiedon,vrp_mortgageloanid,vrp_name,vrp_status"
+    assert "FormattedValue" in connection.headers["Prefer"] and "maxpagesize=5000" in connection.headers["Prefer"]
+
+    loaded = CliRunner().invoke(app, ["ingest", "--source", "crm", "--load", "-p", str(project)])
+    assert loaded.exit_code == 0, loaded.output
+    values = client.get("/api/explore/values", params={"entity": "vrp_mortgageloans", "column": "vrp_status_label"})
+    assert {v["value"] for v in values.json()["common"]} == {"New", "Approved"}
+
+    # The label's column stays fetched while the label is kept, even when nothing else uses it.
+    name = next(a for a in loans.attributes if a.name == "vrp_name")
+    client.post(f"/api/entities/{loans.id}/columns/remove", json={"column_ids": [str(name.id)]})
+    kept = load_project(project).project.manifest.sources[-1].connection.endpoints[0].params["$select"]
+    assert kept == "modifiedon,vrp_mortgageloanid,vrp_status"
+
+
+def test_labels_are_named_as_their_columns():
+    assert extract.column_name("statuscode" + extract.LABEL) == "statuscode_label"
+    assert extract.column_name("_parentcustomerid_value" + extract.LABEL) == "parentcustomerid_value_label"
+    assert dynamics.worth_a_label("statuscode", [100006], ["Approved"])
+    assert not dynamics.worth_a_label("numberofemployees", [1000], ["1,000"])
+    assert not dynamics.worth_a_label("revenue", [1000.5], ["$1,000.50"])
+    assert dynamics.worth_a_label("vrp_tags", ["100000,100001"], ["Red; Blue"])
+    assert dynamics.with_labels({"headers": {"prefer": "odata.maxpagesize=10"}})["headers"]["prefer"] == (
+        "odata.maxpagesize=10," + dynamics.LABELS
+    )

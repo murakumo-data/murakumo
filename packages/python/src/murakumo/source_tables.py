@@ -116,8 +116,12 @@ def columns(project: Project, source: str, table: str, entity_set: str | None = 
             values.append(record.get(key))
     entity = project.model.entity(table)
     have = {a.name for a in entity.attributes} if entity is not None else set()
+    is_dynamics = dynamics.is_dynamics(_connection(declaration))
     found = []
     for key, values in keys.items():
+        label_for = dynamics.labelled(key) if is_dynamics and dynamics.is_label(key) else None
+        if label_for is not None and not dynamics.worth_a_label(label_for, keys.get(label_for, []), values):
+            continue  # a date's or a number's label is only the value, formatted
         present = [v for v in values if v not in (None, "", [], {})]
         examples: list[str] = []
         for value in present:
@@ -126,7 +130,7 @@ def columns(project: Project, source: str, table: str, entity_set: str | None = 
                 examples.append(text[:80])
             if len(examples) >= EXAMPLES:
                 break
-        name = safe_name(key)
+        name = extract.column_name(key) if label_for else safe_name(key)
         found.append(
             {
                 "key": key,  # as the source names it
@@ -135,13 +139,16 @@ def columns(project: Project, source: str, table: str, entity_set: str | None = 
                 "filled": len(present),
                 "examples": examples,
                 "in_model": name in have,
-                "annotation": key.startswith("@") or "@" in key,  # Dynamics' own bookkeeping
+                "label_for": label_for,  # the column whose values this names: Approved for 100006
+                "annotation": label_for is None and "@" in key,  # Dynamics' own bookkeeping
             }
         )
-    names = [c["key"] for c in found]
-    connection = _connection(declaration)
-    key = dynamics.primary_id(names, entity_set or table, None) if dynamics.is_dynamics(connection) else None
-    watermark = dynamics.WATERMARK if dynamics.is_dynamics(connection) and dynamics.WATERMARK in names else None
+    # Each label straight after the column it names.
+    order = {c["key"]: i for i, c in enumerate(found)}
+    found.sort(key=lambda c: (order.get(c["label_for"], order[c["key"]]), c["label_for"] is not None))
+    names = [c["key"] for c in found if not c["label_for"]]
+    key = dynamics.primary_id(names, entity_set or table, None) if is_dynamics else None
+    watermark = dynamics.WATERMARK if is_dynamics and dynamics.WATERMARK in names else None
     return {"table": table, "rows": len(records), "columns": found, "key": key, "watermark": watermark}
 
 
@@ -174,7 +181,8 @@ def add(
     if is_dynamics:  # its id and when it changed are always kept: they are how it loads
         key = dynamics.primary_id(sorted(present), entity_set or table, logical_name)
         wanted = [c for c in (key, dynamics.WATERMARK) if c and c in present and c not in wanted] + wanted
-    rows = [{k: r.get(k) for k in wanted} for r in records]
+    # Named as they land: a label is its column's name and _label.
+    rows = [{extract.column_name(k) if dynamics.is_label(k) else k: r.get(k) for k in wanted} for r in records]
     report = merge(project, import_records(rows, safe_name(declaration.name, "source"), table))
     entity = project.model.entity(table)
     if entity is None:
@@ -183,13 +191,20 @@ def add(
         dynamics.shape(entity, entity_set or table, logical_name)
     new_connection = None
     if is_dynamics:
-        selected = sorted({a.name for a in entity.attributes} & {safe_name(k) for k in present})
-        by_name = {safe_name(k): k for k in present if not k.startswith("@")}
+        # What to ask for, by the raw table's column: a label comes with its column, so asking for a
+        # label is asking for the column it names.
+        by_name: dict[str, str] = {}
+        for k in present:
+            if dynamics.is_label(k):
+                by_name.setdefault(extract.column_name(k), dynamics.labelled(k))
+            elif "@" not in k:
+                by_name.setdefault(safe_name(k), k)
+        selected = [by_name[a.name] for a in entity.attributes if a.name in by_name]
         spec = dynamics.endpoint(entity_set or table, dynamics.WATERMARK in present)
         spec["table"] = table
-        spec["params"] = {"$select": ",".join(by_name[n] for n in selected if n in by_name)}
+        spec["params"] = {"$select": ",".join(sorted(dict.fromkeys(selected)))}
         others = [e for e in connection.get("endpoints", []) if e.get("table") != table]
-        new_connection = {**connection, "endpoints": [*others, spec]}
+        new_connection = {**dynamics.with_labels(connection), "endpoints": [*others, spec]}
     elif table not in declaration.tables():
         raise SourceTableError(f"{source} does not fetch {table}")
     return {
@@ -221,7 +236,8 @@ def fetched_columns(project: Project, table: str) -> tuple[str, dict[str, Any]] 
     for endpoint in connection.get("endpoints", []):
         chosen = (endpoint.get("params") or {}).get("$select")
         if endpoint.get("table") == table and chosen:
-            kept = [c for c in chosen.split(",") if extract.column_name(c) in names]
+            # A column stays fetched while it, or its label, is still in the table.
+            kept = [c for c in chosen.split(",") if {extract.column_name(c), extract.column_name(c) + "_label"} & names]
             if kept != chosen.split(","):
                 endpoint = {**endpoint, "params": {**endpoint["params"], "$select": ",".join(kept)}}
                 changed = True

@@ -307,9 +307,24 @@ def stamp(row):
     return row
 
 
+LABEL = "@OData.Community.Display.V1.FormattedValue"
+
+
+def labelled(record):
+    """Dynamics sends a value's label as <column>@OData.Community.Display.V1.FormattedValue: it is
+    the column <column>_label, as Murakumo names it."""
+    if not isinstance(record, dict) or not any(str(key).endswith(LABEL) for key in record):
+        return record
+    named = {{}}
+    for key, value in record.items():
+        named[str(key)[: -len(LABEL)] + "_label" if str(key).endswith(LABEL) else key] = value
+    return named
+
+
 def rows(record):
     """One row per record. A record that is columns of values (lists of one length, as some APIs
     answer: {{"time": [...], "temperature": [...]}}) is one row per position."""
+    record = labelled(record)
     values = list(record.values()) if isinstance(record, dict) else []
     if values and all(isinstance(value, list) for value in values) and len({{len(value) for value in values}}) == 1:
         for parts in zip(*values):

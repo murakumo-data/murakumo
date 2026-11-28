@@ -139,6 +139,7 @@ function ColumnChooser({
       (!query.trim() || c.key.toLowerCase().includes(query.trim().toLowerCase())),
   )
   const empty = columns.filter((c) => c.filled === 0 && !c.in_model).length
+  const labels = columns.some((c) => c.label_for)
   const choosable = shown.filter((c) => !c.in_model && !always.has(c.key))
   const toggle = (key: string) => {
     const next = new Set(picked)
@@ -173,6 +174,12 @@ function ColumnChooser({
             canvas{table.entity_set ? ' and are fetched' : ''}.
             {always.size > 0 && ` ${[...always].join(' and ')} ${always.size === 1 ? 'is' : 'are'} always kept: the row’s id and when it changed.`}
           </p>
+          {labels && (
+            <p className="muted small">
+              Columns ending <code>_label</code> hold what Dynamics shows people, such as Approved where the column holds 100006. Tick a label
+              with its column, or on its own.
+            </p>
+          )}
           <div className="source-columns__tools">
             {columns.length > 8 && <input className="input" placeholder="Find a column" value={query} onChange={(e) => setQuery(e.target.value)} />}
             <button className="link-button" onClick={() => setPicked(new Set([...picked, ...choosable.filter((c) => c.filled > 0).map((c) => c.key)]))}>
@@ -192,11 +199,12 @@ function ColumnChooser({
               const fixed = c.in_model || always.has(c.key)
               return (
                 <li key={c.key}>
-                  <label className="source-columns__row">
+                  <label className={`source-columns__row${c.label_for ? ' source-columns__row--label' : ''}`}>
                     <input type="checkbox" checked={fixed || picked.has(c.key)} disabled={fixed} onChange={() => toggle(c.key)} />
                     <span className="source-columns__main">
                       <span className="source-columns__name">
-                        <code>{c.key}</code> <span className="muted small">{c.type}</span>
+                        <code>{c.label_for ? c.name : c.key}</code>{' '}
+                        <span className="muted small">{c.label_for ? `label of ${c.label_for}` : c.type}</span>
                         {c.in_model && <span className="badge badge--quiet">on the canvas</span>}
                       </span>
                       <span className="source-columns__fill" title={`${c.filled} of ${info.rows} sampled rows have a value`}>
