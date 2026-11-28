@@ -193,7 +193,8 @@ def test_dlt_turns_columns_of_values_into_a_row_each(tmp_path):
     code = generate(taxi(tmp_path, "dlt", zone_files())).files["ingestion/dlt/pipeline.py"]
     assert "add_yield_map(rows)" in code
     tree = ast.parse(code)
-    wanted = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in ("stamp", "rows", "labelled")]
+    helpers = ("stamp", "rows", "labelled")
+    wanted = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in helpers]
     scope = {"NOW": "now", "BATCH": "b1", "LABEL": "@OData.Community.Display.V1.FormattedValue"}
     exec(compile(ast.Module(body=wanted, type_ignores=[]), "pipeline", "exec"), scope)  # noqa: S102
     made = list(scope["rows"]({"time": ["t1", "t2"], "temperature": [1.5, 2.5]}))
